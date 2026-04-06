@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.jokes import JokeUnavailable, fetch_joke
 from app.adapters.music import SongEnrichmentUnavailable, fetch_song_enrichment
 from app.adapters.news import NewsUnavailable, fetch_news
 from app.adapters.weather import WeatherUnavailable, fetch_weather
@@ -634,3 +635,103 @@ class TestSongEnrichmentRoute:
                 headers={"X-API-Key": API_KEY},
             )
         assert mock_fetch.call_count == 1
+
+
+# ── joke adapter unit tests ─────────────────────────────────────────────────
+
+
+class TestJokeAdapter:
+    def test_jokeapi_happy_path_with_safe_mode(self):
+        payload = {
+            "error": False,
+            "category": "Misc",
+            "type": "single",
+            "joke": "I'm reading a book on anti-gravity. It's impossible to put down.",
+            "flags": {"nsfw": False, "religious": False, "political": False},
+        }
+        with patch(
+            "app.adapters.jokes.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ) as mock_fetch:
+            r = fetch_joke(style="witty", safe=True)
+        assert r.provider == "jokeapi"
+        assert r.style == "witty"
+        assert r.safe is True
+        called = mock_fetch.call_args.args[0]
+        assert "safe-mode" in called
+        assert "blacklistFlags=" in called
+
+    def test_jokeapi_returning_flagged_joke_in_safe_mode_raises(self):
+        payload = {
+            "error": False,
+            "joke": "edgy joke",
+            "flags": {"nsfw": True},
+        }
+        # Outer fetch_joke catches and falls back. Test the inner _fetch_jokeapi.
+        from app.adapters.jokes import _fetch_jokeapi
+
+        with patch(
+            "app.adapters.jokes.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ):
+            with pytest.raises(JokeUnavailable):
+                _fetch_jokeapi(style="any", safe=True)
+
+    def test_jokeapi_failure_falls_back_to_dad_joke(self):
+        dad_payload = {"joke": "Dad joke text"}
+
+        def fake(url: str, **kw):
+            if "jokeapi" in url or "v2.jokeapi" in url:
+                raise RuntimeError("upstream 500")
+            return _fake_response(dad_payload)
+
+        with patch("app.adapters.jokes.safe_fetch_url", side_effect=fake):
+            r = fetch_joke(style="witty", safe=True)
+        assert r.provider == "icanhazdadjoke"
+
+    def test_dad_style_routes_directly_to_dad_joke(self):
+        with patch(
+            "app.adapters.jokes.safe_fetch_url",
+            return_value=_fake_response({"joke": "A dad joke"}),
+        ) as mock_fetch:
+            r = fetch_joke(style="dad", safe=True)
+        called = mock_fetch.call_args.args[0]
+        assert "icanhazdadjoke" in called
+        assert r.style == "dad"
+
+    def test_all_providers_fail_returns_bundled(self):
+        with patch(
+            "app.adapters.jokes.safe_fetch_url",
+            side_effect=RuntimeError("everything down"),
+        ):
+            r = fetch_joke(style="witty", safe=True)
+        assert r.provider == "bundled-fallback"
+        assert r.joke
+
+
+class TestJokeRoute:
+    def test_missing_key_returns_401(self, client):
+        r = client.get("/v1/jokes")
+        assert r.status_code == 401
+
+    def test_happy_path(self, client):
+        payload = {"error": False, "joke": "Some joke", "flags": {}}
+        with patch(
+            "app.adapters.jokes.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ):
+            r = client.get(
+                "/v1/jokes",
+                params={"style": "witty"},
+                headers={"X-API-Key": API_KEY},
+            )
+        assert r.status_code == 200
+        assert r.json()["joke"] == "Some joke"
+
+    def test_invalid_style_rejected(self, client):
+        r = client.get(
+            "/v1/jokes",
+            params={"style": "offensive"},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert r.status_code == 422

@@ -12,6 +12,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
+from app.adapters.jokes import JokeUnavailable, fetch_joke
 from app.adapters.music import SongEnrichmentUnavailable, fetch_song_enrichment
 from app.adapters.news import NewsUnavailable, fetch_news
 from app.adapters.weather import WeatherUnavailable, fetch_weather
@@ -19,6 +20,8 @@ from app.deps import require_api_key
 from app.lib.cache import TTLCache, cache_key
 from app.lib.rate_limit import limiter
 from app.schemas_media import (
+    JokeResponse,
+    JokeStyle,
     NewsResponse,
     NewsScope,
     NewsTopic,
@@ -183,3 +186,32 @@ def get_song_enrichment(
 
     _song_cache.set(key, result)
     return result
+
+
+@router.get(
+    "/jokes",
+    response_model=JokeResponse,
+    summary="A single joke, optionally styled and safety-filtered",
+)
+@limiter.limit("60/minute")
+def get_joke(
+    request: Request,
+    response: Response,
+    style: JokeStyle = Query(default="any"),
+    safe: bool = Query(default=True),
+    _api_key: str = Depends(require_api_key),
+) -> JokeResponse:
+    # No cache: jokes must be fresh + varied. Variety > load reduction here.
+    try:
+        return fetch_joke(style=style, safe=safe)
+    except JokeUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"joke unavailable: {exc}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("joke adapter crashed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="joke provider error",
+        ) from exc
