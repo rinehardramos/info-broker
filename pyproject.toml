@@ -1,6 +1,6 @@
 [project]
 name = "info-broker"
-version = "0.3.0"
+version = "0.4.0"
 description = "Information-gathering and OSINT research service exposed as a REST API."
 requires-python = ">=3.10"
 
@@ -22,6 +22,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "qdrant-client>=1.16.1",
     "requests>=2.32.5",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
