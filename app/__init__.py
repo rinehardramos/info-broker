@@ -1,0 +1,1 @@
+"""info-broker FastAPI service."""

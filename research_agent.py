@@ -481,20 +481,80 @@ def critic_agent(profile_summary, analysis, past_mistakes=None):
         return True, f"(critic error: {e}; failing open)"
 
 
-def process_pending_profiles():
+def run_research_batch(limit: int = 5) -> dict:
+    """Run the research pipeline on up to ``limit`` pending profiles.
+
+    Returns a dict with keys: processed, succeeded, failed.
+    """
+    return process_pending_profiles(limit=limit)
+
+
+def save_grade(profile_id: str, grade: int, feedback: str = "") -> dict:
+    """Persist a user grade + feedback for ``profile_id`` to Postgres + memory.
+
+    Returns ``{"profile_id", "grade", "saved": bool}``.
+    """
+    if not isinstance(grade, int) or not (1 <= grade <= 5):
+        raise ValueError("grade must be an integer in [1, 5]")
+    feedback = coerce_db_text(feedback or "", max_length=4000)
     conn = setup_postgres()
     cur = conn.cursor()
-    
-    cur.execute("SELECT id, first_name, last_name, headline, raw_data FROM linkedin_profiles WHERE research_status = 'pending' LIMIT 5")
+    cur.execute(
+        "SELECT first_name, last_name, is_smb, research_summary, confidence_rationale "
+        "FROM linkedin_profiles WHERE id = %s",
+        (profile_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        cur.close()
+        conn.close()
+        return {"profile_id": profile_id, "grade": grade, "saved": False}
+    first_name, last_name, is_smb, summary, rationale = row
+    cur.execute(
+        "UPDATE linkedin_profiles SET user_grade = %s, user_feedback = %s WHERE id = %s",
+        (grade, feedback, profile_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    profile_text = json.dumps(
+        {
+            "name": f"{first_name} {last_name}",
+            "is_smb": is_smb,
+            "research_summary": summary,
+            "confidence_rationale": rationale,
+        },
+        indent=2,
+        default=str,
+    )
+    try:
+        save_grading_to_memory(profile_id, profile_text, grade, feedback)
+    except Exception as e:
+        print(f"  [Memory] save_grade memory write failed: {e}")
+    return {"profile_id": profile_id, "grade": grade, "saved": True}
+
+
+def process_pending_profiles(limit: int = 5) -> dict:
+    counts = {"processed": 0, "succeeded": 0, "failed": 0}
+    conn = setup_postgres()
+    cur = conn.cursor()
+
+    cur.execute(
+        "SELECT id, first_name, last_name, headline, raw_data "
+        "FROM linkedin_profiles WHERE research_status = 'pending' LIMIT %s",
+        (int(limit),),
+    )
     profiles = cur.fetchall()
     
     if not profiles:
         print("No pending profiles found to research.")
-        return
+        return counts
 
     print(f"Found {len(profiles)} profiles to research.")
     
     for row in profiles:
+        counts["processed"] += 1
         prof_id, first_name, last_name, headline, raw_data = row
         print(f"\\n--- Researching: {first_name} {last_name} ---")
         
@@ -562,10 +622,15 @@ def process_pending_profiles():
                 prof_id
             ))
             conn.commit()
+            counts["succeeded"] += 1
         else:
             print("  [Result] Failed to get valid analysis.")
             cur.execute("UPDATE linkedin_profiles SET research_status = 'failed' WHERE id = %s", (prof_id,))
             conn.commit()
+            counts["failed"] += 1
+    cur.close()
+    conn.close()
+    return counts
 
 def interactive_grading():
     conn = setup_postgres()

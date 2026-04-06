@@ -1,7 +1,7 @@
 [project]
-name = "auto-marketer"
-version = "0.2.0"
-description = "Self-improving B2B research and outreach pipeline."
+name = "info-broker"
+version = "0.3.0"
+description = "Information-gathering and OSINT research service exposed as a REST API."
 requires-python = ">=3.10"
 
 # Direct dependencies only. Transitive deps are pinned in `uv.lock`
@@ -11,6 +11,9 @@ requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "ddgs>=9.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
     "lxml>=6.0.2",
     "openai>=2.30.0",
     "openpyxl>=3.1.5",
@@ -27,6 +30,7 @@ dev = [
     "pytest>=8.4.2",
     "pytest-mock>=3.15.1",
     "ruff>=0.14.0",
+    "httpx>=0.27.0",
 ]
 
 # --- uv configuration -----------------------------------------------------

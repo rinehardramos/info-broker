@@ -1,80 +1,91 @@
-# Auto Marketer
+# info-broker
 
-Auto Marketer is a self-improving B2B research and outreach pipeline. It ingests LinkedIn profiles from an Apify dataset, uses a local LLM (via LM Studio) in a ReAct loop to research each prospect, stores analyses in PostgreSQL and embeddings in Qdrant, and closes the loop with human grading that feeds episodic memory, few-shot prompting, a critic agent, and an optional fine-tuning workflow. It is built for a single operator or small team who want a local-first, privacy-preserving alternative to SaaS lead-research tools.
+Information-gathering and OSINT research service exposed as a REST API.
 
-## Key features
+> This project is **derived from** `auto-marketer-project` with the
+> marketing/outreach code paths removed (no more email generation or
+> campaign exports). What remains — Apify ingestion, ReAct-driven web
+> research, critic-gated grading, episodic memory, and Qdrant semantic
+> search — is now wrapped in a small FastAPI app so other services can
+> call it over HTTP.
 
-- End-to-end pipeline: ingest → research → grade → export → email → fine-tune.
-- Multi-agent ReAct loop with DuckDuckGo search and page scraping.
-- Critic agent double-checks every analysis before it lands in Postgres.
-- Episodic memory: past low-grade feedback is recalled and injected into future prompts.
-- Dynamic few-shot examples drawn from the best and worst human-graded analyses.
-- Fine-tuning export plus a base-vs-fine-tune evaluator.
-- Security hardening: SSRF-safe fetching, prompt-injection fences, CSV formula-injection guards, NUL-byte scrubbing, parameterized SQL enforced by ruff S608 and an AST test.
-- Supply-chain hardening via `uv` with hash-pinned `uv.lock` and `pip-audit`.
+## What it does
 
-## Architecture
-
-```mermaid
-flowchart LR
-    Apify[(Apify dataset)] --> Ingest[ingest.py]
-    Ingest --> PG[(Postgres<br/>linkedin_profiles)]
-    Ingest --> QD[(Qdrant<br/>linkedin_profiles)]
-    PG --> Research[research_agent.py --run]
-    Research --> DDG[DuckDuckGo + scrape]
-    Research --> LM[LM Studio<br/>chat + embed]
-    Research --> Critic[Critic agent]
-    Critic --> PG
-    PG --> Grade[research_agent.py --grade]
-    Grade --> Mem[(Qdrant<br/>user_feedback)]
-    Mem --> Research
-    PG --> Export[export_data.py]
-    PG --> Email[generate_emails.py]
-    PG --> FT[export_dataset.py<br/>evaluate_finetuned.py]
-```
+- **Ingests** LinkedIn profile data from an Apify dataset into Postgres + Qdrant.
+- **Researches** each profile with a local LLM via a ReAct loop (DuckDuckGo + scrape).
+- **Critic-gates** every analysis with a second LLM pass and one retry.
+- **Remembers** past human grades as episodic memory and injects them into future prompts.
+- **Searches** ingested profiles semantically via Qdrant.
+- **Exposes** all of the above behind an `X-API-Key`-protected REST API.
 
 ## Quickstart
 
-Prerequisites: Python 3.10+, [`uv`](https://github.com/astral-sh/uv), Docker Desktop, and [LM Studio](https://lmstudio.ai/) running a chat model and an embedding model.
-
-1. Clone the repo and `cd` into it.
-2. Install dependencies: `uv sync --frozen --extra dev`.
-3. Start Postgres and Qdrant: `docker compose up -d`.
-4. Copy the env template into `.env` and fill in your values (see [docs/getting-started.md](docs/getting-started.md)).
-5. Load a chat model and an embedding model in LM Studio and start its local server.
-
-## Usage
-
-```sh
-# Ingest profiles from the configured Apify dataset into Postgres + Qdrant.
-uv run python ingest.py
-
-# Run the research agent against pending profiles (batch of 5 per invocation).
-uv run python research_agent.py --run
-
-# Interactively grade completed research (feeds episodic memory + few-shot).
-uv run python research_agent.py --grade
-
-# Export all processed profiles as JSON/CSV/XLSX, full or light mode.
-uv run python export_data.py --format xlsx --mode light --output export
-
-# Generate personalized cold emails for SMB prospects and export.
-uv run python generate_emails.py --format csv --output targeted_campaign
+```bash
+cp .env.example .env
+# Edit .env: set INFO_BROKER_API_KEY and APIFY_DATASET_URL
+docker compose up -d
+# API is now on http://localhost:8000
+# Interactive docs (Swagger): http://localhost:8000/docs
 ```
 
-See [docs/README.md](docs/README.md) for the full documentation index, including
-[getting started](docs/getting-started.md),
-[operations](docs/operations.md),
-[data model](docs/data-model.md),
-[agents and prompts](docs/agents-and-prompts.md),
-[testing](docs/testing.md),
-[fine-tuning](docs/fine-tuning.md), and
-[architecture](docs/architecture-and-agents.md).
+Or run locally with uv:
+
+```bash
+uv sync --extra dev
+uv run uvicorn app.main:app --reload
+```
+
+## API endpoints
+
+All endpoints except `/healthz` require the `X-API-Key` header.
+
+| Method | Path                          | Purpose                                  |
+|--------|-------------------------------|------------------------------------------|
+| GET    | `/healthz`                    | Liveness probe (no auth)                 |
+| GET    | `/profiles`                   | List ingested profiles (paginated)       |
+| GET    | `/profiles/{id}`              | Profile detail + research status         |
+| GET    | `/profiles/{id}/raw`          | Raw scraped JSON for a profile           |
+| POST   | `/ingest`                     | Pull a fresh batch from Apify            |
+| POST   | `/research`                   | Run the research agent on pending rows   |
+| POST   | `/profiles/{id}/grade`        | Save a 1-5 grade + feedback              |
+| POST   | `/search`                     | Semantic search via Qdrant               |
+
+### curl examples
+
+```bash
+KEY=replace-with-your-key
+BASE=http://localhost:8000
+
+curl -s $BASE/healthz
+
+curl -s -H "X-API-Key: $KEY" "$BASE/profiles?limit=10"
+
+curl -s -H "X-API-Key: $KEY" "$BASE/profiles/abc123"
+
+curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"overwrite": false}' "$BASE/ingest"
+
+curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"limit": 5}' "$BASE/research"
+
+curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"grade": 4, "feedback": "good summary"}' \
+  "$BASE/profiles/abc123/grade"
+
+curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"query": "fintech founder San Francisco", "limit": 10}' \
+  "$BASE/search"
+```
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for the runtime threat model and the supply-chain workflow.
+See [`SECURITY.md`](./SECURITY.md) for the threat model and supply-chain
+controls. All SQL is parameterized (psycopg2 `%s`), all untrusted text
+flows through `security.py` sanitizers, and `ruff S608` blocks any
+attempt to reintroduce string-built SQL.
 
-## License
+## Tests
 
-See `LICENSE`.
+```bash
+uv run pytest -v
+```

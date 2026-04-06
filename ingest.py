@@ -85,7 +85,14 @@ def get_embedding(text):
     )
     return response.data[0].embedding
 
-def ingest_data():
+def ingest_data(overwrite: bool = False) -> dict:
+    """Fetch profiles from Apify, write to Postgres + Qdrant.
+
+    Returns a counts dict with keys: fetched, inserted, skipped, errors.
+    When ``overwrite`` is True, existing rows are replaced via ON CONFLICT
+    DO UPDATE; otherwise existing rows are preserved (DO NOTHING).
+    """
+    counts = {"fetched": 0, "inserted": 0, "skipped": 0, "errors": 0}
     conn = setup_postgres()
     cur = conn.cursor()
     collection_name = setup_qdrant()
@@ -100,13 +107,32 @@ def ingest_data():
         )
     except UnsafeURLError as e:
         print(f"Refused unsafe APIFY_DATASET_URL: {e}")
-        return
+        return counts
     data = response.json()
     if not isinstance(data, list):
         print("Apify response was not a list of profiles; aborting.")
-        return
+        return counts
 
+    counts["fetched"] = len(data)
     print(f"Fetched {len(data)} profiles. Ingesting...")
+
+    if overwrite:
+        insert_sql = """
+            INSERT INTO linkedin_profiles (id, first_name, last_name, headline, about, raw_data)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name,
+                headline = EXCLUDED.headline,
+                about = EXCLUDED.about,
+                raw_data = EXCLUDED.raw_data
+        """
+    else:
+        insert_sql = """
+            INSERT INTO linkedin_profiles (id, first_name, last_name, headline, about, raw_data)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+        """
 
     for i, profile in enumerate(data):
         if not isinstance(profile, dict):
@@ -134,11 +160,14 @@ def ingest_data():
             print(f"Processing {i+1}/{len(data)}: {first_name} {last_name}")
 
             # Save to Postgres (parameterized — no SQL injection surface)
-            cur.execute("""
-                INSERT INTO linkedin_profiles (id, first_name, last_name, headline, about, raw_data)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO NOTHING
-            """, (profile_id, first_name, last_name, headline, about, json.dumps(safe_raw)))
+            cur.execute(
+                insert_sql,
+                (profile_id, first_name, last_name, headline, about, json.dumps(safe_raw)),
+            )
+            if cur.rowcount > 0:
+                counts["inserted"] += 1
+            else:
+                counts["skipped"] += 1
 
             # Generate Embedding
             embedding = get_embedding(text_to_embed)
@@ -162,12 +191,18 @@ def ingest_data():
             )
             
         except Exception as e:
+            counts["errors"] += 1
             print(f"Error processing profile {profile_id}: {e}")
 
     conn.commit()
     cur.close()
     conn.close()
     print("Ingestion complete.")
+    return counts
 
 if __name__ == "__main__":
-    ingest_data()
+    import argparse
+    parser = argparse.ArgumentParser(description="Info-broker ingest CLI")
+    parser.add_argument("--overwrite", action="store_true", help="Replace existing rows")
+    args = parser.parse_args()
+    print(ingest_data(overwrite=args.overwrite))
