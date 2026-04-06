@@ -1,0 +1,70 @@
+[project]
+name = "auto-marketer"
+version = "0.2.0"
+description = "Self-improving B2B research and outreach pipeline."
+requires-python = ">=3.10"
+
+# Direct dependencies only. Transitive deps are pinned in `uv.lock`
+# (preferred) or `requirements.txt` (fallback). Floors are set to the
+# currently-vetted versions; bump with `uv lock --upgrade` and re-run
+# `uv pip audit` before merging.
+dependencies = [
+    "beautifulsoup4>=4.14.3",
+    "ddgs>=9.0.0",
+    "lxml>=6.0.2",
+    "openai>=2.30.0",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.3",
+    "psycopg2-binary>=2.9.11",
+    "python-dotenv>=1.2.1",
+    "qdrant-client>=1.16.1",
+    "requests>=2.32.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pip-audit>=2.7.3",
+    "pytest>=8.4.2",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.14.0",
+]
+
+# --- uv configuration -----------------------------------------------------
+# `uv` is the supply-chain-hardened package manager used by this project.
+# See SECURITY.md for the full workflow. Key guarantees:
+#   - Resolution is locked in `uv.lock` with per-file hashes (PEP 691).
+#   - Installs refuse to proceed if a hash mismatches the lockfile.
+#   - `pip-audit` checks the resolved set against the PyPA advisory DB.
+
+[tool.uv]
+# This is a flat-layout script project, not a distributable wheel —
+# tell uv not to try to build & install the project itself.
+package = false
+# Refuse to use anything outside PyPI unless explicitly added — blocks
+# typo-squat / dependency-confusion attacks pulling from random indexes.
+index-strategy = "first-index"
+# Compile bytecode at install time so tampered .pyc files would be
+# regenerated from the verified source.
+compile-bytecode = true
+
+# --- ruff configuration ---------------------------------------------------
+# Enforces "no string-built SQL queries" project-wide. Devs MUST pass
+# values as parameters to psycopg2 (`%s` placeholders) — never via
+# f-strings, `.format()`, or `%` interpolation. CI runs `ruff check`.
+
+[tool.ruff]
+target-version = "py310"
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = [
+    "S608",  # bandit: hardcoded-sql-expression (f-string / format / % SQL)
+    "S602",  # subprocess shell=True
+    "S605",  # start-process-with-a-shell
+    "S301",  # pickle (deserialization)
+    "S324",  # weak hash
+    "S501",  # request-with-no-cert-validation
+    "S113",  # request-without-timeout
+]
+# S608 is the load-bearing rule for SQL-injection prevention; never
+# silence it without a security review.
