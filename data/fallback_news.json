@@ -1,0 +1,15 @@
+{
+  "_comment": "Evergreen, vague headlines used only when both NewsAPI and DDG are unreachable. Keep timeless and inoffensive — they go straight into a live radio script.",
+  "items": [
+    { "headline": "Music fans worldwide are streaming more than ever, with playlists dominating listening habits.", "source": "Industry Wire" },
+    { "headline": "Researchers say a regular routine of short walks improves both mood and focus.", "source": "Science Daily Roundup" },
+    { "headline": "City planners around the world are experimenting with greener public spaces.", "source": "Urban Notes" },
+    { "headline": "Scientists continue to discover new species in the deep ocean every year.", "source": "Nature Brief" },
+    { "headline": "Independent artists are reaching global audiences through social platforms.", "source": "Music Wire" },
+    { "headline": "A new generation of small electric vehicles is reshaping urban commutes.", "source": "Tech Brief" },
+    { "headline": "Libraries are quietly becoming community tech hubs in many cities.", "source": "Civic Monitor" },
+    { "headline": "Backyard gardening has surged in popularity since the pandemic.", "source": "Lifestyle Wire" },
+    { "headline": "Astronomers spotted a new comet that should be visible to the naked eye later this year.", "source": "Sky Watch" },
+    { "headline": "A growing number of remote workers say they prefer hybrid schedules over fully remote ones.", "source": "Work Brief" }
+  ]
+}

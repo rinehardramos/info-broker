@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.news import NewsUnavailable, fetch_news
 from app.adapters.weather import WeatherUnavailable, fetch_weather
 from app.lib.cache import TTLCache, cache_key
 from app.main import app
@@ -27,10 +28,12 @@ def _set_api_key(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _reset_weather_cache():
+def _reset_caches():
     media_router._weather_cache.clear()
+    media_router._news_cache.clear()
     yield
     media_router._weather_cache.clear()
+    media_router._news_cache.clear()
 
 
 @pytest.fixture
@@ -298,3 +301,198 @@ class TestWeatherRoute:
                 headers={"X-API-Key": API_KEY},
             )
         assert r.status_code == 503
+
+
+# ── news adapter unit tests ──────────────────────────────────────────────────
+
+
+class TestNewsAdapter:
+    def _newsapi_payload(self, *titles: str) -> dict:
+        return {
+            "status": "ok",
+            "totalResults": len(titles),
+            "articles": [
+                {
+                    "title": t,
+                    "source": {"name": "TestWire"},
+                    "url": f"https://example.com/{i}",
+                    "publishedAt": "2026-04-06T12:00:00Z",
+                }
+                for i, t in enumerate(titles)
+            ],
+        }
+
+    def test_global_any_uses_everything_endpoint(self, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(self._newsapi_payload("a", "b", "c")),
+        ) as mock_fetch:
+            r = fetch_news(scope="global", topic="any", limit=3)
+        called = mock_fetch.call_args.args[0]
+        assert "everything" in called
+        assert r.provider == "newsapi"
+        assert len(r.items) == 3
+        assert r.scope == "global"
+        assert r.topic == "any"
+
+    def test_country_tech_uses_top_headlines_with_category(self, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(self._newsapi_payload("tech1")),
+        ) as mock_fetch:
+            r = fetch_news(scope="country", topic="tech", country_code="US", limit=5)
+        called = mock_fetch.call_args.args[0]
+        assert "top-headlines" in called
+        assert "category=technology" in called
+        assert "country=us" in called
+        assert r.items[0].topic == "tech"
+
+    def test_local_topic_includes_query_in_q_param(self, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(self._newsapi_payload("hi")),
+        ) as mock_fetch:
+            fetch_news(
+                scope="local",
+                topic="entertainment",
+                country_code="PH",
+                query="Manila",
+                limit=3,
+            )
+        called = mock_fetch.call_args.args[0]
+        assert "country=ph" in called
+        assert "category=entertainment" in called
+        assert "q=Manila" in called
+
+    def test_world_topic_omits_country_filter(self, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(self._newsapi_payload("global1")),
+        ) as mock_fetch:
+            fetch_news(scope="global", topic="world", country_code="US")
+        called = mock_fetch.call_args.args[0]
+        assert "country=" not in called
+        assert "category=general" in called
+
+    def test_removed_titles_filtered_out(self, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        payload = self._newsapi_payload("real", "[Removed]", "real2")
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ):
+            r = fetch_news(scope="global", topic="any", limit=10)
+        assert [it.headline for it in r.items] == ["real", "real2"]
+
+    def test_newsapi_failure_falls_back_to_ddg(self, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        ddg_payload = {
+            "RelatedTopics": [
+                {"Text": "Topic A", "FirstURL": "https://ex/a"},
+                {"Text": "Topic B", "FirstURL": "https://ex/b"},
+            ]
+        }
+
+        def fake(url: str, **kw):
+            if "newsapi" in url:
+                raise RuntimeError("upstream 500")
+            return _fake_response(ddg_payload)
+
+        with patch("app.adapters.news.safe_fetch_url", side_effect=fake):
+            r = fetch_news(scope="global", topic="any", limit=5)
+        assert r.provider == "duckduckgo"
+        assert len(r.items) == 2
+
+    def test_both_providers_fail_returns_bundled_fallback(self, monkeypatch):
+        monkeypatch.delenv("NEWSAPI_KEY", raising=False)
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            side_effect=RuntimeError("everything is down"),
+        ):
+            r = fetch_news(scope="global", topic="any", limit=3)
+        assert r.provider == "bundled-fallback"
+        assert 1 <= len(r.items) <= 3
+        assert all(it.headline for it in r.items)
+
+
+class TestNewsRoute:
+    def test_missing_key_returns_401(self, client):
+        r = client.get("/v1/news")
+        assert r.status_code == 401
+
+    def test_country_scope_requires_country_code(self, client):
+        r = client.get(
+            "/v1/news",
+            params={"scope": "country"},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert r.status_code == 400
+
+    def test_invalid_topic_rejected_by_pydantic(self, client):
+        r = client.get(
+            "/v1/news",
+            params={"topic": "weather"},
+            headers={"X-API-Key": API_KEY},
+        )
+        assert r.status_code == 422
+
+    def test_happy_path_returns_news(self, client, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        payload = {
+            "articles": [
+                {
+                    "title": "Big Headline",
+                    "source": {"name": "TestNet"},
+                    "url": "https://example.com/1",
+                    "publishedAt": "2026-04-06T12:00:00Z",
+                }
+            ]
+        }
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ):
+            r = client.get(
+                "/v1/news",
+                params={"scope": "global", "topic": "tech"},
+                headers={"X-API-Key": API_KEY},
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["scope"] == "global"
+        assert body["topic"] == "tech"
+        assert body["items"][0]["headline"] == "Big Headline"
+
+    def test_second_call_hits_cache(self, client, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        payload = {"articles": [{"title": "h", "source": {"name": "s"}}]}
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ) as mock_fetch:
+            client.get("/v1/news", headers={"X-API-Key": API_KEY})
+            client.get("/v1/news", headers={"X-API-Key": API_KEY})
+        assert mock_fetch.call_count == 1
+
+    def test_different_topic_does_not_share_cache(self, client, monkeypatch):
+        monkeypatch.setenv("NEWSAPI_KEY", "k")
+        payload = {"articles": [{"title": "h", "source": {"name": "s"}}]}
+        with patch(
+            "app.adapters.news.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ) as mock_fetch:
+            client.get(
+                "/v1/news",
+                params={"topic": "tech"},
+                headers={"X-API-Key": API_KEY},
+            )
+            client.get(
+                "/v1/news",
+                params={"topic": "music"},
+                headers={"X-API-Key": API_KEY},
+            )
+        assert mock_fetch.call_count == 2
