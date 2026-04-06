@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.adapters.music import SongEnrichmentUnavailable, fetch_song_enrichment
 from app.adapters.news import NewsUnavailable, fetch_news
 from app.adapters.weather import WeatherUnavailable, fetch_weather
 from app.lib.cache import TTLCache, cache_key
@@ -31,9 +32,11 @@ def _set_api_key(monkeypatch):
 def _reset_caches():
     media_router._weather_cache.clear()
     media_router._news_cache.clear()
+    media_router._song_cache.clear()
     yield
     media_router._weather_cache.clear()
     media_router._news_cache.clear()
+    media_router._song_cache.clear()
 
 
 @pytest.fixture
@@ -496,3 +499,138 @@ class TestNewsRoute:
                 headers={"X-API-Key": API_KEY},
             )
         assert mock_fetch.call_count == 2
+
+
+# ── song enrichment adapter unit tests ──────────────────────────────────────
+
+
+class TestSongEnrichmentAdapter:
+    def _mb_payload(self, **overrides) -> dict:
+        rec = {
+            "id": "rec-1",
+            "title": "Yesterday",
+            "length": 125000,
+            "releases": [
+                {
+                    "title": "Help!",
+                    "date": "1965-08-06",
+                    "label-info": [{"label": {"name": "Parlophone"}}],
+                }
+            ],
+            "tags": [
+                {"name": "rock"},
+                {"name": "pop"},
+                {"name": "1960s"},
+            ],
+        }
+        rec.update(overrides)
+        return {"recordings": [rec]}
+
+    def test_happy_path_extracts_all_fields(self):
+        with patch(
+            "app.adapters.music.safe_fetch_url",
+            return_value=_fake_response(self._mb_payload()),
+        ) as mock_fetch:
+            r = fetch_song_enrichment(title="Yesterday", artist="The Beatles")
+        assert r.provider == "musicbrainz"
+        assert r.album == "Help!"
+        assert r.release_year == 1965
+        assert r.label == "Parlophone"
+        assert r.duration_ms == 125000
+        assert "rock" in (r.genres or [])
+        assert r.trivia and "Help!" in r.trivia and "1965" in r.trivia
+        # User-Agent header was set
+        called_kwargs = mock_fetch.call_args.kwargs
+        assert "User-Agent" in called_kwargs["headers"]
+
+    def test_no_match_raises_unavailable(self):
+        with patch(
+            "app.adapters.music.safe_fetch_url",
+            return_value=_fake_response({"recordings": []}),
+        ):
+            with pytest.raises(SongEnrichmentUnavailable):
+                fetch_song_enrichment(title="x", artist="y")
+
+    def test_missing_inputs_raises_value_error(self):
+        with pytest.raises(ValueError):
+            fetch_song_enrichment(title="", artist="x")
+
+    def test_query_escapes_quotes(self):
+        with patch(
+            "app.adapters.music.safe_fetch_url",
+            return_value=_fake_response(self._mb_payload()),
+        ) as mock_fetch:
+            fetch_song_enrichment(title='Hello "World"', artist="Adele")
+        called_url = mock_fetch.call_args.args[0]
+        # The escaped quotes should be URL-encoded; \" → %5C%22
+        assert "%5C%22" in called_url
+
+
+class TestSongEnrichmentRoute:
+    def test_missing_key_returns_401(self, client):
+        r = client.get("/v1/songs/enrich", params={"title": "a", "artist": "b"})
+        assert r.status_code == 401
+
+    def test_missing_query_params_returns_422(self, client):
+        r = client.get("/v1/songs/enrich", headers={"X-API-Key": API_KEY})
+        assert r.status_code == 422
+
+    def test_happy_path(self, client):
+        payload = {
+            "recordings": [
+                {
+                    "title": "Song",
+                    "length": 200000,
+                    "releases": [{"title": "Album", "date": "2020-01-01"}],
+                    "tags": [{"name": "indie"}],
+                }
+            ]
+        }
+        with patch(
+            "app.adapters.music.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ):
+            r = client.get(
+                "/v1/songs/enrich",
+                params={"title": "Song", "artist": "Artist"},
+                headers={"X-API-Key": API_KEY},
+            )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["album"] == "Album"
+        assert body["release_year"] == 2020
+
+    def test_no_match_returns_404(self, client):
+        with patch(
+            "app.adapters.music.safe_fetch_url",
+            return_value=_fake_response({"recordings": []}),
+        ):
+            r = client.get(
+                "/v1/songs/enrich",
+                params={"title": "Unknown", "artist": "Nobody"},
+                headers={"X-API-Key": API_KEY},
+            )
+        assert r.status_code == 404
+
+    def test_second_call_hits_cache(self, client):
+        payload = {
+            "recordings": [
+                {"title": "Song", "releases": [{"title": "A", "date": "2020"}]}
+            ]
+        }
+        with patch(
+            "app.adapters.music.safe_fetch_url",
+            return_value=_fake_response(payload),
+        ) as mock_fetch:
+            client.get(
+                "/v1/songs/enrich",
+                params={"title": "Song", "artist": "Artist"},
+                headers={"X-API-Key": API_KEY},
+            )
+            # Different casing must hit the same cache slot.
+            client.get(
+                "/v1/songs/enrich",
+                params={"title": "SONG", "artist": "artist"},
+                headers={"X-API-Key": API_KEY},
+            )
+        assert mock_fetch.call_count == 1

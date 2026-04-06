@@ -12,12 +12,19 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 
+from app.adapters.music import SongEnrichmentUnavailable, fetch_song_enrichment
 from app.adapters.news import NewsUnavailable, fetch_news
 from app.adapters.weather import WeatherUnavailable, fetch_weather
 from app.deps import require_api_key
 from app.lib.cache import TTLCache, cache_key
 from app.lib.rate_limit import limiter
-from app.schemas_media import NewsResponse, NewsScope, NewsTopic, WeatherResponse
+from app.schemas_media import (
+    NewsResponse,
+    NewsScope,
+    NewsTopic,
+    SongEnrichmentResponse,
+    WeatherResponse,
+)
 
 log = logging.getLogger(__name__)
 
@@ -27,6 +34,10 @@ router = APIRouter(prefix="/v1", tags=["media"])
 _weather_cache: TTLCache[WeatherResponse] = TTLCache(default_ttl=600, max_entries=512)
 # 15 min news TTL — fresh enough for "current events" while still cutting load.
 _news_cache: TTLCache[NewsResponse] = TTLCache(default_ttl=900, max_entries=512)
+# 7 day song-enrichment TTL — recording metadata is effectively immutable.
+_song_cache: TTLCache[SongEnrichmentResponse] = TTLCache(
+    default_ttl=7 * 24 * 3600, max_entries=4096
+)
 
 
 @router.get(
@@ -130,4 +141,45 @@ def get_news(
         ) from exc
 
     _news_cache.set(key, result)
+    return result
+
+
+@router.get(
+    "/songs/enrich",
+    response_model=SongEnrichmentResponse,
+    summary="Enrich a (title, artist) pair with album/year/genre/trivia from MusicBrainz",
+)
+@limiter.limit("120/minute")
+def get_song_enrichment(
+    request: Request,
+    response: Response,
+    title: str = Query(..., max_length=200),
+    artist: str = Query(..., max_length=200),
+    _api_key: str = Depends(require_api_key),
+) -> SongEnrichmentResponse:
+    key = cache_key("song", title, artist)
+    cached = _song_cache.get(key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = fetch_song_enrichment(title=title, artist=artist)
+    except SongEnrichmentUnavailable as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no enrichment found: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        log.exception("song enrichment crashed")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="enrichment provider error",
+        ) from exc
+
+    _song_cache.set(key, result)
     return result
