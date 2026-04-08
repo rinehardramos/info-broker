@@ -92,9 +92,10 @@ class TestSaveGrading:
 
 class TestRecall:
     def test_filters_to_low_grades_only(self, mock_qdrant, fake_embedding):
+        mock_qdrant.query_points.return_value = SimpleNamespace(points=[])
         research_agent.recall_similar_mistakes("some profile text")
-        mock_qdrant.search.assert_called_once()
-        kwargs = mock_qdrant.search.call_args.kwargs
+        mock_qdrant.query_points.assert_called_once()
+        kwargs = mock_qdrant.query_points.call_args.kwargs
         assert kwargs["collection_name"] == research_agent.FEEDBACK_COLLECTION
         # The filter must constrain grade <= LOW_GRADE_THRESHOLD
         f = kwargs["query_filter"]
@@ -103,26 +104,28 @@ class TestRecall:
         assert condition.range.lte == research_agent.LOW_GRADE_THRESHOLD
 
     def test_returns_serialized_hits(self, mock_qdrant, fake_embedding):
-        mock_qdrant.search.return_value = [
-            SimpleNamespace(
-                score=0.91,
-                payload={
-                    "profile_id": "p1",
-                    "grade": 1,
-                    "feedback": "Misjudged company size",
-                    "profile_text": "...",
-                },
-            ),
-            SimpleNamespace(
-                score=0.87,
-                payload={
-                    "profile_id": "p2",
-                    "grade": 2,
-                    "feedback": "Outsourcing prob too high",
-                    "profile_text": "...",
-                },
-            ),
-        ]
+        mock_qdrant.query_points.return_value = SimpleNamespace(
+            points=[
+                SimpleNamespace(
+                    score=0.91,
+                    payload={
+                        "profile_id": "p1",
+                        "grade": 1,
+                        "feedback": "Misjudged company size",
+                        "profile_text": "...",
+                    },
+                ),
+                SimpleNamespace(
+                    score=0.87,
+                    payload={
+                        "profile_id": "p2",
+                        "grade": 2,
+                        "feedback": "Outsourcing prob too high",
+                        "profile_text": "...",
+                    },
+                ),
+            ]
+        )
         out = research_agent.recall_similar_mistakes("query")
         assert len(out) == 2
         assert out[0]["grade"] == 1
@@ -130,13 +133,13 @@ class TestRecall:
         assert out[0]["score"] == 0.91
 
     def test_returns_empty_on_qdrant_error(self, mock_qdrant, fake_embedding):
-        mock_qdrant.search.side_effect = RuntimeError("qdrant down")
+        mock_qdrant.query_points.side_effect = RuntimeError("qdrant down")
         assert research_agent.recall_similar_mistakes("anything") == []
 
     def test_top_k_passed_through(self, mock_qdrant, fake_embedding):
-        mock_qdrant.search.return_value = []
+        mock_qdrant.query_points.return_value = SimpleNamespace(points=[])
         research_agent.recall_similar_mistakes("x", top_k=7)
-        assert mock_qdrant.search.call_args.kwargs["limit"] == 7
+        assert mock_qdrant.query_points.call_args.kwargs["limit"] == 7
 
 
 # ---------------------------------------------------------------------------

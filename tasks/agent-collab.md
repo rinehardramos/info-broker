@@ -8,6 +8,7 @@
 
 ## ✅ Recently Completed
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [PR/Commit if applicable]`)*
+- [2026-04-08] - [Gemini CLI] - [Fix Qdrant AttributeError: 'QdrantClient' object has no attribute 'search' in v1.17+ by migration to `query_points`; updated episodic-memory test suite to match API changes.] - [feat/media-jokes]
 - [2026-04-07] - [Claude] - [SQL-injection lint: ruff S608 + AST-based pytest scanner forbidding f-string/.format/%/concatenated SQL in execute calls; two-layer, cannot be silenced via noqa] - [pyproject.toml, test_no_sql_string_formatting.py, SECURITY.md]
 - [2026-04-07] - [Claude] - [Supply-chain hardening: adopted uv 0.11.3 + pip-audit; generated uv.lock + hash-pinned requirements.lock; swapped renamed `duckduckgo-search` → `ddgs`; 0 CVEs, 64 security tests passing] - [pyproject.toml, uv.lock, requirements.lock, research_agent.py, security.py]
 - [2026-04-07] - [Claude] - [Phases 3/4/5: dynamic few-shot from Postgres, critic agent + retry loop, fine-tuning JSONL exporter, base-vs-finetuned eval harness, fine-tuning docs, 17 new tests] - [research_agent.py, export_dataset.py, evaluate_finetuned.py, docs/fine-tuning.md, test_phases_345.py]

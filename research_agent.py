@@ -112,14 +112,15 @@ def recall_similar_mistakes(profile_text, top_k=RECALL_TOP_K):
     setup_feedback_collection()
     vector = get_embedding(profile_text)
     try:
-        hits = qdrant.search(
+        response = qdrant.query_points(
             collection_name=FEEDBACK_COLLECTION,
-            query_vector=vector,
+            query=vector,
             limit=top_k,
             query_filter=Filter(
                 must=[FieldCondition(key="grade", range=Range(lte=LOW_GRADE_THRESHOLD))]
             ),
         )
+        hits = response.points
     except Exception as e:
         print(f"  [Memory] Recall failed: {e}")
         return []
