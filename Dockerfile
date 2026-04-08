@@ -5,7 +5,7 @@ RUN pip install --no-cache-dir uv==0.4.30
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev || uv sync --no-dev
+RUN uv sync --no-dev
 
 FROM python:3.11-slim AS runtime
 

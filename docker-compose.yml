@@ -24,6 +24,7 @@ services:
     build: .
     environment:
       INFO_BROKER_API_KEY: ${INFO_BROKER_API_KEY:-changeme}
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
       POSTGRES_DB: info_broker
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password

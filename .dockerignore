@@ -1,0 +1,34 @@
+# Keep the host toolchain out of the docker build context. Without
+# this, `COPY . /app` in the runtime stage overwrites the builder
+# venv with the host's .venv, whose shebangs point at
+# `/private/tmp/info-broker/.venv/bin/python` (or wherever the host
+# built it) — and `exec` fails with "no such file or directory"
+# because the shebang interpreter doesn't exist inside the container.
+.venv/
+.venv-*/
+venv/
+env/
+
+# Build artifacts
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Local dev junk
+.env
+.env.local
+.git/
+.github/
+*.log
+.DS_Store
+
+# Data directories (bind-mounted or created by compose)
+data/
+qdrant_data/
+postgres_data/
