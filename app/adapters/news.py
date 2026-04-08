@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
+from app.lib.ddg_fallback import ddg_fallback_summary, ddg_search
 from app.schemas_media import NewsItem, NewsResponse, NewsScope, NewsTopic
 from security import safe_fetch_url
 
@@ -88,9 +89,60 @@ def fetch_news(
     try:
         return _fetch_duckduckgo(scope, topic, country_code, query, limit)
     except Exception as exc:  # noqa: BLE001
-        log.warning("DDG news failed (%s); falling back to bundled list", exc)
+        log.warning("DDG Instant Answer failed (%s); trying DDG web scrape", exc)
+
+    try:
+        return _fetch_ddg_scrape(scope, topic, country_code, query, limit)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DDG scrape failed (%s); falling back to bundled list", exc)
 
     return _fetch_bundled(scope, topic, limit)
+
+
+def _fetch_ddg_scrape(
+    scope: NewsScope,
+    topic: NewsTopic,
+    country_code: str | None,
+    query: str | None,
+    limit: int,
+) -> NewsResponse:
+    """Final network tier: DDG web search → headlines from result titles."""
+    q_parts: list[str] = ["latest news"]
+    if topic != "any":
+        q_parts.append(topic)
+    if scope == "local" and query:
+        q_parts.append(query)
+    elif scope == "country" and country_code:
+        q_parts.append(country_code)
+    search_q = " ".join(q_parts)
+
+    hits = ddg_search(search_q, max_results=limit * 2)
+    items: list[NewsItem] = []
+    for hit in hits:
+        headline = hit.get("title", "").strip()
+        if not headline:
+            continue
+        items.append(
+            NewsItem(
+                headline=headline,
+                source="DuckDuckGo",
+                url=hit.get("url"),
+                topic=topic if topic != "any" else None,
+            )
+        )
+        if len(items) >= limit:
+            break
+
+    if not items:
+        raise NewsUnavailable("DDG web search returned no results")
+
+    return NewsResponse(
+        provider="ddg-scrape",
+        fetched_at=datetime.now(timezone.utc),
+        scope=scope,
+        topic=topic,
+        items=items,
+    )
 
 
 # ── NewsAPI ──────────────────────────────────────────────────────────────────

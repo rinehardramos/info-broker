@@ -22,6 +22,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from app.lib.ddg_fallback import DdgFallbackUnavailable, ddg_fallback_summary
 from app.schemas_media import WeatherResponse
 from security import safe_fetch_url
 
@@ -63,7 +64,39 @@ def fetch_weather(
         except Exception as exc:  # noqa: BLE001
             log.warning("DuckDuckGo weather failed (%s)", exc)
 
+        try:
+            return _fetch_ddg_scrape(city, country_code)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("DDG scrape fallback failed (%s)", exc)
+
     raise WeatherUnavailable("no weather provider returned a usable result")
+
+
+def _fetch_ddg_scrape(city: str, country_code: str | None) -> WeatherResponse:
+    """Final network tier: DDG web search → scrape → LLM/extractive summary."""
+    loc = f"{city}, {country_code}" if country_code else city
+    query = f"current weather in {loc}"
+    result = ddg_fallback_summary(query, context_hint=query, max_results=3)
+    summary = result["summary"] or result["raw_excerpt"][:300]
+    if not summary:
+        raise DdgFallbackUnavailable("empty ddg scrape summary")
+
+    temp_c: float | None = None
+    if (m := _DDG_TEMP_RE.search(summary)) is not None:
+        value = float(m.group(1))
+        unit = m.group(2).upper()
+        temp_c = value if unit == "C" else round((value - 32) * 5 / 9, 1)
+
+    return WeatherResponse(
+        provider="ddg-scrape",
+        fetched_at=datetime.now(timezone.utc),
+        city=city,
+        condition=None,
+        temperature_c=temp_c,
+        humidity_pct=None,
+        wind_kph=None,
+        summary=summary,
+    )
 
 
 # ── OpenWeatherMap ───────────────────────────────────────────────────────────
