@@ -58,7 +58,7 @@ GEMINI_API_KEY=your-gemini-api-key
 FINETUNED_MODEL_NAME=local-model-ft
 
 # --- Postgres (matches docker-compose.yml) ---
-POSTGRES_DB=auto_marketer
+POSTGRES_DB=info_broker
 POSTGRES_USER=user
 POSTGRES_PASSWORD=password
 POSTGRES_HOST=localhost

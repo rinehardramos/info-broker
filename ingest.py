@@ -28,7 +28,7 @@ from llm_providers import build_client, embed_text  # noqa: E402 — after load_
 
 APIFY_URL = os.getenv("APIFY_DATASET_URL")
 
-DB_NAME = os.getenv("POSTGRES_DB")
+DB_NAME = os.getenv("POSTGRES_DB", "info_broker")
 DB_USER = os.getenv("POSTGRES_USER")
 DB_PASSWORD = os.getenv("POSTGRES_PASSWORD")
 DB_HOST = os.getenv("POSTGRES_HOST")
