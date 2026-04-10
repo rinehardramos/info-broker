@@ -24,7 +24,7 @@ MAX_ABOUT_LEN = 8000
 
 load_dotenv()
 
-from llm_providers import build_client, embedding_model  # noqa: E402 — after load_dotenv
+from llm_providers import build_client, embed_text  # noqa: E402 — after load_dotenv
 
 APIFY_URL = os.getenv("APIFY_DATASET_URL")
 
@@ -75,13 +75,7 @@ def setup_qdrant():
     return collection_name
 
 def get_embedding(text):
-    if not text:
-        return [0.0] * 768
-    response = openai_client.embeddings.create(
-        input=[text],
-        model=embedding_model()
-    )
-    return response.data[0].embedding
+    return embed_text(text)
 
 def ingest_data(overwrite: bool = False) -> dict:
     """Fetch profiles from Apify, write to Postgres + Qdrant.

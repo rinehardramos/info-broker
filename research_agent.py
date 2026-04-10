@@ -28,7 +28,7 @@ from security import (
 
 load_dotenv()
 
-from llm_providers import build_client, chat_model, embedding_model  # noqa: E402 — after load_dotenv
+from llm_providers import build_client, chat_model, embed_text  # noqa: E402 — after load_dotenv
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
@@ -63,15 +63,9 @@ def setup_feedback_collection():
 
 
 def get_embedding(text):
-    """Embed `text` with the local model. Returns a zero-vector on failure."""
-    if not text:
-        return [0.0] * EMBEDDING_DIM
+    """Embed ``text`` using the configured provider. Returns a zero-vector on failure."""
     try:
-        response = openai_client.embeddings.create(
-            input=[text[:4000]],
-            model=embedding_model(),
-        )
-        return response.data[0].embedding
+        return embed_text(text[:4000] if text else "")
     except Exception as e:
         print(f"  [Embed] Failed to embed text: {e}")
         return [0.0] * EMBEDDING_DIM
