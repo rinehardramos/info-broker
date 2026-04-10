@@ -467,7 +467,7 @@ def critic_agent(profile_summary, analysis, past_mistakes=None):
     )
     try:
         response = openai_client.chat.completions.create(
-            model=CHAT_MODEL_NAME,
+            model=chat_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -475,7 +475,7 @@ def critic_agent(profile_summary, analysis, past_mistakes=None):
             temperature=0.0,
         )
         content = response.choices[0].message.content
-        parsed = json.loads(content)
+        parsed = _extract_json(content)
         approved = bool(parsed.get("approved", True))
         rationale = str(parsed.get("rationale", "")).strip()[:500]
         return approved, rationale
