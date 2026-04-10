@@ -13,8 +13,7 @@ redirects, oversized bodies, and non-HTML content-types are blocked by
 the same guard the keyed providers use.
 
 Summarization is pluggable:
-  - If ``SUMMARIZER_URL`` is set (OpenAI-compatible /v1 endpoint, e.g.
-    LM Studio at http://host.docker.internal:1234/v1), call it.
+  - If ``SUMMARIZER_URL`` is set (any OpenAI-compatible /v1 endpoint), call it.
   - Otherwise fall back to an extractive summary (first N sentences of
     the highest-ranked scraped page) so the function never fails.
 

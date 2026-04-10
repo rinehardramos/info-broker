@@ -4,7 +4,6 @@ import psycopg2
 import uuid
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
-from openai import OpenAI
 from dotenv import load_dotenv
 
 from security import (
@@ -25,10 +24,9 @@ MAX_ABOUT_LEN = 8000
 
 load_dotenv()
 
+from llm_providers import build_client, embedding_model  # noqa: E402 — after load_dotenv
+
 APIFY_URL = os.getenv("APIFY_DATASET_URL")
-LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL")
-LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME")
 
 DB_NAME = os.getenv("POSTGRES_DB")
 DB_USER = os.getenv("POSTGRES_USER")
@@ -40,7 +38,7 @@ QDRANT_HOST = os.getenv("QDRANT_HOST")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT"))
 
 # Initialize clients
-openai_client = OpenAI(base_url=LM_STUDIO_BASE_URL, api_key=LM_STUDIO_API_KEY)
+openai_client = build_client()
 qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 # Postgres setup
@@ -81,7 +79,7 @@ def get_embedding(text):
         return [0.0] * 768
     response = openai_client.embeddings.create(
         input=[text],
-        model=EMBEDDING_MODEL_NAME
+        model=embedding_model()
     )
     return response.data[0].embedding
 

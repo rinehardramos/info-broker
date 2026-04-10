@@ -4,7 +4,7 @@
 
 1. **PostgreSQL** — the source of truth. Stores raw profile JSON, research state, analytical conclusions, grades, and generated emails.
 2. **Qdrant** — the vector database. Two collections: `linkedin_profiles` (semantic search over prospects) and `user_feedback` (episodic memory of graded research).
-3. **LM Studio (local LLM)** — OpenAI-compatible server. Provides both the chat model (`CHAT_MODEL_NAME`) and the embedding model (`EMBEDDING_MODEL_NAME`).
+3. **LLM provider** — pluggable via `LLM_PROVIDER`. Default is `google` (Gemini 2.5 Pro for chat, `text-embedding-004` for embeddings via the OpenAI-compatible Gemini endpoint). Set `LLM_PROVIDER=lmstudio` to use a local LM Studio server instead.
 4. **DuckDuckGo + requests/bs4** — web search and scraping for the ReAct loop. All outbound fetches go through `safe_fetch_url` for SSRF protection.
 5. **Redis (planned / optional)** — task queue for parallelizing research across worker agents. Not yet wired up; the current pipeline runs single-process batches of 5.
 

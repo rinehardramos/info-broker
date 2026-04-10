@@ -4,7 +4,6 @@ import psycopg2
 import json
 from bs4 import BeautifulSoup
 from ddgs import DDGS
-from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     VectorParams,
@@ -29,10 +28,7 @@ from security import (
 
 load_dotenv()
 
-LM_STUDIO_BASE_URL = os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1")
-LM_STUDIO_API_KEY = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
-CHAT_MODEL_NAME = os.getenv("CHAT_MODEL_NAME", "local-model")
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "local-embed")
+from llm_providers import build_client, chat_model, embedding_model  # noqa: E402 — after load_dotenv
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
@@ -49,7 +45,7 @@ DB_HOST = os.getenv("POSTGRES_HOST", "localhost")
 DB_PORT = os.getenv("POSTGRES_PORT", "5432")
 
 # Initialize clients
-openai_client = OpenAI(base_url=LM_STUDIO_BASE_URL, api_key=LM_STUDIO_API_KEY)
+openai_client = build_client()
 ddgs = DDGS()
 qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
@@ -73,7 +69,7 @@ def get_embedding(text):
     try:
         response = openai_client.embeddings.create(
             input=[text[:4000]],
-            model=EMBEDDING_MODEL_NAME,
+            model=embedding_model(),
         )
         return response.data[0].embedding
     except Exception as e:
@@ -351,7 +347,7 @@ def analyze_profile_with_react(profile_summary, few_shot=None):
         print(f"  [Analyze] LLM Reasoning Turn {iteration + 1}...")
         try:
             response = openai_client.chat.completions.create(
-                model=CHAT_MODEL_NAME,
+                model=chat_model(),
                 messages=messages,
                 temperature=0.1
             )

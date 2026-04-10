@@ -7,7 +7,7 @@ This guide takes a fresh checkout to a working pipeline: ingest, research, and g
 - Python 3.10 or newer.
 - [`uv`](https://github.com/astral-sh/uv) package manager.
 - Docker Desktop (or any Docker Engine) for Postgres and Qdrant.
-- [LM Studio](https://lmstudio.ai/) with a chat model and an embedding model loaded, and its OpenAI-compatible server running (default `http://localhost:1234/v1`). The embedding model must emit 768-dimensional vectors to match the Qdrant collection configuration in `ingest.py`.
+- A **Gemini API key** (`GEMINI_API_KEY`) for the default `google` provider, which uses `gemini-2.5-pro` for chat and `text-embedding-004` (768-dim) for embeddings. Alternatively, set `LLM_PROVIDER=lmstudio` and run [LM Studio](https://lmstudio.ai/) locally with a 768-dim embedding model.
 - An Apify dataset URL containing LinkedIn profiles in the shape the ingest script expects (`id`, `firstName`, `lastName`, `headline`, `about`, `currentPosition`, `emails`, `companyWebsites`, etc.).
 
 ## 1. Clone and install
@@ -28,11 +28,13 @@ docker compose up -d
 
 `docker-compose.yml` maps Postgres to host port **5433** and Qdrant's HTTP API to host port **6335** (gRPC on 6336). The containers keep data in named volumes `postgres_data` and `qdrant_data`.
 
-## 3. Configure LM Studio
+## 3. Configure LLM provider
 
-1. Load a chat-capable model (the repo has been tested with `mistralai/mistral-nemo-instruct-2407`).
-2. Load an embedding model that returns 768-dim vectors (e.g. `text-embedding-nomic-embed-text-v2-moe`).
-3. Start the local server from the LM Studio UI. Note the base URL (default `http://localhost:1234/v1`).
+The default provider is **Google Gemini**. Set `GEMINI_API_KEY` in your `.env` and you're done — no local server needed.
+
+To use LM Studio instead, set `LLM_PROVIDER=lmstudio` and:
+1. Load a chat-capable model and an embedding model that returns 768-dim vectors.
+2. Start the local server from the LM Studio UI (default `http://localhost:1234/v1`).
 
 ## 4. Create `.env`
 
@@ -42,11 +44,16 @@ Create a `.env` file in the repo root with the variables below. Every variable h
 # --- Apify ---
 APIFY_DATASET_URL=https://api.apify.com/v2/datasets/<dataset-id>/items?token=<token>
 
-# --- LM Studio (OpenAI-compatible server) ---
-LM_STUDIO_BASE_URL=http://localhost:1234/v1
-LM_STUDIO_API_KEY=lm-studio
-CHAT_MODEL_NAME=mistralai/mistral-nemo-instruct-2407
-EMBEDDING_MODEL_NAME=text-embedding-nomic-embed-text-v2-moe
+# --- LLM provider (google = Gemini, lmstudio = local LM Studio) ---
+LLM_PROVIDER=google
+GEMINI_API_KEY=your-gemini-api-key
+
+# --- LM Studio (only needed when LLM_PROVIDER=lmstudio) ---
+# LM_STUDIO_BASE_URL=http://localhost:1234/v1
+# LM_STUDIO_API_KEY=lm-studio
+# CHAT_MODEL_NAME=mistralai/mistral-nemo-instruct-2407
+# EMBEDDING_MODEL_NAME=text-embedding-nomic-embed-text-v2-moe
+
 # Only needed for Phase 5 evaluation:
 FINETUNED_MODEL_NAME=local-model-ft
 

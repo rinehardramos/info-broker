@@ -31,7 +31,7 @@ Primary key is `id`; inserts use `ON CONFLICT (id) DO NOTHING` so replaying inge
 
 ## Qdrant collections
 
-Qdrant runs at `QDRANT_HOST:QDRANT_PORT` (default `localhost:6335` when using `docker-compose.yml`). Both collections use 768-dim vectors with cosine distance; the dimension must match your LM Studio embedding model.
+Qdrant runs at `QDRANT_HOST:QDRANT_PORT` (default `localhost:6335` when using `docker-compose.yml`). Both collections use 768-dim vectors with cosine distance. The default Google provider uses `text-embedding-004` which outputs 768 dims. If using `LLM_PROVIDER=lmstudio`, your embedding model must also emit 768-dim vectors.
 
 ### `linkedin_profiles` (semantic search)
 

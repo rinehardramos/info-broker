@@ -1,17 +1,6 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: info_broker
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
   qdrant:
     image: qdrant/qdrant
     ports:
@@ -25,23 +14,20 @@ services:
     environment:
       INFO_BROKER_API_KEY: ${INFO_BROKER_API_KEY:-changeme}
       OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
+      APIFY_DATASET_URL: ${APIFY_DATASET_URL:-}
       POSTGRES_DB: info_broker
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: 5433
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
-      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}
-      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-lm-studio}
-      CHAT_MODEL_NAME: ${CHAT_MODEL_NAME:-local-model}
-      EMBEDDING_MODEL_NAME: ${EMBEDDING_MODEL_NAME:-local-embed}
+      LLM_PROVIDER: ${LLM_PROVIDER:-google}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
       - qdrant
 
 volumes:
-  postgres_data:
   qdrant_data:
