@@ -13,18 +13,27 @@ from app.lib.rate_limit import limiter
 from app.routers import media, profiles, research, search
 
 _SCHEMA_MIGRATION = """
+CREATE TABLE IF NOT EXISTS linkedin_profiles (
+    id        VARCHAR(128) PRIMARY KEY,
+    first_name VARCHAR(256),
+    last_name  VARCHAR(256),
+    headline   TEXT,
+    about      TEXT,
+    raw_data   JSONB
+);
+
 ALTER TABLE linkedin_profiles
-    ADD COLUMN IF NOT EXISTS research_status       VARCHAR DEFAULT 'pending',
-    ADD COLUMN IF NOT EXISTS is_smb                BOOLEAN,
+    ADD COLUMN IF NOT EXISTS research_status        VARCHAR DEFAULT 'pending',
+    ADD COLUMN IF NOT EXISTS is_smb                 BOOLEAN,
     ADD COLUMN IF NOT EXISTS needs_outsourcing_prob DECIMAL,
     ADD COLUMN IF NOT EXISTS needs_cheap_labor_prob DECIMAL,
     ADD COLUMN IF NOT EXISTS searching_vendors_prob DECIMAL,
-    ADD COLUMN IF NOT EXISTS research_summary      TEXT,
+    ADD COLUMN IF NOT EXISTS research_summary       TEXT,
     ADD COLUMN IF NOT EXISTS system_confidence_score INT,
-    ADD COLUMN IF NOT EXISTS confidence_rationale  TEXT,
-    ADD COLUMN IF NOT EXISTS search_queries_used   TEXT,
-    ADD COLUMN IF NOT EXISTS user_grade            INT,
-    ADD COLUMN IF NOT EXISTS user_feedback         TEXT;
+    ADD COLUMN IF NOT EXISTS confidence_rationale   TEXT,
+    ADD COLUMN IF NOT EXISTS search_queries_used    TEXT,
+    ADD COLUMN IF NOT EXISTS user_grade             INT,
+    ADD COLUMN IF NOT EXISTS user_feedback          TEXT;
 """
 
 
