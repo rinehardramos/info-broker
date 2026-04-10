@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 import psycopg2
 import json
@@ -29,6 +30,18 @@ from security import (
 load_dotenv()
 
 from llm_providers import build_client, chat_model, embed_text  # noqa: E402 — after load_dotenv
+
+
+def _extract_json(text: str) -> dict:
+    """Parse JSON from LLM output, tolerating markdown fences and prose wrappers."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text.strip())
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        raise ValueError("No JSON object found in LLM output")
+    return json.loads(match.group(0))
 
 QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT = int(os.getenv("QDRANT_PORT", "6333"))
@@ -347,7 +360,7 @@ def analyze_profile_with_react(profile_summary, few_shot=None):
             )
             
             content = response.choices[0].message.content
-            parsed = json.loads(content)
+            parsed = _extract_json(content)
             
             if parsed.get("action") == "search":
                 query = parsed.get("query", "")
