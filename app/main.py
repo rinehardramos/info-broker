@@ -8,7 +8,6 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app.deps import get_db_conn
 from app.lib.rate_limit import limiter
 from app.routers import media, profiles, research, search
 
@@ -39,7 +38,15 @@ ALTER TABLE linkedin_profiles
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = next(get_db_conn())
+    import os
+    import psycopg2
+    conn = psycopg2.connect(
+        dbname=os.getenv("POSTGRES_DB", "info_broker"),
+        user=os.getenv("POSTGRES_USER", "user"),
+        password=os.getenv("POSTGRES_PASSWORD", "password"),
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=os.getenv("POSTGRES_PORT", "5432"),
+    )
     try:
         cur = conn.cursor()
         cur.execute(_SCHEMA_MIGRATION)
