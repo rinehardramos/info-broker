@@ -24,7 +24,7 @@ _PROVIDERS: dict[str, dict[str, str]] = {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "api_key_env": "GEMINI_API_KEY",
         "chat_model": "gemini-2.5-pro",
-        "embedding_model": "text-embedding-004",
+        "embedding_model": os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-exp-03-07"),
     },
     "lmstudio": {
         "base_url": os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1"),
