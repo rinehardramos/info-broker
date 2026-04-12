@@ -23,6 +23,8 @@ dependencies = [
     "qdrant-client>=1.16.1",
     "requests>=2.32.5",
     "slowapi>=0.1.9",
+    "pyjwt>=2.12.1",
+    "asyncpg>=0.29.0",
 ]
 
 [project.optional-dependencies]
