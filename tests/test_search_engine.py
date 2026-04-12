@@ -272,3 +272,81 @@ class TestGrading:
         assert set(result.keys()) == {"relevance", "freshness", "source_reliability", "composite"}
         for key, val in result.items():
             assert 0.0 <= val <= 1.0, f"{key} out of range: {val}"
+
+
+from app.search_engine.qdrant import build_embedding_text  # noqa: E402
+
+
+class TestQdrant:
+    def test_build_embedding_text(self):
+        result = build_embedding_text(
+            title="Test Title",
+            snippet="A snippet here",
+            full_text="Full text content",
+        )
+        assert "Test Title" in result
+        assert "A snippet here" in result
+        assert "Full text content" in result
+
+    def test_build_embedding_text_truncates(self):
+        result = build_embedding_text(
+            title="Test Title",
+            snippet="A snippet here",
+            full_text="x" * 10000,
+        )
+        assert len(result) <= 4100
+
+    def test_build_embedding_text_handles_none(self):
+        result = build_embedding_text(
+            title="Test Title",
+            snippet="A snippet here",
+            full_text=None,
+        )
+        assert "Test Title" in result
+        assert "A snippet here" in result
+
+
+from app.search_engine.executor import _deduplicate_results  # noqa: E402
+
+
+class TestExecutorHelpers:
+    def test_deduplicate_by_url(self):
+        results = [
+            PluginResult(title="A", url="https://example.com/page", snippet="s", full_text=None, published_at=None, source_name="ddg"),
+            PluginResult(title="B", url="https://example.com/page", snippet="s", full_text=None, published_at=None, source_name="ddg"),
+            PluginResult(title="C", url="https://other.com/page", snippet="s", full_text=None, published_at=None, source_name="ddg"),
+            PluginResult(title="D", url=None, snippet="s", full_text=None, published_at=None, source_name="ddg"),
+        ]
+        deduped = _deduplicate_results(results)
+        assert len(deduped) == 3
+        titles = [r.title for r in deduped]
+        assert "A" in titles
+        assert "C" in titles
+        assert "D" in titles
+        assert "B" not in titles
+
+    def test_deduplicate_empty(self):
+        assert _deduplicate_results([]) == []
+
+
+import inspect  # noqa: E402
+
+from app.search_engine.feedback import validate_feedback_ownership, save_feedback  # noqa: E402
+
+
+class TestFeedback:
+    def test_validate_feedback_ownership_structure(self):
+        sig = inspect.signature(validate_feedback_ownership)
+        params = sig.parameters
+        assert "result_id" in params, "validate_feedback_ownership must have 'result_id' param"
+        assert "user_id" in params, "validate_feedback_ownership must have 'user_id' param"
+
+    def test_save_feedback_structure(self):
+        sig = inspect.signature(save_feedback)
+        params = sig.parameters
+        assert "result_id" in params, "save_feedback must have 'result_id' param"
+        assert "user_id" in params, "save_feedback must have 'user_id' param"
+        assert "interest" in params, "save_feedback must have 'interest' param"
+        assert "relevance" in params, "save_feedback must have 'relevance' param"
+        assert "usefulness" in params, "save_feedback must have 'usefulness' param"
+        assert "comment" in params, "save_feedback must have 'comment' param"
