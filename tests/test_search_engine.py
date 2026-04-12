@@ -1,11 +1,30 @@
 from __future__ import annotations
 
+import os
+import sys
 import time
 import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import jwt
 import pytest
 from pydantic import ValidationError
+
+# Ensure JWT_SECRET is set before any app imports that might read it
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret-32chars-long!!")
+# Ensure other env vars for app startup
+os.environ.setdefault("INFO_BROKER_API_KEY", "test-secret-key")
+os.environ.setdefault("POSTGRES_DB", "info_broker")
+os.environ.setdefault("POSTGRES_USER", "user")
+os.environ.setdefault("POSTGRES_PASSWORD", "password")
+os.environ.setdefault("POSTGRES_HOST", "localhost")
+os.environ.setdefault("POSTGRES_PORT", "5432")
+os.environ.setdefault("QDRANT_HOST", "localhost")
+os.environ.setdefault("QDRANT_PORT", "6333")
+
+# Stub heavy external imports before importing the app
+sys.modules.setdefault("qdrant_client", MagicMock())
+sys.modules.setdefault("qdrant_client.models", MagicMock())
 
 from app.search_engine.schemas import (
     SearchFeedbackRequest,
@@ -350,3 +369,94 @@ class TestFeedback:
         assert "relevance" in params, "save_feedback must have 'relevance' param"
         assert "usefulness" in params, "save_feedback must have 'usefulness' param"
         assert "comment" in params, "save_feedback must have 'comment' param"
+
+
+# ---------------------------------------------------------------------------
+# Router integration tests
+# ---------------------------------------------------------------------------
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.search_engine.auth import create_token  # noqa: E402
+from app.search_engine import router as router_module  # noqa: E402
+
+
+def _mock_lifespan():
+    """Return a no-op lifespan so TestClient does not hit real DB/Qdrant."""
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def _noop(app):
+        yield
+
+    return _noop
+
+
+# Patch the lifespan before importing app.main so TestClient skips real migrations
+with patch("app.main.lifespan", _mock_lifespan()):
+    from app.main import app as _app  # noqa: E402
+
+# Rebuild the app's lifespan to the no-op for test usage
+_app.router.lifespan_context = _mock_lifespan()
+
+_client = TestClient(_app)
+
+
+class TestRouter:
+    def _auth_header(self) -> dict[str, str]:
+        token = create_token(username="testuser")
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_auth_token_endpoint(self):
+        r = _client.post("/v2/auth/token", json={"username": "testuser"})
+        assert r.status_code == 200
+        body = r.json()
+        assert "access_token" in body
+        assert body["token_type"] == "bearer"
+
+    def test_submit_search_requires_auth(self):
+        r = _client.post("/v2/search", json={"query": "test"})
+        assert r.status_code in (401, 422)
+
+    @patch.object(router_module, "_executor")
+    @patch("app.search_engine.router.db")
+    def test_submit_search(self, mock_db, mock_executor):
+        job_id = uuid.uuid4()
+        mock_db.ensure_user = AsyncMock(return_value=DUMMY_USER_ID)
+        mock_executor.submit = AsyncMock(return_value=job_id)
+
+        r = _client.post(
+            "/v2/search",
+            json={"query": "test"},
+            headers=self._auth_header(),
+        )
+        assert r.status_code == 202
+        body = r.json()
+        assert body["job_id"] == str(job_id)
+        assert body["status"] == "pending"
+        assert "status_url" in body
+        assert "results_url" in body
+
+    @patch("app.search_engine.router.db")
+    def test_get_job_status(self, mock_db):
+        job_id = uuid.uuid4()
+        mock_db.ensure_user = AsyncMock(return_value=DUMMY_USER_ID)
+        mock_db.get_job = AsyncMock(return_value={
+            "id": job_id,
+            "user_id": DUMMY_USER_ID,
+            "query": "test query",
+            "status": "completed",
+            "started_at": None,
+            "completed_at": None,
+            "error": None,
+        })
+        mock_db.get_job_result_count = AsyncMock(return_value=5)
+
+        r = _client.get(
+            f"/v2/search/{job_id}/status",
+            headers=self._auth_header(),
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "completed"
+        assert body["total_results"] == 5

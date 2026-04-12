@@ -54,7 +54,16 @@ async def lifespan(app: FastAPI):
         cur.close()
     finally:
         conn.close()
+    from app.search_engine.db import run_migrations as se_migrate, close_pool as se_close
+    from app.search_engine.qdrant import ensure_collection as se_ensure_qdrant
+    await se_migrate()
+    try:
+        se_ensure_qdrant()
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Qdrant search_results setup: %s", exc)
     yield
+    await se_close()
 
 
 app = FastAPI(
@@ -83,3 +92,6 @@ app.include_router(profiles.router)
 app.include_router(research.router)
 app.include_router(search.router)
 app.include_router(media.router)
+
+from app.search_engine.router import router as search_engine_router  # noqa: E402
+app.include_router(search_engine_router)
