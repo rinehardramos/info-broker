@@ -142,3 +142,133 @@ class TestAuth:
         monkeypatch.delenv("JWT_SECRET", raising=False)
         with pytest.raises(ValueError, match="JWT_SECRET"):
             create_token(username="alice")
+
+
+import asyncio  # noqa: E402
+from datetime import datetime  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+from app.search_engine.plugins.base import SearchPlugin, PluginResult  # noqa: E402
+from app.search_engine.plugins.ddg import DdgPlugin  # noqa: E402
+from app.search_engine.plugins import PluginRegistry  # noqa: E402
+
+
+class TestPluginBase:
+    def test_plugin_result_creation(self):
+        result = PluginResult(
+            title="Test Title",
+            url="https://example.com",
+            snippet="A short snippet.",
+            full_text="Full text content here.",
+            published_at=datetime(2024, 1, 15),
+            source_name="ddg",
+            metadata={"extra": "data"},
+        )
+        assert result.title == "Test Title"
+
+    def test_ddg_plugin_attributes(self):
+        plugin = DdgPlugin()
+        assert plugin.name == "ddg"
+        assert plugin.requires_api_key is False
+        assert plugin.available() is True
+
+    def test_plugin_registry_discovers_ddg(self):
+        registry = PluginRegistry()
+        registry.auto_discover()
+        names = [p.name for p in registry.all()]
+        assert "ddg" in names
+
+    def test_plugin_registry_get(self):
+        registry = PluginRegistry()
+        registry.auto_discover()
+        plugin = registry.get("ddg")
+        assert plugin is not None
+        assert plugin.name == "ddg"
+
+    def test_plugin_registry_get_unknown(self):
+        registry = PluginRegistry()
+        registry.auto_discover()
+        result = registry.get("nonexistent")
+        assert result is None
+
+
+class TestDdgPlugin:
+    def test_ddg_search_returns_results(self):
+        mock_hits = [
+            {"title": "Result 1", "href": "https://example.com/1", "body": "Snippet 1"},
+            {"title": "Result 2", "href": "https://example.com/2", "body": "Snippet 2"},
+        ]
+        mock_ddgs_instance = MagicMock()
+        mock_ddgs_instance.__enter__ = MagicMock(return_value=mock_ddgs_instance)
+        mock_ddgs_instance.__exit__ = MagicMock(return_value=False)
+        mock_ddgs_instance.text = MagicMock(return_value=mock_hits)
+
+        with patch("app.search_engine.plugins.ddg.DDGS", return_value=mock_ddgs_instance):
+            plugin = DdgPlugin()
+            results = asyncio.run(plugin.search("test query", max_results=2))
+
+        assert len(results) == 2
+        assert results[0].title == "Result 1"
+        assert results[0].url == "https://example.com/1"
+        assert results[0].snippet == "Snippet 1"
+        assert results[1].title == "Result 2"
+
+    def test_ddg_search_handles_failure(self):
+        with patch("app.search_engine.plugins.ddg.DDGS", side_effect=Exception("Network error")):
+            plugin = DdgPlugin()
+            results = asyncio.run(plugin.search("test query"))
+
+        assert results == []
+
+
+from datetime import timezone, timedelta  # noqa: E402
+from app.search_engine.grading import score_result, freshness_score, relevance_score  # noqa: E402
+from app.search_engine.domain_tiers import get_domain_reliability  # noqa: E402
+
+
+class TestDomainTiers:
+    def test_known_tier1(self):
+        assert get_domain_reliability("reuters.com") == 1.0
+
+    def test_known_tier2(self):
+        score = get_domain_reliability("bbc.com")
+        assert 0.7 <= score <= 0.9
+
+    def test_unknown(self):
+        assert get_domain_reliability("randomsite12345.com") == 0.4
+
+    def test_subdomain_matches_parent(self):
+        assert get_domain_reliability("news.bbc.com") == get_domain_reliability("bbc.com")
+
+    def test_none_returns_default(self):
+        assert get_domain_reliability(None) == 0.4
+
+
+class TestGrading:
+    def test_freshness_today(self):
+        assert freshness_score(datetime.now(timezone.utc)) == 1.0
+
+    def test_freshness_7_days(self):
+        score = freshness_score(datetime.now(timezone.utc) - timedelta(days=7))
+        assert 0.4 <= score <= 0.6
+
+    def test_freshness_none(self):
+        assert freshness_score(None) == 0.3
+
+    def test_relevance_high_match(self):
+        assert relevance_score("python web framework", "Python Web Framework Comparison") > 0.7
+
+    def test_relevance_no_match(self):
+        assert relevance_score("python web framework", "Best recipes for apple pie") < 0.3
+
+    def test_score_result_all_dimensions(self):
+        result = score_result(
+            query="python web framework",
+            title="Python Web Framework Comparison",
+            snippet="A comparison of popular Python web frameworks.",
+            url="https://reuters.com/tech/python-frameworks",
+            published_at=datetime.now(timezone.utc),
+        )
+        assert set(result.keys()) == {"relevance", "freshness", "source_reliability", "composite"}
+        for key, val in result.items():
+            assert 0.0 <= val <= 1.0, f"{key} out of range: {val}"
