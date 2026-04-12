@@ -48,3 +48,7 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.1
 urllib3==2.6.3
+
+asyncpg>=0.30.0
+PyJWT>=2.10.0
+feedparser>=6.0.11
