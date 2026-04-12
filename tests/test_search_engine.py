@@ -460,3 +460,60 @@ class TestRouter:
         body = r.json()
         assert body["status"] == "completed"
         assert body["total_results"] == 5
+
+
+# ---------------------------------------------------------------------------
+# E2E smoke test — all modules wired together, no live services
+# ---------------------------------------------------------------------------
+
+from app.search_engine.schemas import SearchSubmitResponse  # noqa: E402
+from app.search_engine.executor import AsyncioSearchExecutor  # noqa: E402
+
+
+class TestE2EFlow:
+    @patch("app.search_engine.qdrant.upsert_result")
+    @patch("app.search_engine.qdrant.get_results_payloads")
+    @patch("app.search_engine.executor.get_registry")
+    @patch("app.search_engine.db.get_pool")
+    def test_full_lifecycle(
+        self,
+        mock_get_pool,
+        mock_get_registry,
+        mock_get_results_payloads,
+        mock_upsert_result,
+    ):
+        # a) All module imports resolve
+        from app.search_engine.schemas import SearchRequest, SearchSubmitResponse
+        from app.search_engine.auth import create_token
+        from app.search_engine.executor import AsyncioSearchExecutor
+        from app.search_engine.grading import score_result
+        from app.search_engine.feedback import validate_feedback_ownership
+        from app.search_engine.plugins import PluginRegistry
+        from app.search_engine.plugins.ddg import DdgPlugin
+
+        # b) Schema construction: SearchRequest defaults
+        req = SearchRequest(query="test e2e")
+        assert req.max_budget == 5
+
+        # c) Grading: reuters.com with a fresh published_at
+        now = datetime.now(timezone.utc)
+        scores = score_result(
+            query="test e2e",
+            title="Test Article",
+            snippet="A test snippet.",
+            url="https://reuters.com/article",
+            published_at=now,
+        )
+        assert scores["source_reliability"] == 1.0
+        assert scores["composite"] > 0
+
+        # d) Plugin registry discovers at least 1 plugin
+        registry = PluginRegistry()
+        registry.auto_discover()
+        assert len(registry.all()) >= 1
+
+        # e) Token creation works
+        os.environ.setdefault("JWT_SECRET", "test-jwt-secret-32chars-long!!")
+        token = create_token(username="e2e-user")
+        assert isinstance(token, str)
+        assert len(token) > 0
