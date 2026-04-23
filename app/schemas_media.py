@@ -171,6 +171,11 @@ class PlaylistSourceRequest(BaseModel):
     limit: int = Field(default=50, ge=1, le=200)
 
 
+class SourcedSong(BaseModel):
+    song_id: str
+    r2_key: str
+
+
 class PlaylistSourceResult(BaseModel):
     job_id: str
     status: str  # "completed" | "partial" | "failed"
@@ -179,5 +184,6 @@ class PlaylistSourceResult(BaseModel):
     sourced: int
     skipped: int
     failed: int
+    songs: list[SourcedSong] = []
     errors: list[dict] = []
     error: str | None = None

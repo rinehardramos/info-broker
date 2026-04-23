@@ -40,6 +40,7 @@ from app.schemas_media import (
     NewsTopic,
     PlaylistSourceRequest,
     PlaylistSourceResult,
+    SourcedSong,
     SongEnrichmentResponse,
     SongSourceRequest,
     SongSourceResult,
@@ -310,6 +311,7 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
     sourced = 0
     skipped = 0
     failed = 0
+    sourced_songs: list[SourcedSong] = []
     errors: list[dict] = []
 
     try:
@@ -365,6 +367,7 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
                 region=r2["region"],
             )
             sourced += 1
+            sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key))
             log.info(
                 "playlist_source job=%s sourced song_id=%s title=%r",
                 job_id, song.song_id, song.title,
@@ -400,6 +403,7 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
         sourced=sourced,
         skipped=skipped,
         failed=failed,
+        songs=sourced_songs,
         errors=errors,
     )
     log.info(
