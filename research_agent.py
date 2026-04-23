@@ -583,6 +583,7 @@ def process_pending_profiles(limit: int = 5) -> dict:
         # one second chance if the critic rejects the first JSON.
         analysis = None
         queries_used = []
+        approved = False
         for attempt in range(2):
             analysis, queries_used = analyze_profile_with_react(
                 profile_summary, few_shot=few_shot
@@ -597,6 +598,8 @@ def process_pending_profiles(limit: int = 5) -> dict:
             print(f"  [Critic] Rejected attempt {attempt + 1}: {rationale}")
             if attempt == 0:
                 print("  [Critic] Retrying once...")
+        if analysis and not approved:
+            analysis = None
 
         if analysis:
             print(f"  [Result] Success. Confidence: {analysis.get('system_confidence_score')}/10")

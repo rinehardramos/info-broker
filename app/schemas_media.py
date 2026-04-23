@@ -123,3 +123,61 @@ class SocialMentionsFetchRequest(BaseModel):
     oauth_token_ref: str | None = None
     since_id: str | None = None
     limit: int = Field(default=20, ge=1, le=100)
+
+
+# ── audio sourcing ────────────────────────────────────────────────────────────
+
+
+class S3UploadTarget(BaseModel):
+    bucket: str
+    key: str
+    endpoint: str
+    region: str = "auto"
+    access_key_id: str
+    secret_access_key: str
+
+
+class SongSourceRequest(BaseModel):
+    title: str = Field(..., max_length=200)
+    artist: str = Field(..., max_length=200)
+    upload_target: S3UploadTarget | None = None
+    callback_url: str | None = None
+
+
+class SongSourceResult(BaseModel):
+    job_id: str
+    status: str  # "completed" | "failed"
+    duration_sec: float | None = None
+    size_bytes: int | None = None
+    format: str | None = None
+    object_key: str | None = None
+    error: str | None = None
+
+
+# ── playlist sourcing ──────────────────────────────────────────────────────────
+
+
+class PlaylistSong(BaseModel):
+    song_id: str
+    title: str
+    artist: str
+
+
+class PlaylistSourceRequest(BaseModel):
+    station_id: str
+    songs: list[PlaylistSong]
+    callback_url: str | None = None
+    skip_existing: bool = True
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+class PlaylistSourceResult(BaseModel):
+    job_id: str
+    status: str  # "completed" | "partial" | "failed"
+    station_id: str
+    total_songs: int
+    sourced: int
+    skipped: int
+    failed: int
+    errors: list[dict] = []
+    error: str | None = None

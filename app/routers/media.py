@@ -8,10 +8,23 @@ Each handler:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import tempfile
+import shutil
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response, status
 
+from app.adapters.audio import (
+    AudioSourceUnavailable,
+    r2_config_from_env,
+    r2_object_exists,
+    r2_song_key,
+    source_audio,
+    upload_to_s3,
+)
 from app.adapters.jokes import JokeUnavailable, fetch_joke
 from app.adapters.music import SongEnrichmentUnavailable, fetch_song_enrichment
 from app.adapters.news import NewsUnavailable, fetch_news
@@ -25,7 +38,11 @@ from app.schemas_media import (
     NewsResponse,
     NewsScope,
     NewsTopic,
+    PlaylistSourceRequest,
+    PlaylistSourceResult,
     SongEnrichmentResponse,
+    SongSourceRequest,
+    SongSourceResult,
     WeatherResponse,
 )
 
@@ -215,3 +232,209 @@ def get_joke(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="joke provider error",
         ) from exc
+
+
+# ── audio sourcing ─────────────────────────────────────────────────────────────
+
+
+async def _process_song_source(job_id: str, request: SongSourceRequest) -> None:
+    """Background task: download audio, optionally upload to S3, POST callback."""
+    result = SongSourceResult(job_id=job_id, status="failed")
+    try:
+        audio = await source_audio(title=request.title, artist=request.artist)
+        object_key: str | None = None
+        if request.upload_target is not None:
+            t = request.upload_target
+            object_key = await upload_to_s3(
+                file_path=audio["path"],
+                bucket=t.bucket,
+                key=t.key,
+                endpoint=t.endpoint,
+                access_key=t.access_key_id,
+                secret_key=t.secret_access_key,
+                region=t.region,
+            )
+        result = SongSourceResult(
+            job_id=job_id,
+            status="completed",
+            duration_sec=audio["duration_sec"],
+            size_bytes=audio["size_bytes"],
+            format=audio["format"],
+            object_key=object_key,
+        )
+        log.info("song_source job=%s completed title=%r artist=%r", job_id, request.title, request.artist)
+    except (AudioSourceUnavailable, ImportError, RuntimeError, ValueError) as exc:
+        result = SongSourceResult(job_id=job_id, status="failed", error=str(exc))
+        log.warning("song_source job=%s failed: %s", job_id, exc)
+    except Exception as exc:  # noqa: BLE001
+        result = SongSourceResult(job_id=job_id, status="failed", error=f"unexpected error: {exc}")
+        log.exception("song_source job=%s crashed", job_id)
+
+    if request.callback_url:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(request.callback_url, json=result.model_dump())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("song_source job=%s callback to %s failed: %s", job_id, request.callback_url, exc)
+
+
+@router.post(
+    "/songs/source",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=dict,
+    summary="Download song audio via yt-dlp, optionally upload to S3-compatible storage",
+)
+@limiter.limit("10/minute")
+async def source_song_audio(
+    request: Request,
+    response: Response,
+    body: SongSourceRequest,
+    background_tasks: BackgroundTasks,
+    _api_key: str = Depends(require_api_key),
+) -> dict:
+    """Queue an audio download job. Returns immediately with a job_id.
+
+    Processing happens asynchronously. If ``callback_url`` is provided a POST
+    with a ``SongSourceResult`` JSON body is made on completion (success or failure).
+    """
+    job_id = str(uuid.uuid4())
+    background_tasks.add_task(_process_song_source, job_id, body)
+    return {"job_id": job_id, "status": "queued"}
+
+
+# ── playlist audio sourcing ────────────────────────────────────────────────────
+
+
+async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) -> None:
+    """Background task: download audio for each song, upload to R2, POST callback."""
+    sourced = 0
+    skipped = 0
+    failed = 0
+    errors: list[dict] = []
+
+    try:
+        r2 = r2_config_from_env()
+    except RuntimeError as exc:
+        result = PlaylistSourceResult(
+            job_id=job_id,
+            status="failed",
+            station_id=request.station_id,
+            total_songs=len(request.songs),
+            sourced=0,
+            skipped=0,
+            failed=len(request.songs),
+            error=str(exc),
+        )
+        if request.callback_url:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    await client.post(request.callback_url, json=result.model_dump())
+            except Exception as cb_exc:  # noqa: BLE001
+                log.warning("playlist_source job=%s callback failed: %s", job_id, cb_exc)
+        return
+
+    songs = request.songs[: request.limit]
+
+    for song in songs:
+        key = r2_song_key(request.station_id, song.song_id)
+        output_dir = tempfile.mkdtemp()
+        try:
+            if request.skip_existing:
+                exists = await r2_object_exists(
+                    key=key,
+                    bucket=r2["bucket"],
+                    endpoint=r2["endpoint"],
+                    access_key=r2["access_key_id"],
+                    secret_key=r2["secret_key"],
+                    region=r2["region"],
+                )
+                if exists:
+                    skipped += 1
+                    continue
+
+            audio = await source_audio(
+                title=song.title, artist=song.artist, output_dir=output_dir
+            )
+            await upload_to_s3(
+                file_path=audio["path"],
+                bucket=r2["bucket"],
+                key=key,
+                endpoint=r2["endpoint"],
+                access_key=r2["access_key_id"],
+                secret_key=r2["secret_key"],
+                region=r2["region"],
+            )
+            sourced += 1
+            log.info(
+                "playlist_source job=%s sourced song_id=%s title=%r",
+                job_id, song.song_id, song.title,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            errors.append({
+                "song_id": song.song_id,
+                "title": song.title,
+                "artist": song.artist,
+                "error": str(exc),
+            })
+            log.warning(
+                "playlist_source job=%s failed song_id=%s: %s",
+                job_id, song.song_id, exc,
+            )
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    total = len(songs)
+    if failed == 0:
+        status_str = "completed"
+    elif sourced > 0 or skipped > 0:
+        status_str = "partial"
+    else:
+        status_str = "failed"
+
+    result = PlaylistSourceResult(
+        job_id=job_id,
+        status=status_str,
+        station_id=request.station_id,
+        total_songs=total,
+        sourced=sourced,
+        skipped=skipped,
+        failed=failed,
+        errors=errors,
+    )
+    log.info(
+        "playlist_source job=%s done status=%s sourced=%d skipped=%d failed=%d",
+        job_id, status_str, sourced, skipped, failed,
+    )
+
+    if request.callback_url:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await client.post(request.callback_url, json=result.model_dump())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("playlist_source job=%s callback to %s failed: %s", job_id, request.callback_url, exc)
+
+
+@router.post(
+    "/playlists/source-audio",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=dict,
+    summary="Download audio for a list of songs via yt-dlp, upload each to Cloudflare R2",
+)
+@limiter.limit("5/minute")
+async def source_playlist_audio(
+    request: Request,
+    response: Response,
+    body: PlaylistSourceRequest,
+    background_tasks: BackgroundTasks,
+    _api_key: str = Depends(require_api_key),
+) -> dict:
+    """Queue an audio sourcing job for a playlist.
+
+    Processing happens asynchronously. Songs are downloaded sequentially to
+    respect yt-dlp rate limits. If ``callback_url`` is set, a POST with a
+    ``PlaylistSourceResult`` JSON body is made on completion.
+    """
+    job_id = str(uuid.uuid4())
+    background_tasks.add_task(_process_playlist_source, job_id, body)
+    return {"job_id": job_id, "status": "queued", "station_id": body.station_id}
