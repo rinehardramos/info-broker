@@ -38,30 +38,45 @@ ALTER TABLE linkedin_profiles
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging
     import os
     import psycopg2
-    conn = psycopg2.connect(
-        dbname=os.getenv("POSTGRES_DB", "info_broker"),
-        user=os.getenv("POSTGRES_USER", "user"),
-        password=os.getenv("POSTGRES_PASSWORD", "password"),
-        host=os.getenv("POSTGRES_HOST", "localhost"),
-        port=os.getenv("POSTGRES_PORT", "5432"),
-    )
+
+    _log = logging.getLogger(__name__)
+
+    # Build connection kwargs — prefer DATABASE_URL, fall back to individual vars.
+    database_url = os.getenv("DATABASE_URL")
     try:
-        cur = conn.cursor()
-        cur.execute(_SCHEMA_MIGRATION)
-        conn.commit()
-        cur.close()
-    finally:
-        conn.close()
+        if database_url:
+            conn = psycopg2.connect(database_url)
+        else:
+            conn = psycopg2.connect(
+                dbname=os.getenv("POSTGRES_DB", "info_broker"),
+                user=os.getenv("POSTGRES_USER", "user"),
+                password=os.getenv("POSTGRES_PASSWORD", "password"),
+                host=os.getenv("POSTGRES_HOST", "localhost"),
+                port=os.getenv("POSTGRES_PORT", "5432"),
+            )
+        try:
+            cur = conn.cursor()
+            cur.execute(_SCHEMA_MIGRATION)
+            conn.commit()
+            cur.close()
+        finally:
+            conn.close()
+    except Exception as exc:
+        _log.warning("Postgres unavailable at startup (profiles/research disabled): %s", exc)
+
     from app.search_engine.db import run_migrations as se_migrate, close_pool as se_close
     from app.search_engine.qdrant import ensure_collection as se_ensure_qdrant
-    await se_migrate()
+    try:
+        await se_migrate()
+    except Exception as exc:
+        _log.warning("Search-engine DB migration skipped: %s", exc)
     try:
         se_ensure_qdrant()
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Qdrant search_results setup: %s", exc)
+        _log.warning("Qdrant search_results setup: %s", exc)
     yield
     await se_close()
 
