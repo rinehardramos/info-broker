@@ -61,17 +61,31 @@ All endpoints except `/healthz` require the `X-API-Key` header.
 | GET    | `/v1/songs/enrich`                | Album/year/genre/trivia from MusicBrainz (7-day TTL)                    |
 | GET    | `/v1/jokes`                       | A single joke, optionally styled and safety-filtered                    |
 | POST   | `/v1/songs/source`                | Ad-hoc audio download via yt-dlp; caller supplies S3 credentials inline |
-| POST   | `/v1/playlists/source-audio`      | **Planned.** Batch audio sourcing from PlayGen; uploads to R2, POSTs callback |
+| POST   | `/v1/playlists/source-audio`      | Batch audio sourcing from PlayGen; downloads via yt-dlp, uploads to R2, POSTs callback |
 
 ### PlayGen → info-broker audio sourcing
 
-info-broker is the **receiver** in this integration. PlayGen's DJ pipeline POSTs a
+info-broker is the **receiver** in this integration. PlayGen's playlist service POSTs a
 playlist to `/v1/playlists/source-audio`; info-broker downloads audio via yt-dlp,
 uploads each file to the `ownradio` Cloudflare R2 bucket under key
 `songs/{station_id}/{song_id}.mp3`, and then POSTs results back to the caller's
-`callback_url`. info-broker does not call the PlayGen API and holds no PlayGen
-service account. See [`docs/architecture-and-agents.md`](docs/architecture-and-agents.md)
-for the full flow diagram.
+`callback_url` (PlayGen's `POST /internal/songs/audio-sourced`). info-broker does not
+call the PlayGen API directly and holds no PlayGen service account. See
+[`docs/architecture-and-agents.md`](docs/architecture-and-agents.md) for the full flow.
+
+**Required env vars for PlayGen integration:**
+
+| Var | Purpose |
+|-----|---------|
+| `INFO_BROKER_API_KEY` | Shared secret; clients send as `X-API-Key` |
+| `PLAYGEN_INTERNAL_URL` | PlayGen base URL for audio-sourcing callbacks |
+| `S3_BUCKET` | R2 bucket name (e.g. `ownradio`) |
+| `S3_ENDPOINT` | R2 account endpoint |
+| `S3_REGION` | Region (e.g. `auto`) |
+| `S3_ACCESS_KEY_ID` | R2 access key |
+| `S3_SECRET_ACCESS_KEY` | R2 secret key |
+
+**Deployment:** info-broker runs as a Railway service within the PlayGen project. Internal hostname: `info-broker.railway.internal:8000`.
 
 ### curl examples
 

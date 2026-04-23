@@ -5,30 +5,27 @@ Entries follow **Keep a Changelog** conventions (newest first).
 
 ---
 
-## [Unreleased]
+## [0.5.0] — 2026-04-23
 
-### Added — Playlist audio sourcing for PlayGen (design 2026-04-23)
+### Added
 
-- New endpoint `POST /v1/playlists/source-audio` to be implemented.
-  - Receives `{ station_id, songs: [{song_id, title, artist}], callback_url }` from
-    PlayGen's DJ pipeline (info-broker is the *receiver*, not the caller).
-  - For each song, downloads audio via yt-dlp and uploads to Cloudflare R2 under key
-    `songs/{stationId}/{songId}.mp3` in the `ownradio` bucket
-    (`https://fa958caa19c273f07b49c49a09d76a60.r2.cloudflarestorage.com`).
-  - R2 credentials are stored server-side in environment variables; callers do not
-    supply credentials in the request body.
-  - On completion, POSTs a result payload back to `callback_url` with per-song
-    status, R2 object keys, and error details for any failures.
-  - Accepts `X-API-Key` auth, same as all other `/v1/*` endpoints.
-- R2 env vars (`R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`,
-  `R2_BUCKET`) added to `.env.example`.
+- **`POST /v1/playlists/source-audio`** — batch audio sourcing endpoint for PlayGen.
+  Receives `{ station_id, songs: [{song_id, title, artist}], callback_url }`, downloads
+  audio via yt-dlp for each song, uploads to Cloudflare R2 (`ownradio` bucket, key
+  `songs/{station_id}/{song_id}.mp3`), and POSTs results back to `callback_url`. Per-song
+  failures do not abort the batch. Returns `202 { job_id, status: "queued" }`.
+- **`POST /v1/songs/source`** — individual song sourcing endpoint (caller supplies S3
+  credentials inline; distinct from the batch endpoint above).
+- **`INFO_BROKER_API_KEY`** env var — required shared secret; clients send it as `X-API-Key`.
+- **`PLAYGEN_INTERNAL_URL`** env var — PlayGen callback base URL (e.g. `https://api.playgen.site`).
+- **Deployed on Railway** in the PlayGen project. Internal hostname: `info-broker.railway.internal:8000`.
 
-### Context
+### Changed
 
-The existing `POST /v1/songs/source` endpoint handles single-song ad-hoc downloads
-with caller-supplied S3 credentials. The new `/v1/playlists/source-audio` endpoint
-is purpose-built for the PlayGen batch workflow: it accepts a full station playlist,
-manages R2 credentials internally, and drives the callback lifecycle.
+- **R2 env vars renamed to S3_*** for consistency with the boto3 S3-compatible interface:
+  `R2_BUCKET` → `S3_BUCKET`, `R2_ENDPOINT` → `S3_ENDPOINT`, `R2_REGION` → `S3_REGION`,
+  `R2_ACCESS_KEY_ID` → `S3_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` → `S3_SECRET_ACCESS_KEY`.
+  Update `.env` accordingly before deploying.
 
 ---
 

@@ -41,9 +41,9 @@ rate-limited via slowapi.
 | `GET /v1/songs/enrich` | Album/year/genre/trivia from MusicBrainz (7-day TTL) |
 | `GET /v1/jokes` | Single joke, optionally styled and safety-filtered |
 | `POST /v1/songs/source` | Ad-hoc: download audio via yt-dlp; caller supplies S3 credentials inline |
-| `POST /v1/playlists/source-audio` | **Batch (PlayGen):** receive a playlist from PlayGen, source all audio, upload to R2, POST results to callback — **planned** |
+| `POST /v1/playlists/source-audio` | **Batch (PlayGen):** receive a playlist from PlayGen, source all audio, upload to R2, POST results to callback |
 
-### PlayGen → info-broker audio sourcing flow (designed 2026-04-23)
+### PlayGen → info-broker audio sourcing flow (implemented 2026-04-23)
 
 The data flow is **inbound**: PlayGen's DJ pipeline calls info-broker, not the reverse.
 info-broker does not hold a PlayGen service account and makes no calls back to PlayGen
@@ -67,14 +67,16 @@ info-broker (FastAPI)
         { station_id, results: [{song_id, status, object_key, error}] }
 ```
 
-**R2 configuration** (server-side env vars — not exposed to callers):
+**S3-compatible storage configuration** (server-side env vars — not exposed to callers):
 
 | Env var | Value |
 |---|---|
-| `R2_BUCKET` | `ownradio` |
-| `R2_ENDPOINT` | `https://fa958caa19c273f07b49c49a09d76a60.r2.cloudflarestorage.com` |
-| `R2_ACCESS_KEY_ID` | (secret — see `.env`) |
-| `R2_SECRET_ACCESS_KEY` | (secret — see `.env`) |
+| `S3_BUCKET` | `ownradio` |
+| `S3_ENDPOINT` | `https://fa958caa19c273f07b49c49a09d76a60.r2.cloudflarestorage.com` |
+| `S3_REGION` | `auto` |
+| `S3_ACCESS_KEY_ID` | (secret — see `.env`) |
+| `S3_SECRET_ACCESS_KEY` | (secret — see `.env`) |
+| `PLAYGEN_INTERNAL_URL` | PlayGen callback base URL |
 
 Object key convention: `songs/{stationId}/{songId}.mp3`
 
@@ -92,7 +94,7 @@ endpoint is purpose-built for the PlayGen batch workflow.
 | 4 | Critic agent with single retry | Implemented |
 | 5 | Fine-tuning export + evaluator | Implemented |
 | 6 | Runtime + supply-chain hardening | Implemented (see [../SECURITY.md](../SECURITY.md)) |
-| — | `POST /v1/playlists/source-audio` batch endpoint | Planned |
+| — | `POST /v1/playlists/source-audio` batch endpoint | Implemented |
 | — | Redis task queue / multi-worker parallelism | Planned / optional |
 
 For the prompt internals, see [agents-and-prompts.md](agents-and-prompts.md).

@@ -63,7 +63,7 @@ This document details the roadmap for making the Auto Marketer AI agent self-imp
 
 ---
 
-## Phase 7: PlayGen Playlist Audio Sourcing (2026-04-23)
+## Phase 7: PlayGen Playlist Audio Sourcing (implemented 2026-04-23)
 
 - **Goal:** Implement `POST /v1/playlists/source-audio` — a batch endpoint that
   receives a playlist from PlayGen, downloads audio via yt-dlp for each song, uploads
@@ -80,26 +80,24 @@ This document details the roadmap for making the Auto Marketer AI agent self-imp
 
 ### Tasks
 
-- [ ] Add Pydantic schemas in `app/schemas_media.py`:
+- [x] Add Pydantic schemas in `app/schemas_media.py`:
   - `PlaylistSongItem` — `{ song_id, title, artist }`
   - `PlaylistSourceRequest` — `{ station_id, songs: list[PlaylistSongItem], callback_url }`
   - `PlaylistSongResult` — `{ song_id, status, object_key, error }`
   - `PlaylistSourceCallback` — `{ station_id, results: list[PlaylistSongResult] }`
-- [ ] Add `POST /v1/playlists/source-audio` route in `app/routers/media.py`:
-  - Accepts `PlaylistSourceRequest` body, returns `202 { job_id, status: "queued" }`.
-  - Spawns a background task that iterates songs, calls existing `source_audio()` +
-    `upload_to_s3()`, then POSTs the callback.
-  - R2 credentials read from env vars (not from the request body).
-  - Per-song errors must not abort the entire batch — mark failed songs individually.
-- [ ] Add env var documentation to `.env.example`:
-  - `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
-- [ ] Add rate-limit entry for the new route (suggested: `5/minute` — batch job, not
-  a hot path).
+- [x] Add `POST /v1/playlists/source-audio` route in `app/routers/media.py`:
+  - Returns `202 { job_id, status: "queued" }`; background task iterates songs, calls
+    `source_audio()` + `upload_to_s3()`, POSTs callback. Per-song errors do not abort batch.
+- [x] Add env var documentation to `.env.example`:
+  - `S3_BUCKET`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`,
+    `INFO_BROKER_API_KEY`, `PLAYGEN_INTERNAL_URL`
+  - Note: R2_* vars renamed to S3_* for boto3 compatibility.
+- [x] Add rate-limit entry for the new route (`5/minute`).
 - [ ] Write tests:
   - Unit: background task handles per-song failures without aborting batch.
   - Integration: mock yt-dlp + S3; assert callback payload shape and R2 key format.
-- [ ] Update `docs/README.md` endpoint table to include the new route.
-- [ ] Update `README.md` top-level endpoint table to include the new route.
+- [x] Update `README.md` endpoint table to include the new route.
+- [x] Update `docs/architecture-and-agents.md` to reflect implemented status.
 
 ### Dependencies
 
