@@ -30,21 +30,21 @@ API_KEY = "test-secret-key"
 CB_URL = "http://cb.test/done"
 
 ALL_R2_VARS = [
-    "R2_BUCKET",
-    "R2_ENDPOINT",
-    "R2_REGION",
-    "R2_ACCESS_KEY_ID",
-    "R2_SECRET_ACCESS_KEY",
+    "S3_BUCKET",
+    "S3_ENDPOINT",
+    "S3_REGION",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
 ]
 
 
 def _r2_env(monkeypatch) -> None:
     """Populate R2 env vars with safe placeholder values."""
-    monkeypatch.setenv("R2_BUCKET", "test-bucket")
-    monkeypatch.setenv("R2_ENDPOINT", "http://localhost:9000")
-    monkeypatch.setenv("R2_REGION", "auto")
-    monkeypatch.setenv("R2_ACCESS_KEY_ID", "test-access-key")
-    monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("S3_BUCKET", "test-bucket")
+    monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9000")
+    monkeypatch.setenv("S3_REGION", "auto")
+    monkeypatch.setenv("S3_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("S3_SECRET_ACCESS_KEY", "test-secret-key")
 
 
 @pytest.fixture
@@ -155,7 +155,7 @@ class TestProcessPlaylistSource:
             return MagicMock(status_code=200)
 
         with (
-            patch("app.routers.media.r2_object_exists", new=AsyncMock(return_value=False)),
+            patch("app.routers.media.s3_object_exists", new=AsyncMock(return_value=False)),
             patch("app.routers.media.source_audio", side_effect=fake_source),
             patch("app.routers.media.upload_to_s3", new=AsyncMock(return_value="key")),
             patch("httpx.AsyncClient.post", fake_post),
@@ -190,7 +190,7 @@ class TestProcessPlaylistSource:
 
         mock_source = AsyncMock()
         with (
-            patch("app.routers.media.r2_object_exists", new=AsyncMock(return_value=True)),
+            patch("app.routers.media.s3_object_exists", new=AsyncMock(return_value=True)),
             patch("app.routers.media.source_audio", mock_source),
             patch("httpx.AsyncClient.post", fake_post),
         ):
@@ -212,7 +212,7 @@ class TestProcessPlaylistSource:
         assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_r2_config_missing_sets_failed_status(self, monkeypatch) -> None:
+    async def test_s3_config_missing_sets_failed_status(self, monkeypatch) -> None:
         for k in ALL_R2_VARS:
             monkeypatch.delenv(k, raising=False)
 
@@ -260,7 +260,7 @@ class TestProcessPlaylistSource:
             return MagicMock(status_code=200)
 
         with (
-            patch("app.routers.media.r2_object_exists", new=AsyncMock(return_value=False)),
+            patch("app.routers.media.s3_object_exists", new=AsyncMock(return_value=False)),
             patch("app.routers.media.source_audio", side_effect=sometimes_fails),
             patch("app.routers.media.upload_to_s3", new=AsyncMock(return_value="key")),
             patch("httpx.AsyncClient.post", fake_post),
@@ -292,7 +292,7 @@ class TestProcessPlaylistSource:
             return _fake_audio(output_dir or str(tmp_path))
 
         with (
-            patch("app.routers.media.r2_object_exists", new=AsyncMock(return_value=False)),
+            patch("app.routers.media.s3_object_exists", new=AsyncMock(return_value=False)),
             patch("app.routers.media.source_audio", side_effect=fake_source),
             patch("app.routers.media.upload_to_s3", new=AsyncMock(return_value="key")),
         ):
@@ -320,7 +320,7 @@ class TestProcessPlaylistSource:
 
         mock_post = AsyncMock()
         with (
-            patch("app.routers.media.r2_object_exists", new=AsyncMock(return_value=False)),
+            patch("app.routers.media.s3_object_exists", new=AsyncMock(return_value=False)),
             patch("app.routers.media.source_audio", side_effect=fake_source),
             patch("app.routers.media.upload_to_s3", new=AsyncMock(return_value="key")),
             patch("httpx.AsyncClient.post", mock_post),

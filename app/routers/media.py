@@ -19,9 +19,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 
 from app.adapters.audio import (
     AudioSourceUnavailable,
-    r2_config_from_env,
-    r2_object_exists,
-    r2_song_key,
+    s3_config_from_env,
+    s3_object_exists,
+    s3_song_key,
     source_audio,
     upload_to_s3,
 )
@@ -313,7 +313,7 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
     errors: list[dict] = []
 
     try:
-        r2 = r2_config_from_env()
+        r2 = s3_config_from_env()
     except RuntimeError as exc:
         result = PlaylistSourceResult(
             job_id=job_id,
@@ -336,11 +336,11 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
     songs = request.songs[: request.limit]
 
     for song in songs:
-        key = r2_song_key(request.station_id, song.song_id)
+        key = s3_song_key(request.station_id, song.song_id)
         output_dir = tempfile.mkdtemp()
         try:
             if request.skip_existing:
-                exists = await r2_object_exists(
+                exists = await s3_object_exists(
                     key=key,
                     bucket=r2["bucket"],
                     endpoint=r2["endpoint"],

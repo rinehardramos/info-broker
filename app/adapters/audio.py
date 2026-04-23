@@ -143,20 +143,20 @@ async def upload_to_s3(
 # ── R2 helpers ────────────────────────────────────────────────────────────────
 
 
-def r2_song_key(station_id: str, song_id: str, ext: str = ".mp3") -> str:
+def s3_song_key(station_id: str, song_id: str, ext: str = ".mp3") -> str:
     """Build the R2 object key for a song. Mirrors PlayGen's songAudioKey()."""
     return f"songs/{station_id}/{song_id}{ext}"
 
 
-def r2_config_from_env() -> dict:
+def s3_config_from_env() -> dict:
     """Load R2 credentials from environment. Raises RuntimeError if any are missing."""
     import os
     required = {
-        "bucket": os.getenv("R2_BUCKET"),
-        "endpoint": os.getenv("R2_ENDPOINT"),
-        "region": os.getenv("R2_REGION", "auto"),
-        "access_key_id": os.getenv("R2_ACCESS_KEY_ID"),
-        "secret_key": os.getenv("R2_SECRET_ACCESS_KEY"),
+        "bucket": os.getenv("S3_BUCKET"),
+        "endpoint": os.getenv("S3_ENDPOINT"),
+        "region": os.getenv("S3_REGION", "auto"),
+        "access_key_id": os.getenv("S3_ACCESS_KEY_ID"),
+        "secret_key": os.getenv("S3_SECRET_ACCESS_KEY"),
     }
     missing = [k for k, v in required.items() if not v]
     if missing:
@@ -164,7 +164,7 @@ def r2_config_from_env() -> dict:
     return required
 
 
-async def r2_object_exists(
+async def s3_object_exists(
     key: str, bucket: str, endpoint: str, access_key: str, secret_key: str, region: str = "auto"
 ) -> bool:
     """Check if an object exists in R2 without downloading it."""
