@@ -39,6 +39,8 @@ uv run uvicorn app.main:app --reload
 
 All endpoints except `/healthz` require the `X-API-Key` header.
 
+### OSINT / profile surface
+
 | Method | Path                          | Purpose                                  |
 |--------|-------------------------------|------------------------------------------|
 | GET    | `/healthz`                    | Liveness probe (no auth)                 |
@@ -49,6 +51,27 @@ All endpoints except `/healthz` require the `X-API-Key` header.
 | POST   | `/research`                   | Run the research agent on pending rows   |
 | POST   | `/profiles/{id}/grade`        | Save a 1-5 grade + feedback              |
 | POST   | `/search`                     | Semantic search via Qdrant               |
+
+### Media surface — `/v1/*` (consumed by PlayGen DJ)
+
+| Method | Path                              | Purpose                                                                 |
+|--------|-----------------------------------|-------------------------------------------------------------------------|
+| GET    | `/v1/weather`                     | Current weather for a city or lat/lon (OpenWeatherMap, 10 min TTL)      |
+| GET    | `/v1/news`                        | Top headlines by scope/topic (15 min TTL)                               |
+| GET    | `/v1/songs/enrich`                | Album/year/genre/trivia from MusicBrainz (7-day TTL)                    |
+| GET    | `/v1/jokes`                       | A single joke, optionally styled and safety-filtered                    |
+| POST   | `/v1/songs/source`                | Ad-hoc audio download via yt-dlp; caller supplies S3 credentials inline |
+| POST   | `/v1/playlists/source-audio`      | **Planned.** Batch audio sourcing from PlayGen; uploads to R2, POSTs callback |
+
+### PlayGen → info-broker audio sourcing
+
+info-broker is the **receiver** in this integration. PlayGen's DJ pipeline POSTs a
+playlist to `/v1/playlists/source-audio`; info-broker downloads audio via yt-dlp,
+uploads each file to the `ownradio` Cloudflare R2 bucket under key
+`songs/{station_id}/{song_id}.mp3`, and then POSTs results back to the caller's
+`callback_url`. info-broker does not call the PlayGen API and holds no PlayGen
+service account. See [`docs/architecture-and-agents.md`](docs/architecture-and-agents.md)
+for the full flow diagram.
 
 ### curl examples
 

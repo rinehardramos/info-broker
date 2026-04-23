@@ -12,3 +12,4 @@
 | [optimization-strategy.md](optimization-strategy.md) | Notes on the self-improving accuracy loop and tuning knobs. |
 | [lessons-learned.md](lessons-learned.md) | Retrospective notes from the MVP and Phase 2-6 rollouts. |
 | [../SECURITY.md](../SECURITY.md) | Runtime threat model and supply-chain policy. |
+| [../CHANGELOG.md](../CHANGELOG.md) | Version history and design decisions. |

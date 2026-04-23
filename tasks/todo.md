@@ -1,4 +1,4 @@
-# Auto Marketer: Phase Implementation TODO
+# info-broker: Implementation TODO
 
 This document details the roadmap for making the Auto Marketer AI agent self-improving. Multiple agents can work on these tickets in parallel, provided they update `tasks/agent-collab.md` first.
 
@@ -60,3 +60,50 @@ This document details the roadmap for making the Auto Marketer AI agent self-imp
   - `export_data.py` / `generate_emails.py`: pass every export DataFrame through `escape_dataframe_cells`.
   - All SQL stays parameterized; `is_safe_sql_identifier` is the gate any future dynamic identifier interpolation must pass.
 - **Dependencies:** None.
+
+---
+
+## Phase 7: PlayGen Playlist Audio Sourcing (2026-04-23)
+
+- **Goal:** Implement `POST /v1/playlists/source-audio` — a batch endpoint that
+  receives a playlist from PlayGen, downloads audio via yt-dlp for each song, uploads
+  to Cloudflare R2, and POSTs results back to a `callback_url`.
+
+### Design constraints
+
+- info-broker is the **receiver**; PlayGen calls us, we do not call PlayGen.
+- R2 credentials live in server-side env vars (`R2_BUCKET`, `R2_ENDPOINT`,
+  `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`). Callers do not supply credentials.
+- R2 object key convention: `songs/{station_id}/{song_id}.mp3`
+- Bucket: `ownradio` at `https://fa958caa19c273f07b49c49a09d76a60.r2.cloudflarestorage.com`
+- Callback payload: `{ station_id, results: [{song_id, status, object_key, error}] }`
+
+### Tasks
+
+- [ ] Add Pydantic schemas in `app/schemas_media.py`:
+  - `PlaylistSongItem` — `{ song_id, title, artist }`
+  - `PlaylistSourceRequest` — `{ station_id, songs: list[PlaylistSongItem], callback_url }`
+  - `PlaylistSongResult` — `{ song_id, status, object_key, error }`
+  - `PlaylistSourceCallback` — `{ station_id, results: list[PlaylistSongResult] }`
+- [ ] Add `POST /v1/playlists/source-audio` route in `app/routers/media.py`:
+  - Accepts `PlaylistSourceRequest` body, returns `202 { job_id, status: "queued" }`.
+  - Spawns a background task that iterates songs, calls existing `source_audio()` +
+    `upload_to_s3()`, then POSTs the callback.
+  - R2 credentials read from env vars (not from the request body).
+  - Per-song errors must not abort the entire batch — mark failed songs individually.
+- [ ] Add env var documentation to `.env.example`:
+  - `R2_BUCKET`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+- [ ] Add rate-limit entry for the new route (suggested: `5/minute` — batch job, not
+  a hot path).
+- [ ] Write tests:
+  - Unit: background task handles per-song failures without aborting batch.
+  - Integration: mock yt-dlp + S3; assert callback payload shape and R2 key format.
+- [ ] Update `docs/README.md` endpoint table to include the new route.
+- [ ] Update `README.md` top-level endpoint table to include the new route.
+
+### Dependencies
+
+- Existing `source_audio()` and `upload_to_s3()` in `app/adapters/audio.py` — no
+  changes needed to those functions.
+- R2 credentials must be present in the deployment environment before the endpoint
+  goes live.
