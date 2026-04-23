@@ -24,3 +24,20 @@ targeted_campaign.json
 .vscode/
 .idea/
 .DS_Store
+
+# Tool / agent caches
+.serena/
+state/
+docs/superpowers/
+
+# Database dump files
+*.sql
+
+# Local scripts (not part of the project)
+migrate.sh
+
+# Logs
+*.log
+
+# Additional env file variants
+.env.*
