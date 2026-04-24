@@ -314,17 +314,23 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
     sourced_songs: list[SourcedSong] = []
     errors: list[dict] = []
 
+    total_songs = len(request.songs)
+    print(f"[playlist_source] job={job_id} START station_id={request.station_id} total_songs={total_songs}", flush=True)
+    log.info("playlist_source job=%s START station_id=%s total_songs=%d", job_id, request.station_id, total_songs)
+
     try:
         r2 = s3_config_from_env()
     except RuntimeError as exc:
+        print(f"[playlist_source] job={job_id} ERROR R2 config unavailable: {exc}", flush=True)
+        log.error("playlist_source job=%s R2 config unavailable: %s", job_id, exc)
         result = PlaylistSourceResult(
             job_id=job_id,
             status="failed",
             station_id=request.station_id,
-            total_songs=len(request.songs),
+            total_songs=total_songs,
             sourced=0,
             skipped=0,
-            failed=len(request.songs),
+            failed=total_songs,
             error=str(exc),
         )
         if request.callback_url:
@@ -332,31 +338,46 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
                 async with httpx.AsyncClient(timeout=10) as client:
                     await client.post(request.callback_url, json=result.model_dump())
             except Exception as cb_exc:  # noqa: BLE001
+                print(f"[playlist_source] job={job_id} WARNING callback failed: {cb_exc}", flush=True)
                 log.warning("playlist_source job=%s callback failed: %s", job_id, cb_exc)
         return
 
     songs = request.songs[: request.limit]
 
-    for song in songs:
+    for idx, song in enumerate(songs, start=1):
         key = s3_song_key(request.station_id, song.song_id)
         output_dir = tempfile.mkdtemp()
         try:
             if request.skip_existing:
-                exists = await s3_object_exists(
-                    key=key,
-                    bucket=r2["bucket"],
-                    endpoint=r2["endpoint"],
-                    access_key=r2["access_key_id"],
-                    secret_key=r2["secret_key"],
-                    region=r2["region"],
-                )
+                try:
+                    exists = await s3_object_exists(
+                        key=key,
+                        bucket=r2["bucket"],
+                        endpoint=r2["endpoint"],
+                        access_key=r2["access_key_id"],
+                        secret_key=r2["secret_key"],
+                        region=r2["region"],
+                    )
+                except Exception as exists_exc:  # noqa: BLE001
+                    print(f"[playlist_source] job={job_id} WARNING s3_object_exists failed for song_id={song.song_id}: {exists_exc}", flush=True)
+                    log.warning("playlist_source job=%s s3_object_exists failed song_id=%s: %s", job_id, song.song_id, exists_exc)
+                    exists = False
                 if exists:
                     skipped += 1
+                    print(f"[playlist_source] job={job_id} SKIP [{idx}/{len(songs)}] song_id={song.song_id} already in R2", flush=True)
+                    log.info("playlist_source job=%s SKIP song_id=%s already in R2", job_id, song.song_id)
                     continue
 
-            audio = await source_audio(
-                title=song.title, artist=song.artist, output_dir=output_dir
-            )
+            print(f"[playlist_source] job={job_id} SOURCING [{idx}/{len(songs)}] song_id={song.song_id} title={song.title!r} artist={song.artist!r}", flush=True)
+            log.info("playlist_source job=%s SOURCING song_id=%s title=%r", job_id, song.song_id, song.title)
+
+            try:
+                audio = await source_audio(
+                    title=song.title, artist=song.artist, output_dir=output_dir
+                )
+            except AudioSourceUnavailable as exc:
+                raise  # re-raise to be caught by the outer except below
+
             await upload_to_s3(
                 file_path=audio["path"],
                 bucket=r2["bucket"],
@@ -368,10 +389,21 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
             )
             sourced += 1
             sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key))
+            print(f"[playlist_source] job={job_id} OK [{idx}/{len(songs)}] song_id={song.song_id} key={key}", flush=True)
             log.info(
-                "playlist_source job=%s sourced song_id=%s title=%r",
-                job_id, song.song_id, song.title,
+                "playlist_source job=%s OK song_id=%s title=%r key=%s",
+                job_id, song.song_id, song.title, key,
             )
+        except AudioSourceUnavailable as exc:
+            failed += 1
+            errors.append({
+                "song_id": song.song_id,
+                "title": song.title,
+                "artist": song.artist,
+                "error": str(exc),
+            })
+            print(f"[playlist_source] job={job_id} UNAVAILABLE [{idx}/{len(songs)}] song_id={song.song_id}: {exc}", flush=True)
+            log.warning("playlist_source job=%s AudioSourceUnavailable song_id=%s: %s", job_id, song.song_id, exc)
         except Exception as exc:  # noqa: BLE001
             failed += 1
             errors.append({
@@ -380,6 +412,7 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
                 "artist": song.artist,
                 "error": str(exc),
             })
+            print(f"[playlist_source] job={job_id} FAILED [{idx}/{len(songs)}] song_id={song.song_id}: {exc}", flush=True)
             log.warning(
                 "playlist_source job=%s failed song_id=%s: %s",
                 job_id, song.song_id, exc,
@@ -395,6 +428,12 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
     else:
         status_str = "failed"
 
+    print(f"[playlist_source] job={job_id} DONE status={status_str} sourced={sourced} skipped={skipped} failed={failed}", flush=True)
+    log.info(
+        "playlist_source job=%s DONE status=%s sourced=%d skipped=%d failed=%d",
+        job_id, status_str, sourced, skipped, failed,
+    )
+
     result = PlaylistSourceResult(
         job_id=job_id,
         status=status_str,
@@ -406,16 +445,13 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
         songs=sourced_songs,
         errors=errors,
     )
-    log.info(
-        "playlist_source job=%s done status=%s sourced=%d skipped=%d failed=%d",
-        job_id, status_str, sourced, skipped, failed,
-    )
 
     if request.callback_url:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 await client.post(request.callback_url, json=result.model_dump())
         except Exception as exc:  # noqa: BLE001
+            print(f"[playlist_source] job={job_id} WARNING callback to {request.callback_url} failed: {exc}", flush=True)
             log.warning("playlist_source job=%s callback to %s failed: %s", job_id, request.callback_url, exc)
 
 
