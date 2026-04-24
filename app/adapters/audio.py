@@ -56,7 +56,9 @@ async def source_audio(title: str, artist: str, output_dir: str | None = None) -
             proc.kill()
             raise AudioSourceUnavailable(f"yt-dlp timed out for: {query}") from exc
 
-        if proc.returncode != 0:
+        # Exit code 101 means "--max-downloads reached" — the requested download
+        # completed successfully; yt-dlp just signals there are no more items.
+        if proc.returncode not in (0, 101):
             stderr_bytes = b""
             if proc.stderr:
                 stderr_bytes = await proc.stderr.read()

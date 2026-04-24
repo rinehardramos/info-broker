@@ -1,7 +1,16 @@
 """info-broker FastAPI application entry point."""
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
+
+# Configure root logger at INFO so background task log.info() calls reach
+# uvicorn's stdout. Without this, Python's default WARNING level silently
+# swallows every INFO/DEBUG record emitted by background tasks.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 from fastapi import FastAPI
 from slowapi import _rate_limit_exceeded_handler
