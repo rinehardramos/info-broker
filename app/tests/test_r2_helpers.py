@@ -27,19 +27,29 @@ FULL_ENV = {
 
 class TestR2SongKey:
     def test_default_ext_is_mp3(self):
-        assert s3_song_key("s1", "song1") == "songs/s1/song1.mp3"
+        assert s3_song_key("Mundo", "IV of Spades") == "audio/songs/iv-of-spades/mundo.mp3"
 
     def test_custom_ext(self):
-        assert s3_song_key("station-99", "abc123", ".flac") == "songs/station-99/abc123.flac"
+        assert s3_song_key("Paraluman", "Adie", ".flac") == "audio/songs/adie/paraluman.flac"
 
-    def test_key_structure_matches_playgen(self):
-        # Key must match PlayGen's presignedUrlService songAudioKey():
-        # songs/{stationId}/{songId}.mp3
-        key = s3_song_key("my-station", "track-42")
+    def test_convention_based_key_structure(self):
+        # Convention: audio/songs/{artist_slug}/{title_slug}.mp3
+        key = s3_song_key("Cruel Summer", "Taylor Swift")
         parts = key.split("/")
-        assert parts[0] == "songs"
-        assert parts[1] == "my-station"
-        assert parts[2] == "track-42.mp3"
+        assert parts[0] == "audio"
+        assert parts[1] == "songs"
+        assert parts[2] == "taylor-swift"
+        assert parts[3] == "cruel-summer.mp3"
+
+    def test_dedup_same_song_same_key(self):
+        # Same song by same artist = same key regardless of station
+        key1 = s3_song_key("Mundo", "IV of Spades")
+        key2 = s3_song_key("Mundo", "IV of Spades")
+        assert key1 == key2
+
+    def test_special_characters_slugified(self):
+        key = s3_song_key("Die With A Smile", "Lady Gaga & Bruno Mars")
+        assert key == "audio/songs/lady-gaga-bruno-mars/die-with-a-smile.mp3"
 
 
 class TestR2ConfigFromEnv:

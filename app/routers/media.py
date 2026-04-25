@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import tempfile
 import shutil
 import uuid
@@ -345,7 +346,7 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
     songs = request.songs[: request.limit]
 
     for idx, song in enumerate(songs, start=1):
-        key = s3_song_key(request.station_id, song.song_id)
+        key = s3_song_key(title=song.title, artist=song.artist)
         output_dir = tempfile.mkdtemp()
         try:
             if request.skip_existing:
@@ -364,6 +365,10 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
                     exists = False
                 if exists:
                     skipped += 1
+                    # Still report skipped songs so PlayGen can update audio_url if missing
+                    s3_public_base = os.getenv("S3_PUBLIC_URL_BASE", "").rstrip("/")
+                    cdn_url = f"{s3_public_base}/{key}" if s3_public_base else None
+                    sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key, audio_url=cdn_url))
                     print(f"[playlist_source] job={job_id} SKIP [{idx}/{len(songs)}] song_id={song.song_id} already in R2", flush=True)
                     log.info("playlist_source job=%s SKIP song_id=%s already in R2", job_id, song.song_id)
                     continue
@@ -388,7 +393,9 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
                 region=r2["region"],
             )
             sourced += 1
-            sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key))
+            s3_public_base = os.getenv("S3_PUBLIC_URL_BASE", "").rstrip("/")
+            cdn_url = f"{s3_public_base}/{key}" if s3_public_base else None
+            sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key, audio_url=cdn_url))
             print(f"[playlist_source] job={job_id} OK [{idx}/{len(songs)}] song_id={song.song_id} key={key}", flush=True)
             log.info(
                 "playlist_source job=%s OK song_id=%s title=%r key=%s",

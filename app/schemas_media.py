@@ -174,6 +174,7 @@ class PlaylistSourceRequest(BaseModel):
 class SourcedSong(BaseModel):
     song_id: str
     r2_key: str
+    audio_url: str | None = None  # Full CDN URL — preferred over r2_key
 
 
 class PlaylistSourceResult(BaseModel):

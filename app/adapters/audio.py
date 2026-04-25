@@ -10,7 +10,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
+import unicodedata
 
 log = logging.getLogger(__name__)
 
@@ -145,9 +147,20 @@ async def upload_to_s3(
 # ── R2 helpers ────────────────────────────────────────────────────────────────
 
 
-def s3_song_key(station_id: str, song_id: str, ext: str = ".mp3") -> str:
-    """Build the R2 object key for a song. Mirrors PlayGen's songAudioKey()."""
-    return f"songs/{station_id}/{song_id}{ext}"
+def slugify(text: str) -> str:
+    """URL-safe slug: lowercase, hyphenated, ASCII-only."""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    text = re.sub(r"[^\w\s-]", "", text.lower().strip())
+    return re.sub(r"[-\s]+", "-", text).strip("-") or "unknown"
+
+
+def s3_song_key(title: str, artist: str, ext: str = ".mp3") -> str:
+    """Build the R2 object key for a song using artist/title convention.
+
+    Convention: audio/songs/{artist_slug}/{title_slug}.mp3
+    Same song by same artist = same key (idempotent, shared across stations).
+    """
+    return f"audio/songs/{slugify(artist)}/{slugify(title)}{ext}"
 
 
 def s3_config_from_env() -> dict:
