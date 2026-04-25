@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
 import tempfile
 import shutil
 import uuid
@@ -349,7 +350,26 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
 
     s3_public_base = os.getenv("S3_PUBLIC_URL_BASE", "").rstrip("/")
 
+    # Anti-bot evasion: configurable delays between downloads
+    delay_min = float(os.getenv("YTDLP_DELAY_MIN_SEC", "3"))
+    delay_max = float(os.getenv("YTDLP_DELAY_MAX_SEC", "12"))
+    burst_size = int(os.getenv("YTDLP_BURST_SIZE", "5"))
+    burst_pause = float(os.getenv("YTDLP_BURST_PAUSE_SEC", "45"))
+    cookies_file = os.getenv("YTDLP_COOKIES_FILE")
+
     for idx, song in enumerate(songs, start=1):
+        # Inter-request delay (skip for first song)
+        if idx > 1:
+            if (idx - 1) % burst_size == 0:
+                # Longer pause after each burst
+                pause = burst_pause + random.uniform(0, 15)
+                print(f"[playlist_source] job={job_id} BURST_PAUSE {pause:.1f}s after {burst_size} songs", flush=True)
+                await asyncio.sleep(pause)
+            else:
+                delay = random.uniform(delay_min, delay_max)
+                print(f"[playlist_source] job={job_id} DELAY {delay:.1f}s", flush=True)
+                await asyncio.sleep(delay)
+
         key = s3_song_key(title=song.title, artist=song.artist)
         playlist_key = f"{key}/playlist.m3u8"
         output_dir = tempfile.mkdtemp()
@@ -381,7 +401,8 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
 
             try:
                 audio = await source_audio(
-                    title=song.title, artist=song.artist, output_dir=output_dir
+                    title=song.title, artist=song.artist, output_dir=output_dir,
+                    cookies_file=cookies_file,
                 )
             except AudioSourceUnavailable as exc:
                 raise  # re-raise to be caught by the outer except below

@@ -21,11 +21,13 @@ class AudioSourceUnavailable(Exception):
     """Raised when yt-dlp or ffprobe are missing or the download fails."""
 
 
-async def source_audio(title: str, artist: str, output_dir: str | None = None) -> dict:
+async def source_audio(title: str, artist: str, output_dir: str | None = None, cookies_file: str | None = None) -> dict:
     """Search YouTube and download audio as MP3.
 
     Returns a dict with keys: path, duration_sec, size_bytes, format.
     Raises AudioSourceUnavailable when yt-dlp is missing or the download fails.
+
+    If cookies_file is provided, passes --cookies to yt-dlp for authenticated access.
     """
     if not title.strip() or not artist.strip():
         raise ValueError("title and artist are required")
@@ -34,18 +36,24 @@ async def source_audio(title: str, artist: str, output_dir: str | None = None) -
 
     with tempfile.TemporaryDirectory() as tmpdir:
         target_dir = output_dir or tmpdir
-        # yt-dlp appends the extension itself; the template without extension is
-        # what we pass to --output. After extraction the file will be audio.mp3.
         out_template = os.path.join(target_dir, "audio.%(ext)s")
         outfile = os.path.join(target_dir, "audio.mp3")
 
+        cmd = [
+            "yt-dlp", f"ytsearch1:{query}",
+            "--extract-audio", "--audio-format", "mp3", "--audio-quality", "192K",
+            "--no-playlist", "--max-downloads", "1",
+            "--output", out_template,
+            "--no-warnings", "--quiet",
+        ]
+        # Cookie file for YouTube bot detection bypass
+        effective_cookies = cookies_file or os.getenv("YTDLP_COOKIES_FILE")
+        if effective_cookies and os.path.exists(effective_cookies):
+            cmd.extend(["--cookies", effective_cookies])
+
         try:
             proc = await asyncio.create_subprocess_exec(
-                "yt-dlp", f"ytsearch1:{query}",
-                "--extract-audio", "--audio-format", "mp3", "--audio-quality", "192K",
-                "--no-playlist", "--max-downloads", "1",
-                "--output", out_template,
-                "--no-warnings", "--quiet",
+                *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
