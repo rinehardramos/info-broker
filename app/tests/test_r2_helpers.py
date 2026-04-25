@@ -26,30 +26,32 @@ FULL_ENV = {
 
 
 class TestR2SongKey:
-    def test_default_ext_is_mp3(self):
-        assert s3_song_key("Mundo", "IV of Spades") == "audio/songs/iv-of-spades/mundo.mp3"
-
-    def test_custom_ext(self):
-        assert s3_song_key("Paraluman", "Adie", ".flac") == "audio/songs/adie/paraluman.flac"
+    def test_returns_directory_prefix(self):
+        # Key is a directory prefix, not a file path
+        assert s3_song_key("Mundo", "IV of Spades") == "audio/songs/iv-of-spades/mundo"
 
     def test_convention_based_key_structure(self):
-        # Convention: audio/songs/{artist_slug}/{title_slug}.mp3
+        # Convention: audio/songs/{artist_slug}/{title_slug}
         key = s3_song_key("Cruel Summer", "Taylor Swift")
         parts = key.split("/")
         assert parts[0] == "audio"
         assert parts[1] == "songs"
         assert parts[2] == "taylor-swift"
-        assert parts[3] == "cruel-summer.mp3"
+        assert parts[3] == "cruel-summer"
+
+    def test_hls_playlist_url(self):
+        # HLS playlist is at {key}/playlist.m3u8
+        key = s3_song_key("Paraluman", "Adie")
+        assert f"{key}/playlist.m3u8" == "audio/songs/adie/paraluman/playlist.m3u8"
 
     def test_dedup_same_song_same_key(self):
-        # Same song by same artist = same key regardless of station
         key1 = s3_song_key("Mundo", "IV of Spades")
         key2 = s3_song_key("Mundo", "IV of Spades")
         assert key1 == key2
 
     def test_special_characters_slugified(self):
         key = s3_song_key("Die With A Smile", "Lady Gaga & Bruno Mars")
-        assert key == "audio/songs/lady-gaga-bruno-mars/die-with-a-smile.mp3"
+        assert key == "audio/songs/lady-gaga-bruno-mars/die-with-a-smile"
 
 
 class TestR2ConfigFromEnv:

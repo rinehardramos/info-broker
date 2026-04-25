@@ -24,6 +24,8 @@ from app.adapters.audio import (
     s3_object_exists,
     s3_song_key,
     source_audio,
+    transcode_to_hls,
+    upload_hls_to_s3,
     upload_to_s3,
 )
 from app.adapters.jokes import JokeUnavailable, fetch_joke
@@ -345,14 +347,17 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
 
     songs = request.songs[: request.limit]
 
+    s3_public_base = os.getenv("S3_PUBLIC_URL_BASE", "").rstrip("/")
+
     for idx, song in enumerate(songs, start=1):
         key = s3_song_key(title=song.title, artist=song.artist)
+        playlist_key = f"{key}/playlist.m3u8"
         output_dir = tempfile.mkdtemp()
         try:
             if request.skip_existing:
                 try:
                     exists = await s3_object_exists(
-                        key=key,
+                        key=playlist_key,
                         bucket=r2["bucket"],
                         endpoint=r2["endpoint"],
                         access_key=r2["access_key_id"],
@@ -365,10 +370,8 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
                     exists = False
                 if exists:
                     skipped += 1
-                    # Still report skipped songs so PlayGen can update audio_url if missing
-                    s3_public_base = os.getenv("S3_PUBLIC_URL_BASE", "").rstrip("/")
-                    cdn_url = f"{s3_public_base}/{key}" if s3_public_base else None
-                    sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key, audio_url=cdn_url))
+                    cdn_url = f"{s3_public_base}/{playlist_key}" if s3_public_base else None
+                    sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=playlist_key, audio_url=cdn_url))
                     print(f"[playlist_source] job={job_id} SKIP [{idx}/{len(songs)}] song_id={song.song_id} already in R2", flush=True)
                     log.info("playlist_source job=%s SKIP song_id=%s already in R2", job_id, song.song_id)
                     continue
@@ -383,23 +386,34 @@ async def _process_playlist_source(job_id: str, request: PlaylistSourceRequest) 
             except AudioSourceUnavailable as exc:
                 raise  # re-raise to be caught by the outer except below
 
-            await upload_to_s3(
-                file_path=audio["path"],
+            # Transcode MP3 → HLS segments (AAC 128k, 6s fMP4)
+            hls_dir = os.path.join(output_dir, "hls")
+            os.makedirs(hls_dir, exist_ok=True)
+            hls = await transcode_to_hls(audio["path"], hls_dir)
+
+            # Upload all HLS files to R2
+            n_uploaded = await upload_hls_to_s3(
+                hls_dir=hls_dir,
+                base_key=key,
                 bucket=r2["bucket"],
-                key=key,
                 endpoint=r2["endpoint"],
                 access_key=r2["access_key_id"],
                 secret_key=r2["secret_key"],
                 region=r2["region"],
             )
+
             sourced += 1
-            s3_public_base = os.getenv("S3_PUBLIC_URL_BASE", "").rstrip("/")
-            cdn_url = f"{s3_public_base}/{key}" if s3_public_base else None
-            sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=key, audio_url=cdn_url))
-            print(f"[playlist_source] job={job_id} OK [{idx}/{len(songs)}] song_id={song.song_id} key={key}", flush=True)
+            cdn_url = f"{s3_public_base}/{playlist_key}" if s3_public_base else None
+            sourced_songs.append(SourcedSong(song_id=song.song_id, r2_key=playlist_key, audio_url=cdn_url))
+            print(
+                f"[playlist_source] job={job_id} OK [{idx}/{len(songs)}] "
+                f"song_id={song.song_id} key={key}/ ({n_uploaded} files, "
+                f"{hls['total_size_bytes'] // 1024}KB)",
+                flush=True,
+            )
             log.info(
-                "playlist_source job=%s OK song_id=%s title=%r key=%s",
-                job_id, song.song_id, song.title, key,
+                "playlist_source job=%s OK song_id=%s title=%r key=%s/ files=%d",
+                job_id, song.song_id, song.title, key, n_uploaded,
             )
         except AudioSourceUnavailable as exc:
             failed += 1

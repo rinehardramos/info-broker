@@ -144,6 +144,118 @@ async def upload_to_s3(
     return key
 
 
+# ── HLS transcoding ──────────────────────────────────────────────────────────
+
+
+async def transcode_to_hls(
+    input_path: str,
+    output_dir: str,
+    segment_duration: int = 6,
+) -> dict:
+    """Transcode audio to HLS segments (AAC 128k fMP4).
+
+    Returns: { playlist_path, files, duration_sec, total_size_bytes }
+    where files is a list of (local_path, relative_name) tuples.
+    """
+    playlist_path = os.path.join(output_dir, "playlist.m3u8")
+
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-i", input_path,
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        "-f", "hls",
+        "-hls_time", str(segment_duration),
+        "-hls_segment_type", "fmp4",
+        "-hls_fmp4_init_filename", "init.mp4",
+        "-hls_segment_filename", os.path.join(output_dir, "seg-%03d.m4s"),
+        "-hls_playlist_type", "vod",
+        "-y",  # overwrite
+        playlist_path,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    try:
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        proc.kill()
+        raise AudioSourceUnavailable("ffmpeg HLS transcode timed out")
+
+    if proc.returncode != 0:
+        raise AudioSourceUnavailable(
+            f"ffmpeg HLS transcode failed (exit {proc.returncode}): "
+            f"{stderr.decode(errors='replace').strip()[-200:]}"
+        )
+
+    # Collect all output files
+    files: list[tuple[str, str]] = []
+    total_size = 0
+    for name in os.listdir(output_dir):
+        fpath = os.path.join(output_dir, name)
+        if os.path.isfile(fpath):
+            files.append((fpath, name))
+            total_size += os.path.getsize(fpath)
+
+    duration_sec = await probe_duration(input_path)
+
+    return {
+        "playlist_path": playlist_path,
+        "files": files,
+        "duration_sec": duration_sec,
+        "total_size_bytes": total_size,
+    }
+
+
+# Content-type mapping for HLS segment files
+_HLS_CONTENT_TYPES = {
+    ".m3u8": "application/vnd.apple.mpegurl",
+    ".mp4": "video/mp4",
+    ".m4s": "video/iso.segment",
+}
+
+
+async def upload_hls_to_s3(
+    hls_dir: str,
+    base_key: str,
+    bucket: str,
+    endpoint: str,
+    access_key: str,
+    secret_key: str,
+    region: str = "auto",
+) -> int:
+    """Upload all HLS segment files to S3/R2 under base_key/.
+
+    Returns the number of files uploaded.
+    """
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
+    )
+
+    uploaded = 0
+    for name in os.listdir(hls_dir):
+        fpath = os.path.join(hls_dir, name)
+        if not os.path.isfile(fpath):
+            continue
+
+        ext = os.path.splitext(name)[1].lower()
+        content_type = _HLS_CONTENT_TYPES.get(ext, "application/octet-stream")
+        s3_key = f"{base_key}/{name}"
+
+        try:
+            s3.upload_file(fpath, bucket, s3_key, ExtraArgs={"ContentType": content_type})
+            uploaded += 1
+        except (BotoCoreError, ClientError) as exc:
+            raise RuntimeError(f"S3 upload failed for {s3_key}: {exc}") from exc
+
+    return uploaded
+
+
 # ── R2 helpers ────────────────────────────────────────────────────────────────
 
 
@@ -154,13 +266,14 @@ def slugify(text: str) -> str:
     return re.sub(r"[-\s]+", "-", text).strip("-") or "unknown"
 
 
-def s3_song_key(title: str, artist: str, ext: str = ".mp3") -> str:
-    """Build the R2 object key for a song using artist/title convention.
+def s3_song_key(title: str, artist: str) -> str:
+    """Build the R2 key prefix for a song using artist/title convention.
 
-    Convention: audio/songs/{artist_slug}/{title_slug}.mp3
-    Same song by same artist = same key (idempotent, shared across stations).
+    Convention: audio/songs/{artist_slug}/{title_slug}
+    HLS segments stored under this prefix: playlist.m3u8, init.mp4, seg-*.m4s
+    Same song by same artist = same prefix (idempotent, shared across stations).
     """
-    return f"audio/songs/{slugify(artist)}/{slugify(title)}{ext}"
+    return f"audio/songs/{slugify(artist)}/{slugify(title)}"
 
 
 def s3_config_from_env() -> dict:
