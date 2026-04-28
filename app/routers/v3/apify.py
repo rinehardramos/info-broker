@@ -17,6 +17,7 @@ from app.routers.v3.models import (
     ApifyRunIn,
     ApifyRunOut,
     ApifyRunStatusOut,
+    LinkedInProfileGradeIn,
     LinkedInProfileOut,
 )
 
@@ -246,10 +247,38 @@ def list_profiles(
     user: dict = Depends(get_current_user),
 ):
     rows = fetch_all(
-        "SELECT id, first_name, last_name, headline, about FROM linkedin_profiles ORDER BY id LIMIT %s OFFSET %s",
-        (limit, offset),
+        """
+        SELECT p.id, p.first_name, p.last_name, p.headline, p.about, g.grade
+        FROM linkedin_profiles p
+        LEFT JOIN linkedin_profile_grades g
+               ON g.profile_id = p.id AND g.user_id = %s
+        ORDER BY p.id
+        LIMIT %s OFFSET %s
+        """,
+        (str(user["id"]), limit, offset),
     )
     return [LinkedInProfileOut(**r) for r in rows]
+
+
+@router.post("/profiles/{profile_id}/grade")
+def grade_profile(
+    profile_id: str,
+    body: LinkedInProfileGradeIn,
+    user: dict = Depends(get_current_user),
+):
+    row = fetch_one("SELECT id FROM linkedin_profiles WHERE id = %s", (profile_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    execute(
+        """
+        INSERT INTO linkedin_profile_grades (profile_id, user_id, grade)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (profile_id, user_id)
+        DO UPDATE SET grade = EXCLUDED.grade, updated_at = now()
+        """,
+        (profile_id, str(user["id"]), body.grade),
+    )
+    return {"ok": True}
 
 
 @router.get("/runs/{run_id}/status", response_model=ApifyRunStatusOut)

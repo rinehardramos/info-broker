@@ -119,6 +119,15 @@ CREATE TABLE IF NOT EXISTS apify_runs (
     started_at   TIMESTAMPTZ DEFAULT now(),
     finished_at  TIMESTAMPTZ
 );
+
+CREATE TABLE IF NOT EXISTS linkedin_profile_grades (
+    profile_id  VARCHAR(128) NOT NULL,
+    user_id     UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    grade       VARCHAR(16) NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    updated_at  TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (profile_id, user_id)
+);
 """
 
 

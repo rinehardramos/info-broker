@@ -80,7 +80,11 @@ export interface LinkedInProfile {
   last_name: string | null
   headline: string | null
   about: string | null
+  grade: string | null
 }
 
 export const listLinkedInProfiles = (limit = 50, offset = 0): Promise<LinkedInProfile[]> =>
   api.get('/v3/apify/profiles', { params: { limit, offset } }).then((r) => r.data)
+
+export const gradeLinkedInProfile = (profileId: string, grade: string): Promise<void> =>
+  api.post(`/v3/apify/profiles/${profileId}/grade`, { grade }).then((r) => r.data)

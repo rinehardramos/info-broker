@@ -171,3 +171,8 @@ class LinkedInProfileOut(BaseModel):
     last_name: str | None
     headline: str | None
     about: str | None
+    grade: str | None = None
+
+
+class LinkedInProfileGradeIn(BaseModel):
+    grade: str  # target | interesting | amazing | not_close | undecided

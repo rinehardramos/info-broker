@@ -9,9 +9,11 @@ import {
   listApifyRuns,
   getApifyRunStatus,
   listLinkedInProfiles,
+  gradeLinkedInProfile,
   type ApifyRunOut,
   type LinkedInProfile,
 } from '../api/apify'
+import GradeBar from '../components/results/GradeBar'
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--panel)',
@@ -110,6 +112,12 @@ function ProfileCard({ p }: { p: LinkedInProfile }) {
       <div className="font-semibold mb-0.5" style={{ color: 'var(--text)' }}>{name}</div>
       {p.headline && <div className="mb-1 truncate" style={{ color: 'var(--subtext)' }}>{p.headline}</div>}
       {p.about && <div className="line-clamp-3" style={{ color: 'var(--muted)' }}>{p.about}</div>}
+      <GradeBar
+        resultId={p.id}
+        jobId=""
+        initialGrade={p.grade}
+        onGrade={(profileId, grade) => { gradeLinkedInProfile(profileId, grade).catch(() => {}) }}
+      />
     </div>
   )
 }
