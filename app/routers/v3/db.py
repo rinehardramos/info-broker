@@ -99,10 +99,23 @@ def get_conn():
         conn.close()
 
 
+_SEED = """
+INSERT INTO ui_users (username, password_hash)
+VALUES (
+    'admin',
+    '$2b$12$3cjgCjbJ/MLj.H7vGH9xHOKDUtgo492x98IdWILFNnadN4NbLgmym'
+)
+ON CONFLICT (username) DO NOTHING;
+"""
+# Default credentials: admin / admin
+# Change the password via the DB after first login.
+
+
 def run_migrations() -> None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(_MIGRATION)
+            cur.execute(_SEED)
 
 
 def fetch_one(query: str, params: tuple = ()) -> dict | None:
