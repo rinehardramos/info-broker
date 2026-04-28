@@ -1,21 +1,30 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
-import { getJob } from '../../api/v3'
+import { getJob, getJobResults } from '../../api/v3'
 import NewsCard from './NewsCard'
-import ProfileCard from './ProfileCard'
 
 type Tab = 'Profiles' | 'News' | 'Social' | 'Summary'
 const TABS: Tab[] = ['Profiles', 'News', 'Social', 'Summary']
 
 export default function ResultsPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('News')
-  const col1Content               = useSessionStore(s => s.col1Content)
+  const col1Content = useSessionStore(s => s.col1Content)
 
   const { data: job } = useQuery({
     queryKey: ['job', col1Content?.jobId],
     queryFn: () => getJob(col1Content!.jobId),
     enabled: col1Content?.type === 'job' && !!col1Content?.jobId,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === 'running' || status === 'pending' ? 3000 : false
+    },
+  })
+
+  const { data: results = [] } = useQuery({
+    queryKey: ['job-results', col1Content?.jobId],
+    queryFn: () => getJobResults(col1Content!.jobId),
+    enabled: col1Content?.type === 'job' && !!col1Content?.jobId && job?.status === 'completed',
   })
 
   return (
@@ -36,9 +45,9 @@ export default function ResultsPanel() {
             {tab}
           </button>
         ))}
-        {col1Content && (
+        {job && (
           <span className="ml-auto text-[10px] truncate max-w-[40%]" style={{ color: 'var(--subtext)' }}>
-            {job?.query ?? '…'}
+            {job.query}
           </span>
         )}
       </div>
@@ -52,27 +61,45 @@ export default function ResultsPanel() {
           </div>
         )}
 
-        {col1Content?.type === 'job' && activeTab === 'News' && (
+        {col1Content && activeTab === 'News' && (
           <div>
-            <p className="text-[10px] mb-3" style={{ color: 'var(--subtext)' }}>
-              {job ? `Job ${job.status} — ${job.result_count} results` : 'Loading…'}
-            </p>
-            {job && job.result_count === 0 && (
-              <NewsCard item={{
-                id: 'placeholder',
-                title: 'Research in progress',
-                snippet: 'Results will appear here as the agent completes its research.',
-              }} />
+            {job && (
+              <p className="text-[10px] mb-3" style={{ color: 'var(--subtext)' }}>
+                {job.status === 'running' || job.status === 'pending'
+                  ? '⟳ Research in progress…'
+                  : `${job.status} — ${results.length} results`}
+              </p>
+            )}
+            {results.map(r => (
+              <NewsCard
+                key={r.id}
+                item={{
+                  id: r.id,
+                  title: r.title,
+                  url: r.url ?? undefined,
+                  snippet: r.snippet ?? undefined,
+                  source_name: r.source,
+                }}
+              />
+            ))}
+            {job?.status === 'completed' && results.length === 0 && (
+              <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>No results found.</p>
             )}
           </div>
         )}
 
-        {col1Content?.type === 'job' && activeTab === 'Summary' && (
+        {col1Content && activeTab === 'Summary' && (
           <div className="text-xs p-3 rounded" style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}>
             {job ? (
               <>
                 <div className="font-semibold mb-2" style={{ color: 'var(--accent)' }}>{job.query}</div>
-                <div style={{ color: 'var(--subtext)' }}>Status: {job.status}</div>
+                <div className="mb-1" style={{ color: 'var(--subtext)' }}>Status: {job.status}</div>
+                <div style={{ color: 'var(--subtext)' }}>Results: {results.length}</div>
+                {results.filter(r => r.source === 'qdrant').length > 0 && (
+                  <div className="mt-2 text-[10px]" style={{ color: 'var(--muted)' }}>
+                    {results.filter(r => r.source === 'qdrant').length} results from Qdrant memory
+                  </div>
+                )}
               </>
             ) : 'Loading…'}
           </div>
@@ -88,6 +115,3 @@ export default function ResultsPanel() {
     </div>
   )
 }
-
-// Re-export for use in other contexts
-export { ProfileCard, NewsCard }

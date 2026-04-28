@@ -51,6 +51,15 @@ export interface AgentMessageOut {
   status: string
 }
 
+export interface JobResult {
+  id: string
+  source: string
+  title: string
+  url: string | null
+  snippet: string | null
+  created_at: string
+}
+
 // --- User ---
 
 export const getMe = () => api.get<UserOut>('/v3/users/me').then(r => r.data)
@@ -73,6 +82,11 @@ export const listJobs = () => api.get<JobOut[]>('/v3/jobs').then(r => r.data)
 export const getJob = (id: string) => api.get<JobOut>(`/v3/jobs/${id}`).then(r => r.data)
 
 export const cancelJob = (id: string) => api.delete(`/v3/jobs/${id}`)
+
+export async function getJobResults(jobId: string): Promise<JobResult[]> {
+  const { data } = await api.get<JobResult[]>(`/v3/jobs/${jobId}/results`)
+  return data
+}
 
 // --- Monitors ---
 

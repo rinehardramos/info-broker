@@ -106,3 +106,21 @@ def get_results_payloads(result_ids: list[uuid.UUID]) -> dict[str, dict]:
     except Exception as exc:
         log.warning("Qdrant batch retrieve failed: %s", exc)
         return {}
+
+
+def semantic_search(query: str, limit: int = 10) -> list[dict]:
+    """Return Qdrant payloads for the top-k results similar to query."""
+    try:
+        from llm_providers import embed_text
+        vector = embed_text(query)
+        client = _client()
+        hits = client.search(
+            collection_name=COLLECTION,
+            query_vector=vector,
+            limit=limit,
+            with_payload=True,
+        )
+        return [h.payload for h in hits if h.payload]
+    except Exception as exc:
+        log.warning("Qdrant semantic_search failed: %s", exc)
+        return []

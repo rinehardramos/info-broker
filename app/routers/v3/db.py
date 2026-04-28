@@ -70,6 +70,19 @@ CREATE TABLE IF NOT EXISTS v3_jobs (
     created_at   TIMESTAMPTZ DEFAULT now(),
     completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE v3_jobs ADD COLUMN IF NOT EXISTS result_count INT DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS v3_job_results (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id       UUID REFERENCES v3_jobs(id) ON DELETE CASCADE,
+    source       VARCHAR(32) DEFAULT 'ddg',
+    title        TEXT NOT NULL,
+    url          TEXT,
+    snippet      TEXT,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_v3_job_results_job_id ON v3_job_results(job_id);
 """
 
 
