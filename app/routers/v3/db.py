@@ -125,10 +125,13 @@ ON CONFLICT (username) DO NOTHING;
 
 
 def run_migrations() -> None:
+    # psycopg2 execute() only runs the first statement in a multi-statement
+    # string. Split on ";" and run each non-empty statement individually.
+    statements = [s.strip() for s in (_MIGRATION + _SEED).split(";") if s.strip()]
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(_MIGRATION)
-            cur.execute(_SEED)
+            for stmt in statements:
+                cur.execute(stmt)
 
 
 def fetch_one(query: str, params: tuple = ()) -> dict | None:
