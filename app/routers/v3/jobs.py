@@ -2,7 +2,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
-from app.routers.v3.models import JobOut
+from app.routers.v3.models import JobOut, ResultGradeIn
 
 router = APIRouter(prefix="/v3/jobs", tags=["v3-jobs"])
 
@@ -18,7 +18,6 @@ def list_jobs(user: dict = Depends(get_current_user)):
 
 @router.get("/{job_id}/results")
 def get_job_results(job_id: str, user: dict = Depends(get_current_user)):
-    # Verify ownership
     job = fetch_one(
         "SELECT id FROM v3_jobs WHERE id = %s AND user_id = %s",
         (job_id, str(user["id"])),
@@ -26,10 +25,48 @@ def get_job_results(job_id: str, user: dict = Depends(get_current_user)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     rows = fetch_all(
-        "SELECT id::text, source, title, url, snippet, created_at FROM v3_job_results WHERE job_id = %s ORDER BY created_at",
-        (job_id,),
+        """
+        SELECT r.id::text, r.source, r.title, r.url, r.snippet, r.created_at,
+               g.grade
+        FROM v3_job_results r
+        LEFT JOIN v3_result_grades g
+               ON g.result_id = r.id AND g.user_id = %s
+        WHERE r.job_id = %s
+        ORDER BY r.created_at
+        """,
+        (str(user["id"]), job_id),
     )
     return rows
+
+
+@router.post("/{job_id}/results/{result_id}/grade")
+def grade_result(
+    job_id: str,
+    result_id: str,
+    body: ResultGradeIn,
+    user: dict = Depends(get_current_user),
+):
+    # Verify result belongs to a job owned by this user
+    row = fetch_one(
+        """
+        SELECT r.id FROM v3_job_results r
+        JOIN v3_jobs j ON j.id = r.job_id
+        WHERE r.id = %s AND j.id = %s AND j.user_id = %s
+        """,
+        (result_id, job_id, str(user["id"])),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Result not found")
+    execute(
+        """
+        INSERT INTO v3_result_grades (result_id, user_id, grade)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (result_id, user_id)
+        DO UPDATE SET grade = EXCLUDED.grade, updated_at = now()
+        """,
+        (result_id, str(user["id"]), body.grade),
+    )
+    return {"ok": True}
 
 
 @router.get("/{job_id}", response_model=JobOut)

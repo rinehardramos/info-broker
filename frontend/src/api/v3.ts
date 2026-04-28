@@ -58,6 +58,7 @@ export interface JobResult {
   url: string | null
   snippet: string | null
   created_at: string
+  grade: string | null
 }
 
 // --- User ---
@@ -86,6 +87,10 @@ export const cancelJob = (id: string) => api.delete(`/v3/jobs/${id}`)
 export async function getJobResults(jobId: string): Promise<JobResult[]> {
   const { data } = await api.get<JobResult[]>(`/v3/jobs/${jobId}/results`)
   return data
+}
+
+export async function gradeResult(jobId: string, resultId: string, grade: string): Promise<void> {
+  await api.post(`/v3/jobs/${jobId}/results/${resultId}/grade`, { grade })
 }
 
 // --- Monitors ---

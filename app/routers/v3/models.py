@@ -93,6 +93,10 @@ class JobOut(BaseModel):
     result_count: int
 
 
+class ResultGradeIn(BaseModel):
+    grade: str  # target | interesting | amazing | not_close | undecided
+
+
 class StreamEvent(BaseModel):
     type: str
     job_id: str | None = None

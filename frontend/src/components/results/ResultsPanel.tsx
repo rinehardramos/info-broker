@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
-import { getJob, getJobResults } from '../../api/v3'
+import { getJob, getJobResults, gradeResult } from '../../api/v3'
 import NewsCard from './NewsCard'
+import GradeBar from './GradeBar'
 
 type Tab = 'Profiles' | 'News' | 'Social' | 'Summary'
 const TABS: Tab[] = ['Profiles', 'News', 'Social', 'Summary']
@@ -71,16 +72,25 @@ export default function ResultsPanel() {
               </p>
             )}
             {results.map(r => (
-              <NewsCard
-                key={r.id}
-                item={{
-                  id: r.id,
-                  title: r.title,
-                  url: r.url ?? undefined,
-                  snippet: r.snippet ?? undefined,
-                  source_name: r.source,
-                }}
-              />
+              <div key={r.id} className="mb-3">
+                <NewsCard
+                  item={{
+                    id: r.id,
+                    title: r.title,
+                    url: r.url ?? undefined,
+                    snippet: r.snippet ?? undefined,
+                    source_name: r.source,
+                  }}
+                />
+                <GradeBar
+                  resultId={r.id}
+                  jobId={col1Content!.jobId}
+                  initialGrade={r.grade}
+                  onGrade={(resultId, grade) => {
+                    gradeResult(col1Content!.jobId, resultId, grade).catch(() => {})
+                  }}
+                />
+              </div>
             ))}
             {job?.status === 'completed' && results.length === 0 && (
               <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>No results found.</p>

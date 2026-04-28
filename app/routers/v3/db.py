@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS v3_job_results (
     created_at   TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_v3_job_results_job_id ON v3_job_results(job_id);
+
+CREATE TABLE IF NOT EXISTS v3_result_grades (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    result_id  UUID REFERENCES v3_job_results(id) ON DELETE CASCADE,
+    user_id    UUID REFERENCES ui_users(id) ON DELETE CASCADE,
+    grade      VARCHAR(16) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (result_id, user_id)
+);
 """
 
 
