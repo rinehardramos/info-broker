@@ -90,9 +90,31 @@ Two dark modes. Toggled via `☀/🌙` in the icon rail. Preference saved per us
 
 Signal colours (both modes): High = `#4ade80` / `#22c55e`, Medium = `#f59e0b`, Low = `#ef4444`.
 
-### 2.5 Plugin Configuration Pages
+### 2.5 Settings Page
 
-Each plugin has a dedicated configuration page, accessible from `⚙ Settings → Plugins → [plugin name]`. The page is auto-rendered from the plugin's `config_schema` (JSON Schema). Users can tweak plugin-specific parameters (e.g. Apify actor ID, scraping depth, rate limits, geographic filters, API keys).
+Accessed via `⚙` in the icon rail. Two tiers:
+
+#### Core Settings
+
+System-wide configuration. Visible to all users (admin enforcement is out of scope for now).
+
+| Section | Fields |
+|---------|--------|
+| **Database** | Postgres connection URL, Qdrant host + port, connection pool size |
+| **RAG** | Embedding model, chunk size, overlap, similarity threshold, collection names |
+| **LLM Providers** | Per-provider: API key, default model, temperature, max tokens |
+| | OpenAI — key + model selector (gpt-4o, gpt-4-turbo, etc.) |
+| | Anthropic — key + model selector (claude-opus-4-6, claude-sonnet-4-6, etc.) |
+| | Gemini — key + model selector (gemini-2.5-pro, etc.) |
+| | LM Studio — base URL (local) |
+| | Active provider — which LLM the research agent uses |
+| **Security** | JWT secret (write-only field), token expiry |
+
+Core settings are stored server-side in a `core_settings` Postgres table (not in `.env` — so they can be changed at runtime without restart). Sensitive values (API keys) are stored encrypted.
+
+#### Plugin Configuration Pages
+
+Each plugin has a dedicated sub-page under `⚙ Settings → Plugins → [plugin name]`. Auto-rendered from the plugin's `config_schema` (JSON Schema). Per-user — each user can have their own plugin configuration.
 
 Examples:
 - **Apify LinkedIn:** actor ID, max results, geographic filter, cookie session, rate limit
@@ -192,6 +214,8 @@ All `/v3/*` routes require JWT auth. Existing `/v1/*` and `/v2/*` routes are unc
 | GET | `/v3/users/me` | Current user + preferences |
 | PUT | `/v3/users/me/preferences` | Save layout, mode preference |
 | WS | `/v3/stream` | WebSocket live event stream |
+| GET | `/v3/settings/core` | Get all core settings (secrets masked) |
+| PUT | `/v3/settings/core` | Update one or more core settings |
 | POST | `/v3/auth/login` | Exchange credentials for JWT |
 | POST | `/v3/auth/refresh` | Refresh JWT |
 
@@ -264,6 +288,14 @@ CREATE TABLE plugin_configs (
     config      JSONB NOT NULL DEFAULT '{}',       -- validated against plugin config_schema
     updated_at  TIMESTAMPTZ DEFAULT now(),
     UNIQUE (user_id, plugin_name)
+);
+
+-- Core system settings (runtime-editable, replaces env vars for sensitive config)
+CREATE TABLE core_settings (
+    key         VARCHAR(128) PRIMARY KEY,           -- e.g. 'llm.openai.api_key', 'db.pool_size'
+    value       TEXT NOT NULL,                      -- encrypted for sensitive keys
+    is_secret   BOOLEAN DEFAULT false,              -- if true, never returned in API responses
+    updated_at  TIMESTAMPTZ DEFAULT now()
 );
 
 -- Feed monitors (RSS, social accounts)
