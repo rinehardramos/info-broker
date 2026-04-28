@@ -4,11 +4,12 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { THEMES } from '../../lib/theme'
 
 const NAV = [
-  { icon: '⬡', path: '/',         label: 'Research' },
-  { icon: '◉', path: '/jobs',     label: 'Jobs' },
-  { icon: '◈', path: '/monitors', label: 'Monitors' },
-  { icon: '▤', path: '/history',  label: 'History' },
-  { icon: '⚙', path: '/settings', label: 'Settings' },
+  { icon: '⬡', path: '/',          label: 'Research' },
+  { icon: '◉', path: '/jobs',      label: 'Jobs' },
+  { icon: '◈', path: '/monitors',  label: 'Monitors' },
+  { icon: '▤', path: '/history',   label: 'History' },
+  { icon: '⊞', path: '/linkedin',  label: 'LinkedIn' },
+  { icon: '⚙', path: '/settings',  label: 'Settings' },
 ]
 
 export default function IconRail() {

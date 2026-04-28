@@ -11,7 +11,8 @@ const Research = lazy(() => import('./pages/Research'))
 const Jobs      = lazy(() => import('./pages/Jobs'))
 const Monitors  = lazy(() => import('./pages/Monitors'))
 const History   = lazy(() => import('./pages/History'))
-const Settings  = lazy(() => import('./pages/Settings'))
+const Settings    = lazy(() => import('./pages/Settings'))
+const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
             <Route path="/monitors" element={<AuthGuard><Monitors /></AuthGuard>} />
             <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
+            <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="*" element={<Navigate to="/" replace />} />
