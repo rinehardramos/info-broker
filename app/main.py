@@ -126,3 +126,8 @@ app.include_router(media.router)
 
 from app.search_engine.router import router as search_engine_router  # noqa: E402
 app.include_router(search_engine_router)
+
+from app.routers.v3.auth import router as v3_auth_router  # noqa: E402
+from app.routers.v3.users import router as v3_users_router  # noqa: E402
+app.include_router(v3_auth_router)
+app.include_router(v3_users_router)
