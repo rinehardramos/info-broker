@@ -28,7 +28,8 @@ targeted_campaign.json
 # Tool / agent caches
 .serena/
 state/
-docs/superpowers/
+.superpowers/
+docs/superpowers/plans/
 
 # Database dump files
 *.sql
