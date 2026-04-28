@@ -65,8 +65,8 @@ export const getApifyConfig = (): Promise<ApifyConfigOut> =>
 export const saveApifyConfig = (body: ApifyConfigIn): Promise<ApifyConfigOut> =>
   api.post('/v3/apify/config', body).then((r) => r.data)
 
-export const startApifyRun = (body: ApifyRunIn): Promise<ApifyRunOut> =>
-  api.post('/v3/apify/run', body).then((r) => r.data)
+export const startApifyRun = (): Promise<ApifyRunOut> =>
+  api.post('/v3/apify/run').then((r) => r.data)
 
 export const listApifyRuns = (): Promise<ApifyRunOut[]> =>
   api.get('/v3/apify/runs').then((r) => r.data)

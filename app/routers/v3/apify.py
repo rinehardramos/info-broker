@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import uuid
-from urllib.parse import parse_qs, urlparse
 
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -23,55 +22,16 @@ from app.routers.v3.models import (
 router = APIRouter(prefix="/v3/apify", tags=["v3-apify"])
 log = logging.getLogger(__name__)
 
-
-def _parse_dataset_url(url: str) -> tuple[str, str]:
-    """Extract (base_url, api_token) from APIFY_DATASET_URL.
-
-    e.g. https://api.apify.com/v2/datasets/xxx/items?token=apify_api_yyy
-      -> ("https://api.apify.com/v2", "apify_api_yyy")
-    """
-    if not url:
-        return "", ""
-    p = urlparse(url)
-    parts = p.path.split("/")
-    try:
-        v2_idx = parts.index("v2")
-        base_path = "/".join(parts[: v2_idx + 1])
-    except ValueError:
-        base_path = ""
-    base = f"{p.scheme}://{p.netloc}{base_path}"
-    token = parse_qs(p.query).get("token", [""])[0]
-    return base, token
-
-
+# Dataset URL contains the token — fetch directly, no actor API calls needed.
 _DATASET_URL = os.getenv("APIFY_DATASET_URL", "")
-_APIFY_BASE, _APIFY_TOKEN_FROM_URL = _parse_dataset_url(_DATASET_URL)
-
-_APIFY_STATUS_MAP = {
-    "READY": "queued",
-    "RUNNING": "running",
-    "SUCCEEDED": "ingesting",
-    "FAILED": "failed",
-    "TIMED-OUT": "failed",
-    "ABORTED": "failed",
-}
 
 _TERMINAL = {"succeeded", "failed", "ingest_failed"}
 _MASKED = "\u2022" * 8
 
 
-def _apify_headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": "Bearer " + api_key}
-
-
 def _get_setting(key: str) -> str | None:
     row = fetch_one("SELECT value FROM core_settings WHERE key = %s", (key,))
-    if row:
-        return row["value"]
-    # Fall back to token embedded in APIFY_DATASET_URL for the API key
-    if key == "apify_api_key" and _APIFY_TOKEN_FROM_URL:
-        return _APIFY_TOKEN_FROM_URL
-    return None
+    return row["value"] if row else None
 
 
 def _upsert_setting(key: str, value: str, is_secret: bool = False) -> None:
@@ -169,60 +129,24 @@ def save_config(body: ApifyConfigIn, user: dict = Depends(get_current_user)):
 
 
 @router.post("/run", response_model=ApifyRunOut, status_code=202)
-def start_run(body: ApifyRunIn, user: dict = Depends(get_current_user)):
-    api_key = _get_setting("apify_api_key")
-    actor_id = _get_setting("apify_actor_id")
-    if not api_key or not actor_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Apify API key and actor ID must be configured before running.",
-        )
-
-    run_input = {
-        "autoQuerySegmentation": body.auto_query_segmentation,
-        "autoQuerySegmentationLevels": body.auto_query_segmentation_levels,
-        "autoQuerySegmentationTargetCountries": body.auto_query_segmentation_countries,
-        "currentJobTitles": body.job_titles,
-        "locations": body.locations,
-        "maxItems": body.max_items,
-        "profileScraperMode": body.scraper_mode,
-        "recentlyChangedJobs": body.recently_changed_jobs,
-        "recentlyPostedOnLinkedIn": body.recently_posted_on_linkedin,
-    }
-    try:
-        resp = requests.post(
-            f"{_APIFY_BASE}/acts/{actor_id}/runs",
-            headers=_apify_headers(api_key),
-            json={"runInput": run_input},
-            timeout=15,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"Apify API error: {exc}")
-
-    apify_run_id = resp.json().get("data", {}).get("id")
+def start_run(background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
+    if not _DATASET_URL:
+        raise HTTPException(status_code=400, detail="APIFY_DATASET_URL is not configured.")
     row = fetch_one(
-        "INSERT INTO apify_runs (id, user_id, apify_run_id, status) VALUES (%s, %s, %s, 'queued') RETURNING *",
-        (str(uuid.uuid4()), str(user["id"]), apify_run_id),
+        "INSERT INTO apify_runs (id, user_id, status) VALUES (%s, %s, 'queued') RETURNING *",
+        (str(uuid.uuid4()), str(user["id"])),
     )
+    background_tasks.add_task(_ingest_dataset, row["id"])
     return ApifyRunOut(**row)
 
 
-def _ingest_dataset(run_id: str, dataset_id: str | None, api_key: str) -> None:
-    """Background task: fetch Apify dataset and write to Postgres + Qdrant."""
-    if not dataset_id:
-        execute(
-            "UPDATE apify_runs SET status = 'ingest_failed', finished_at = now() WHERE id = %s",
-            (run_id,),
-        )
-        log.warning("No dataset_id for run %s", run_id)
-        return
-
+def _ingest_dataset(run_id: str) -> None:
+    """Background task: fetch APIFY_DATASET_URL and write profiles to Postgres + Qdrant."""
+    execute("UPDATE apify_runs SET status = 'ingesting' WHERE id = %s", (run_id,))
     try:
         resp = requests.get(
-            f"{_APIFY_BASE}/datasets/{dataset_id}/items",
-            headers={**_apify_headers(api_key), "Accept": "application/json"},
-            params={"format": "json"},
+            _DATASET_URL,
+            headers={"Accept": "application/json"},
             timeout=60,
         )
         resp.raise_for_status()
@@ -315,60 +239,15 @@ def list_runs(user: dict = Depends(get_current_user)):
 
 
 @router.get("/runs/{run_id}/status", response_model=ApifyRunStatusOut)
-def get_run_status(
-    run_id: str,
-    background_tasks: BackgroundTasks,
-    user: dict = Depends(get_current_user),
-):
+def get_run_status(run_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(
         "SELECT * FROM apify_runs WHERE id = %s AND user_id = %s",
         (run_id, str(user["id"])),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Run not found")
-
-    if row["status"] in _TERMINAL or row["status"] == "ingesting":
-        return ApifyRunStatusOut(
-            status=row["status"],
-            item_count=row["item_count"],
-            apify_run_id=row["apify_run_id"],
-        )
-
-    api_key = _get_setting("apify_api_key")
-    try:
-        resp = requests.get(
-            f"{_APIFY_BASE}/actor-runs/{row['apify_run_id']}",
-            headers=_apify_headers(api_key or ""),
-            timeout=10,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        log.warning("Apify poll failed for run %s: %s", run_id, exc)
-        return ApifyRunStatusOut(
-            status=row["status"],
-            item_count=row["item_count"],
-            apify_run_id=row["apify_run_id"],
-        )
-
-    apify_data = resp.json().get("data", {})
-    new_status = _APIFY_STATUS_MAP.get(apify_data.get("status", ""), row["status"])
-
-    if new_status != row["status"]:
-        if new_status == "ingesting":
-            execute("UPDATE apify_runs SET status = 'ingesting' WHERE id = %s", (run_id,))
-            background_tasks.add_task(
-                _ingest_dataset, run_id, apify_data.get("defaultDatasetId"), api_key or ""
-            )
-        elif new_status == "failed":
-            execute(
-                "UPDATE apify_runs SET status = 'failed', finished_at = now() WHERE id = %s",
-                (run_id,),
-            )
-        else:
-            execute("UPDATE apify_runs SET status = %s WHERE id = %s", (new_status, run_id))
-
     return ApifyRunStatusOut(
-        status=new_status,
+        status=row["status"],
         item_count=row["item_count"],
         apify_run_id=row["apify_run_id"],
     )

@@ -160,22 +160,11 @@ export default function LinkedInPage() {
   })
 
   const startRun = useMutation({
-    mutationFn: () =>
-      startApifyRun({
-        job_titles: jobTitles,
-        locations,
-        max_items: maxItems,
-        scraper_mode: scraperMode,
-        auto_query_segmentation: autoQuerySeg,
-        auto_query_segmentation_levels: segLevels,
-        auto_query_segmentation_countries: segCountries,
-        recently_changed_jobs: recentlyChanged,
-        recently_posted_on_linkedin: recentlyPosted,
-      }),
+    mutationFn: () => startApifyRun(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['apify-runs'] }),
   })
 
-  const canRun = config?.api_key !== null && config?.actor_id !== null && jobTitles.length > 0 && locations.length > 0
+  const canRun = true
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
@@ -296,13 +285,6 @@ export default function LinkedInPage() {
               {startRun.isError && (
                 <span className="text-xs" style={{ color: '#f87171' }}>
                   {(startRun.error as Error)?.message ?? 'Start failed'}
-                </span>
-              )}
-              {!canRun && !startRun.isPending && (
-                <span className="text-[10px]" style={{ color: 'var(--muted)' }}>
-                  {config?.api_key === null ? 'Set API key first. ' : ''}
-                  {jobTitles.length === 0 ? 'Add job titles. ' : ''}
-                  {locations.length === 0 ? 'Add locations.' : ''}
                 </span>
               )}
             </div>
