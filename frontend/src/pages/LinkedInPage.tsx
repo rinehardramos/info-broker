@@ -239,7 +239,7 @@ export default function LinkedInPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['apify-runs'] }),
   })
 
-  const canRun = true
+  const canRun = !!config?.api_key && !!config?.actor_id
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">

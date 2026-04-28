@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 
 import requests
@@ -24,8 +25,9 @@ from app.routers.v3.models import (
 router = APIRouter(prefix="/v3/apify", tags=["v3-apify"])
 log = logging.getLogger(__name__)
 
-# Dataset URL contains the token — fetch directly, no actor API calls needed.
-_DATASET_URL = os.getenv("APIFY_DATASET_URL", "")
+_BASE_URL = os.getenv("APIFY_BASE_URL", "https://api.apify.com/v2")
+_POLL_INTERVAL = 10   # seconds between status polls
+_MAX_POLL_TIME = 600  # 10 minutes max
 
 _TERMINAL = {"succeeded", "failed", "ingest_failed"}
 _MASKED = "\u2022" * 8
@@ -132,24 +134,104 @@ def save_config(body: ApifyConfigIn, user: dict = Depends(get_current_user)):
 
 @router.post("/run", response_model=ApifyRunOut, status_code=202)
 def start_run(background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
-    if not _DATASET_URL:
-        raise HTTPException(status_code=400, detail="APIFY_DATASET_URL is not configured.")
+    api_key = _get_setting("apify_api_key")
+    actor_id = _get_setting("apify_actor_id")
+    if not api_key or not actor_id:
+        raise HTTPException(status_code=400, detail="Apify API key and actor ID must be configured.")
+
+    config = _get_run_config(str(user["id"]))
+    actor_input = {
+        "currentJobTitles": config.job_titles,
+        "locations": config.locations,
+        "maxItems": config.max_items,
+        "scraperMode": config.scraper_mode,
+        "autoQuerySegmentation": config.auto_query_segmentation,
+        "autoQuerySegmentationLevels": config.auto_query_segmentation_levels,
+        "autoQuerySegmentationTargetCountries": config.auto_query_segmentation_countries,
+        "recentlyChangedJobs": config.recently_changed_jobs,
+        "recentlyPostedOnLinkedin": config.recently_posted_on_linkedin,
+    }
+
     row = fetch_one(
         "INSERT INTO apify_runs (id, user_id, status) VALUES (%s, %s, 'queued') RETURNING *",
         (str(uuid.uuid4()), str(user["id"])),
     )
-    background_tasks.add_task(_ingest_dataset, row["id"])
+    background_tasks.add_task(_run_and_ingest, row["id"], api_key, actor_id, actor_input)
     return ApifyRunOut(**row)
 
 
-def _ingest_dataset(run_id: str) -> None:
-    """Background task: fetch APIFY_DATASET_URL and write profiles to Postgres + Qdrant."""
+def _run_and_ingest(run_id: str, api_key: str, actor_id: str, actor_input: dict) -> None:
+    """Background task: start Apify actor run, poll until done, ingest dataset."""
+    # 1. Start the actor run
+    try:
+        resp = requests.post(
+            f"{_BASE_URL}/acts/{actor_id}/runs",
+            params={"token": api_key},
+            json=actor_input,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        apify_run_id = resp.json()["data"]["id"]
+    except Exception as exc:
+        log.error("Failed to start Apify run for %s: %s", run_id, exc)
+        execute(
+            "UPDATE apify_runs SET status = 'failed', finished_at = now() WHERE id = %s",
+            (run_id,),
+        )
+        return
+
+    execute(
+        "UPDATE apify_runs SET status = 'running', apify_run_id = %s WHERE id = %s",
+        (apify_run_id, run_id),
+    )
+
+    # 2. Poll until terminal
+    dataset_id = None
+    deadline = time.time() + _MAX_POLL_TIME
+    while time.time() < deadline:
+        time.sleep(_POLL_INTERVAL)
+        try:
+            resp = requests.get(
+                f"{_BASE_URL}/actor-runs/{apify_run_id}",
+                params={"token": api_key},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            run_data = resp.json()["data"]
+            status = run_data.get("status")
+            if status == "SUCCEEDED":
+                dataset_id = run_data.get("defaultDatasetId")
+                break
+            if status in ("FAILED", "ABORTED", "TIMED-OUT"):
+                log.warning("Apify run %s ended with status %s", apify_run_id, status)
+                execute(
+                    "UPDATE apify_runs SET status = 'failed', finished_at = now() WHERE id = %s",
+                    (run_id,),
+                )
+                return
+        except Exception as exc:
+            log.warning("Poll error for run %s: %s", run_id, exc)
+
+    if not dataset_id:
+        log.error("Apify run %s timed out after %ds", apify_run_id, _MAX_POLL_TIME)
+        execute(
+            "UPDATE apify_runs SET status = 'failed', finished_at = now() WHERE id = %s",
+            (run_id,),
+        )
+        return
+
+    # 3. Ingest the dataset
+    _ingest_dataset(run_id, api_key, dataset_id)
+
+
+def _ingest_dataset(run_id: str, api_key: str, dataset_id: str) -> None:
+    """Fetch Apify dataset items and write profiles to Postgres + Qdrant."""
     execute("UPDATE apify_runs SET status = 'ingesting' WHERE id = %s", (run_id,))
     try:
         resp = requests.get(
-            _DATASET_URL,
-            headers={"Accept": "application/json"},
-            timeout=60,
+            f"{_BASE_URL}/datasets/{dataset_id}/items",
+            params={"token": api_key},
+            timeout=120,
         )
         resp.raise_for_status()
         profiles = resp.json()
