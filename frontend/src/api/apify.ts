@@ -5,6 +5,11 @@ export interface ApifyRunConfig {
   locations: string[]
   max_items: number
   scraper_mode: string
+  auto_query_segmentation: boolean
+  auto_query_segmentation_levels: string[]
+  auto_query_segmentation_countries: string[]
+  recently_changed_jobs: boolean
+  recently_posted_on_linkedin: boolean
 }
 
 export interface ApifyConfigOut {
@@ -20,6 +25,11 @@ export interface ApifyConfigIn {
   locations?: string[]
   max_items?: number
   scraper_mode?: string
+  auto_query_segmentation?: boolean
+  auto_query_segmentation_levels?: string[]
+  auto_query_segmentation_countries?: string[]
+  recently_changed_jobs?: boolean
+  recently_posted_on_linkedin?: boolean
 }
 
 export interface ApifyRunOut {
@@ -42,6 +52,11 @@ export interface ApifyRunIn {
   locations: string[]
   max_items: number
   scraper_mode: string
+  auto_query_segmentation: boolean
+  auto_query_segmentation_levels: string[]
+  auto_query_segmentation_countries: string[]
+  recently_changed_jobs: boolean
+  recently_posted_on_linkedin: boolean
 }
 
 export const getApifyConfig = (): Promise<ApifyConfigOut> =>

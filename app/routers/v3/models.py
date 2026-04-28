@@ -111,6 +111,11 @@ class ApifyRunConfigOut(BaseModel):
     locations: list[str]
     max_items: int
     scraper_mode: str
+    auto_query_segmentation: bool
+    auto_query_segmentation_levels: list[str]
+    auto_query_segmentation_countries: list[str]
+    recently_changed_jobs: bool
+    recently_posted_on_linkedin: bool
 
 
 class ApifyConfigOut(BaseModel):
@@ -126,6 +131,11 @@ class ApifyConfigIn(BaseModel):
     locations: list[str] | None = None
     max_items: int | None = None
     scraper_mode: str | None = None
+    auto_query_segmentation: bool | None = None
+    auto_query_segmentation_levels: list[str] | None = None
+    auto_query_segmentation_countries: list[str] | None = None
+    recently_changed_jobs: bool | None = None
+    recently_posted_on_linkedin: bool | None = None
 
 
 class ApifyRunIn(BaseModel):
@@ -133,6 +143,11 @@ class ApifyRunIn(BaseModel):
     locations: list[str]
     max_items: int = 300
     scraper_mode: str = "Full + email search"
+    auto_query_segmentation: bool = False
+    auto_query_segmentation_levels: list[str] = ["country", "industry", "seniority_level"]
+    auto_query_segmentation_countries: list[str] = []
+    recently_changed_jobs: bool = False
+    recently_posted_on_linkedin: bool = False
 
 
 class ApifyRunOut(BaseModel):

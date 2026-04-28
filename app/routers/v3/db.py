@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS apify_run_configs (
     updated_at   TIMESTAMPTZ DEFAULT now()
 );
 
+ALTER TABLE apify_run_configs
+    ADD COLUMN IF NOT EXISTS auto_query_segmentation             BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS auto_query_segmentation_levels      JSONB   DEFAULT '["country","industry","seniority_level"]',
+    ADD COLUMN IF NOT EXISTS auto_query_segmentation_countries   JSONB   DEFAULT '[]',
+    ADD COLUMN IF NOT EXISTS recently_changed_jobs               BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS recently_posted_on_linkedin         BOOLEAN DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS apify_runs (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID REFERENCES ui_users(id) ON DELETE CASCADE,

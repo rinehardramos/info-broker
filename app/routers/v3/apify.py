@@ -61,13 +61,22 @@ def _upsert_setting(key: str, value: str, is_secret: bool = False) -> None:
 
 def _get_run_config(user_id: str) -> ApifyRunConfigOut:
     row = fetch_one(
-        "SELECT job_titles, locations, max_items, scraper_mode FROM apify_run_configs WHERE user_id = %s",
+        """SELECT job_titles, locations, max_items, scraper_mode,
+                  auto_query_segmentation, auto_query_segmentation_levels,
+                  auto_query_segmentation_countries, recently_changed_jobs,
+                  recently_posted_on_linkedin
+           FROM apify_run_configs WHERE user_id = %s""",
         (user_id,),
     )
     if row:
         return ApifyRunConfigOut(**row)
     return ApifyRunConfigOut(
-        job_titles=[], locations=[], max_items=300, scraper_mode="Full + email search"
+        job_titles=[], locations=[], max_items=300, scraper_mode="Full + email search",
+        auto_query_segmentation=False,
+        auto_query_segmentation_levels=["country", "industry", "seniority_level"],
+        auto_query_segmentation_countries=[],
+        recently_changed_jobs=False,
+        recently_posted_on_linkedin=False,
     )
 
 
@@ -88,25 +97,45 @@ def save_config(body: ApifyConfigIn, user: dict = Depends(get_current_user)):
     if body.actor_id is not None:
         _upsert_setting("apify_actor_id", body.actor_id)
 
-    if any(f is not None for f in [body.job_titles, body.locations, body.max_items, body.scraper_mode]):
-        existing = _get_run_config(str(user["id"]))
+    run_config_fields = [
+        body.job_titles, body.locations, body.max_items, body.scraper_mode,
+        body.auto_query_segmentation, body.auto_query_segmentation_levels,
+        body.auto_query_segmentation_countries, body.recently_changed_jobs,
+        body.recently_posted_on_linkedin,
+    ]
+    if any(f is not None for f in run_config_fields):
+        e = _get_run_config(str(user["id"]))
         execute(
             """
-            INSERT INTO apify_run_configs (user_id, job_titles, locations, max_items, scraper_mode)
-            VALUES (%s, %s::jsonb, %s::jsonb, %s, %s)
+            INSERT INTO apify_run_configs
+                (user_id, job_titles, locations, max_items, scraper_mode,
+                 auto_query_segmentation, auto_query_segmentation_levels,
+                 auto_query_segmentation_countries, recently_changed_jobs,
+                 recently_posted_on_linkedin)
+            VALUES (%s, %s::jsonb, %s::jsonb, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
             ON CONFLICT (user_id) DO UPDATE
-            SET job_titles   = EXCLUDED.job_titles,
-                locations    = EXCLUDED.locations,
-                max_items    = EXCLUDED.max_items,
-                scraper_mode = EXCLUDED.scraper_mode,
-                updated_at   = now()
+            SET job_titles                        = EXCLUDED.job_titles,
+                locations                         = EXCLUDED.locations,
+                max_items                         = EXCLUDED.max_items,
+                scraper_mode                      = EXCLUDED.scraper_mode,
+                auto_query_segmentation           = EXCLUDED.auto_query_segmentation,
+                auto_query_segmentation_levels    = EXCLUDED.auto_query_segmentation_levels,
+                auto_query_segmentation_countries = EXCLUDED.auto_query_segmentation_countries,
+                recently_changed_jobs             = EXCLUDED.recently_changed_jobs,
+                recently_posted_on_linkedin       = EXCLUDED.recently_posted_on_linkedin,
+                updated_at                        = now()
             """,
             (
                 str(user["id"]),
-                json.dumps(body.job_titles if body.job_titles is not None else existing.job_titles),
-                json.dumps(body.locations if body.locations is not None else existing.locations),
-                body.max_items if body.max_items is not None else existing.max_items,
-                body.scraper_mode if body.scraper_mode is not None else existing.scraper_mode,
+                json.dumps(body.job_titles if body.job_titles is not None else e.job_titles),
+                json.dumps(body.locations if body.locations is not None else e.locations),
+                body.max_items if body.max_items is not None else e.max_items,
+                body.scraper_mode if body.scraper_mode is not None else e.scraper_mode,
+                body.auto_query_segmentation if body.auto_query_segmentation is not None else e.auto_query_segmentation,
+                json.dumps(body.auto_query_segmentation_levels if body.auto_query_segmentation_levels is not None else e.auto_query_segmentation_levels),
+                json.dumps(body.auto_query_segmentation_countries if body.auto_query_segmentation_countries is not None else e.auto_query_segmentation_countries),
+                body.recently_changed_jobs if body.recently_changed_jobs is not None else e.recently_changed_jobs,
+                body.recently_posted_on_linkedin if body.recently_posted_on_linkedin is not None else e.recently_posted_on_linkedin,
             ),
         )
     return get_config(user=user)
@@ -123,13 +152,15 @@ def start_run(body: ApifyRunIn, user: dict = Depends(get_current_user)):
         )
 
     run_input = {
-        "autoQuerySegmentation": False,
+        "autoQuerySegmentation": body.auto_query_segmentation,
+        "autoQuerySegmentationLevels": body.auto_query_segmentation_levels,
+        "autoQuerySegmentationTargetCountries": body.auto_query_segmentation_countries,
         "currentJobTitles": body.job_titles,
         "locations": body.locations,
         "maxItems": body.max_items,
         "profileScraperMode": body.scraper_mode,
-        "recentlyChangedJobs": False,
-        "recentlyPostedOnLinkedIn": False,
+        "recentlyChangedJobs": body.recently_changed_jobs,
+        "recentlyPostedOnLinkedIn": body.recently_posted_on_linkedin,
     }
     try:
         resp = requests.post(
