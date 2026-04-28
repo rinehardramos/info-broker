@@ -104,3 +104,47 @@ class StreamEvent(BaseModel):
     status: str | None = None
     result_count: int | None = None
     message: str | None = None
+
+
+class ApifyRunConfigOut(BaseModel):
+    job_titles: list[str]
+    locations: list[str]
+    max_items: int
+    scraper_mode: str
+
+
+class ApifyConfigOut(BaseModel):
+    api_key: str | None        # None = not configured; masked bullet string = set
+    actor_id: str | None
+    run_config: ApifyRunConfigOut
+
+
+class ApifyConfigIn(BaseModel):
+    api_key: str | None = None
+    actor_id: str | None = None
+    job_titles: list[str] | None = None
+    locations: list[str] | None = None
+    max_items: int | None = None
+    scraper_mode: str | None = None
+
+
+class ApifyRunIn(BaseModel):
+    job_titles: list[str]
+    locations: list[str]
+    max_items: int = 300
+    scraper_mode: str = "Full + email search"
+
+
+class ApifyRunOut(BaseModel):
+    id: UUID
+    apify_run_id: str | None
+    status: str
+    item_count: int
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class ApifyRunStatusOut(BaseModel):
+    status: str
+    item_count: int
+    apify_run_id: str | None
