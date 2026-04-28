@@ -131,7 +131,9 @@ from app.routers.v3.auth import router as v3_auth_router  # noqa: E402
 from app.routers.v3.users import router as v3_users_router  # noqa: E402
 from app.routers.v3.plugins import router as v3_plugins_router  # noqa: E402
 from app.routers.v3.settings import router as v3_settings_router  # noqa: E402
+from app.routers.v3.monitors import router as v3_monitors_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
 app.include_router(v3_settings_router)
+app.include_router(v3_monitors_router)
