@@ -93,6 +93,25 @@ CREATE TABLE IF NOT EXISTS v3_result_grades (
     updated_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE (result_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS apify_run_configs (
+    user_id      UUID PRIMARY KEY REFERENCES ui_users(id) ON DELETE CASCADE,
+    job_titles   JSONB DEFAULT '[]',
+    locations    JSONB DEFAULT '[]',
+    max_items    INT DEFAULT 300,
+    scraper_mode VARCHAR(64) DEFAULT 'Full + email search',
+    updated_at   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS apify_runs (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID REFERENCES ui_users(id) ON DELETE CASCADE,
+    apify_run_id TEXT,
+    status       VARCHAR(20) DEFAULT 'queued',
+    item_count   INT DEFAULT 0,
+    started_at   TIMESTAMPTZ DEFAULT now(),
+    finished_at  TIMESTAMPTZ
+);
 """
 
 
