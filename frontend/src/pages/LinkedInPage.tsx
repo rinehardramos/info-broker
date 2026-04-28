@@ -8,7 +8,9 @@ import {
   startApifyRun,
   listApifyRuns,
   getApifyRunStatus,
+  listLinkedInProfiles,
   type ApifyRunOut,
+  type LinkedInProfile,
 } from '../api/apify'
 
 const inputStyle: React.CSSProperties = {
@@ -97,6 +99,71 @@ function RunRow({ run }: { run: ApifyRunOut }) {
         )}
       </div>
       <StatusBadge status={run.status} />
+    </div>
+  )
+}
+
+function ProfileCard({ p }: { p: LinkedInProfile }) {
+  const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || '—'
+  return (
+    <div className="p-3 rounded mb-2 text-xs" style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}>
+      <div className="font-semibold mb-0.5" style={{ color: 'var(--text)' }}>{name}</div>
+      {p.headline && <div className="mb-1 truncate" style={{ color: 'var(--subtext)' }}>{p.headline}</div>}
+      {p.about && <div className="line-clamp-3" style={{ color: 'var(--muted)' }}>{p.about}</div>}
+    </div>
+  )
+}
+
+function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: boolean }) {
+  const [tab, setTab] = useState<'profiles' | 'runs'>('profiles')
+
+  const { data: profiles = [], isLoading: profilesLoading } = useQuery({
+    queryKey: ['linkedin-profiles'],
+    queryFn: () => listLinkedInProfiles(100),
+    refetchInterval: tab === 'profiles' ? 10000 : false,
+  })
+
+  const tabBtn = (label: string, key: 'profiles' | 'runs') => (
+    <button
+      onClick={() => setTab(key)}
+      className="px-2 py-1 rounded text-[11px] font-medium"
+      style={{
+        background: tab === key ? 'var(--panel2)' : 'transparent',
+        color: tab === key ? 'var(--accent)' : 'var(--muted)',
+        border: tab === key ? '1px solid var(--border)' : '1px solid transparent',
+        cursor: 'pointer',
+      }}
+    >
+      {label}{key === 'profiles' && profiles.length > 0 ? ` (${profiles.length})` : ''}
+    </button>
+  )
+
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex items-center gap-1 px-3 pt-2 pb-1" style={{ borderBottom: '1px solid var(--border)' }}>
+        {tabBtn('Profiles', 'profiles')}
+        {tabBtn('Run History', 'runs')}
+      </div>
+      <div className="flex-1 col-scroll p-3">
+        {tab === 'profiles' && (
+          <>
+            {profilesLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}
+            {!profilesLoading && profiles.length === 0 && (
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>No profiles yet. Click Run Scraper to ingest data.</p>
+            )}
+            {profiles.map((p) => <ProfileCard key={p.id} p={p} />)}
+          </>
+        )}
+        {tab === 'runs' && (
+          <>
+            {runsLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}
+            {!runsLoading && runs.length === 0 && (
+              <p className="text-xs" style={{ color: 'var(--muted)' }}>No runs yet.</p>
+            )}
+            {runs.map((run) => <RunRow key={run.id} run={run} />)}
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -291,17 +358,8 @@ export default function LinkedInPage() {
           </div>
         </div>
 
-        {/* Right column: run history */}
-        <div className="flex-1 col-scroll p-4">
-          <h2 className="text-sm font-bold mb-4" style={{ color: 'var(--accent)' }}>Run History</h2>
-          {runsLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}
-          {!runsLoading && runs.length === 0 && (
-            <p className="text-xs" style={{ color: 'var(--muted)' }}>No runs yet. Configure and click Run Scraper.</p>
-          )}
-          {runs.map((run: ApifyRunOut) => (
-            <RunRow key={run.id} run={run} />
-          ))}
-        </div>
+        {/* Right column: tabbed results */}
+        <RightPanel runs={runs} runsLoading={runsLoading} />
       </div>
       <IconRail />
     </div>

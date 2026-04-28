@@ -17,6 +17,7 @@ from app.routers.v3.models import (
     ApifyRunIn,
     ApifyRunOut,
     ApifyRunStatusOut,
+    LinkedInProfileOut,
 )
 
 router = APIRouter(prefix="/v3/apify", tags=["v3-apify"])
@@ -236,6 +237,19 @@ def list_runs(user: dict = Depends(get_current_user)):
         (str(user["id"]),),
     )
     return [ApifyRunOut(**r) for r in rows]
+
+
+@router.get("/profiles", response_model=list[LinkedInProfileOut])
+def list_profiles(
+    limit: int = 50,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+):
+    rows = fetch_all(
+        "SELECT id, first_name, last_name, headline, about FROM linkedin_profiles ORDER BY id LIMIT %s OFFSET %s",
+        (limit, offset),
+    )
+    return [LinkedInProfileOut(**r) for r in rows]
 
 
 @router.get("/runs/{run_id}/status", response_model=ApifyRunStatusOut)

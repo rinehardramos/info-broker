@@ -163,3 +163,11 @@ class ApifyRunStatusOut(BaseModel):
     status: str
     item_count: int
     apify_run_id: str | None
+
+
+class LinkedInProfileOut(BaseModel):
+    id: str
+    first_name: str | None
+    last_name: str | None
+    headline: str | None
+    about: str | None

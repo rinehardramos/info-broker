@@ -73,3 +73,14 @@ export const listApifyRuns = (): Promise<ApifyRunOut[]> =>
 
 export const getApifyRunStatus = (runId: string): Promise<ApifyRunStatusOut> =>
   api.get(`/v3/apify/runs/${runId}/status`).then((r) => r.data)
+
+export interface LinkedInProfile {
+  id: string
+  first_name: string | null
+  last_name: string | null
+  headline: string | null
+  about: string | null
+}
+
+export const listLinkedInProfiles = (limit = 50, offset = 0): Promise<LinkedInProfile[]> =>
+  api.get('/v3/apify/profiles', { params: { limit, offset } }).then((r) => r.data)
