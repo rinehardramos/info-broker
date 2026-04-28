@@ -18,6 +18,10 @@ class DdgPlugin:
     name = "ddg"
     description = "DuckDuckGo web search"
     requires_api_key = False
+    config_schema: dict = {}
+
+    def configure(self, config: dict) -> None:
+        pass
 
     def available(self) -> bool:
         try:

@@ -21,6 +21,7 @@ class SearchPlugin(Protocol):
     name: str
     description: str
     requires_api_key: bool
+    config_schema: dict  # JSON Schema describing user-configurable parameters
 
     async def search(
         self,
@@ -31,3 +32,5 @@ class SearchPlugin(Protocol):
     ) -> list[PluginResult]: ...
 
     def available(self) -> bool: ...
+
+    def configure(self, config: dict) -> None: ...
