@@ -257,23 +257,18 @@ export default function LinkedInPage() {
             <div className="text-[10px] font-semibold mt-1" style={{ color: 'var(--muted)' }}>AUTO-SEGMENTATION</div>
 
             <Toggle label="Enable Auto Query Segmentation" checked={autoQuerySeg} onChange={setAutoQuerySeg} />
-
-            {autoQuerySeg && (
-              <>
-                <TagInput
-                  label="Segmentation Levels"
-                  tags={segLevels}
-                  onChange={setSegLevels}
-                  placeholder="country, industry, seniority_level…"
-                />
-                <TagInput
-                  label="Target Countries (codes)"
-                  tags={segCountries}
-                  onChange={setSegCountries}
-                  placeholder="US, GB, AU…"
-                />
-              </>
-            )}
+            <TagInput
+              label="Segmentation Levels"
+              tags={segLevels}
+              onChange={setSegLevels}
+              placeholder="country, industry, seniority_level…"
+            />
+            <TagInput
+              label="Target Countries (codes)"
+              tags={segCountries}
+              onChange={setSegCountries}
+              placeholder="US, GB, AU…"
+            />
 
             {/* Actions */}
             <div className="flex flex-col gap-2 mt-2">
