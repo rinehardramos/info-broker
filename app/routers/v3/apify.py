@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import parse_qs, urlparse
 
 import requests
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -22,8 +23,29 @@ from app.routers.v3.models import (
 router = APIRouter(prefix="/v3/apify", tags=["v3-apify"])
 log = logging.getLogger(__name__)
 
-# Set APIFY_BASE_URL in the environment (see docker-compose.yml)
-_APIFY_BASE = os.getenv("APIFY_BASE_URL", "")
+
+def _parse_dataset_url(url: str) -> tuple[str, str]:
+    """Extract (base_url, api_token) from APIFY_DATASET_URL.
+
+    e.g. https://api.apify.com/v2/datasets/xxx/items?token=apify_api_yyy
+      -> ("https://api.apify.com/v2", "apify_api_yyy")
+    """
+    if not url:
+        return "", ""
+    p = urlparse(url)
+    parts = p.path.split("/")
+    try:
+        v2_idx = parts.index("v2")
+        base_path = "/".join(parts[: v2_idx + 1])
+    except ValueError:
+        base_path = ""
+    base = f"{p.scheme}://{p.netloc}{base_path}"
+    token = parse_qs(p.query).get("token", [""])[0]
+    return base, token
+
+
+_DATASET_URL = os.getenv("APIFY_DATASET_URL", "")
+_APIFY_BASE, _APIFY_TOKEN_FROM_URL = _parse_dataset_url(_DATASET_URL)
 
 _APIFY_STATUS_MAP = {
     "READY": "queued",
@@ -44,7 +66,12 @@ def _apify_headers(api_key: str) -> dict[str, str]:
 
 def _get_setting(key: str) -> str | None:
     row = fetch_one("SELECT value FROM core_settings WHERE key = %s", (key,))
-    return row["value"] if row else None
+    if row:
+        return row["value"]
+    # Fall back to token embedded in APIFY_DATASET_URL for the API key
+    if key == "apify_api_key" and _APIFY_TOKEN_FROM_URL:
+        return _APIFY_TOKEN_FROM_URL
+    return None
 
 
 def _upsert_setting(key: str, value: str, is_secret: bool = False) -> None:
