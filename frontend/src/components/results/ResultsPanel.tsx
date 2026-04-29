@@ -152,7 +152,7 @@ function PipelineTabContent() {
           Create a pipeline to automate research, enrichment, and scoring workflows.
         </p>
         <button
-          onClick={() => navigate('/linkedin')}
+          onClick={() => navigate('/pipelines')}
           style={{
             padding: '8px 16px',
             fontSize: 11,

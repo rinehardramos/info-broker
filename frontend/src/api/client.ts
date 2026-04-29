@@ -15,6 +15,8 @@ api.interceptors.response.use(
   async (err) => {
     const original = err.config
     if (err.response?.status === 401 && !original._retry) {
+      // Don't intercept the login endpoint itself — let Login.tsx handle the error
+      if (original.url?.includes('/v3/auth/login')) return Promise.reject(err)
       original._retry = true
       const refresh = localStorage.getItem('refresh_token')
       if (refresh) {

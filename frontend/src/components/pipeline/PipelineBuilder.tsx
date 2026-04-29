@@ -1,4 +1,5 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listPipelines, getPipeline, listNodeTypes, createPipeline, updatePipeline,
@@ -12,6 +13,7 @@ import { NodeConfigForm } from './NodeConfigForm'
 
 export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: string } = {}) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
 
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(initialPipelineId ?? null)
   const [localNodes, setLocalNodes] = useState<PipelineNodeOut[]>([])
@@ -56,6 +58,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       setNewName('')
       setNewDesc('')
       setDirty(false)
+      navigate(`/pipelines/${p.id}`, { replace: true })
     },
   })
   const updateMutation = useMutation({
@@ -85,9 +88,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     },
   })
 
-  // Load pipeline into local state when selected
+  // Load pipeline into local state when selected (useEffect avoids race with user interactions)
   const prevPipelineId = useRef<string | null>(null)
-  if (pipelineDetail && pipelineDetail.id !== prevPipelineId.current) {
+  useEffect(() => {
+    if (!pipelineDetail) return
+    if (pipelineDetail.id === prevPipelineId.current) return
     prevPipelineId.current = pipelineDetail.id
     // Enrich nodes with category from nodeTypes registry
     const enriched = pipelineDetail.nodes.map(n => ({
@@ -99,7 +104,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setLocalName(pipelineDetail.name)
     setLocalDesc(pipelineDetail.description ?? '')
     setDirty(false)
-  }
+  }, [pipelineDetail, nodeTypes])
 
   const handleAddNode = (nodeType: string) => {
     const nt = nodeTypes.find(t => t.node_type === nodeType)
@@ -200,7 +205,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
           {pipelines.map(p => (
             <div
               key={p.id}
-              onClick={() => { setSelectedPipelineId(p.id); setActiveRunId(null); setCreatingNew(false) }}
+              onClick={() => { setSelectedPipelineId(p.id); setActiveRunId(null); setCreatingNew(false); navigate(`/pipelines/${p.id}`, { replace: true }) }}
               style={{
                 padding: '8px 10px',
                 cursor: 'pointer',

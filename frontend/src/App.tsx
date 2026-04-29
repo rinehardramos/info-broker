@@ -49,6 +49,7 @@ export default function App() {
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
             <Route path="/plugins" element={<AuthGuard><PluginsPage /></AuthGuard>} />
             <Route path="/plugins/node/:nodeType" element={<AuthGuard><NodePluginPage /></AuthGuard>} />
+            <Route path="/pipelines" element={<AuthGuard><PipelinePage /></AuthGuard>} />
             <Route path="/pipelines/:id" element={<AuthGuard><PipelinePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
