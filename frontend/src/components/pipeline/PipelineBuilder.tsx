@@ -202,6 +202,22 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setDirty(true)
   }
 
+  const handleEdgeChange = (sourceId: string, targetId: string, connected: boolean) => {
+    if (connected) {
+      const newEdge: PipelineEdgeOut = {
+        id: crypto.randomUUID(),
+        pipeline_id: selectedPipelineId ?? '',
+        source_node_id: sourceId,
+        target_node_id: targetId,
+        edge_type: 'default',
+      }
+      setLocalEdges(prev => [...prev, newEdge])
+    } else {
+      setLocalEdges(prev => prev.filter(e => !(e.source_node_id === sourceId && e.target_node_id === targetId)))
+    }
+    setDirty(true)
+  }
+
   const handleSave = () => {
     if (!selectedPipelineId) return
     updateMutation.mutate({
@@ -470,6 +486,9 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
               schema={editingNodeType.config_schema}
               onChange={handleConfigChange}
               onClose={() => setEditingNodeId(null)}
+              nodes={localNodes}
+              edges={localEdges}
+              onEdgeChange={handleEdgeChange}
             />
           )}
         </div>
