@@ -37,14 +37,19 @@ export function StepList({
 }: Props) {
   const stepMap = Object.fromEntries(stepRuns.map(s => [s.node_id, s]))
 
+  const CATEGORY_ORDER = ['source', 'enrich', 'score', 'filter']
   const byCategory: Record<string, NodeType[]> = {}
   for (const nt of nodeTypes) {
     byCategory[nt.category] = byCategory[nt.category] ?? []
     byCategory[nt.category].push(nt)
   }
+  const orderedCategories = [
+    ...CATEGORY_ORDER.filter(c => byCategory[c]),
+    ...Object.keys(byCategory).filter(c => !CATEGORY_ORDER.includes(c)),
+  ]
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 10 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 10, flex: 1, overflowY: 'auto' }}>
       {nodes.map((node, idx) => {
         const step = stepMap[node.id]
         const color = CATEGORY_COLORS[node.category] ?? '#60a5fa'
@@ -132,9 +137,9 @@ export function StepList({
             defaultValue=""
           >
             <option value="" disabled>+ Add Step</option>
-            {Object.entries(byCategory).map(([cat, types]) => (
+            {orderedCategories.map(cat => (
               <optgroup key={cat} label={cat.toUpperCase()}>
-                {types.map(nt => (
+                {byCategory[cat].map(nt => (
                   <option key={nt.node_type} value={nt.node_type}>
                     {nt.display_name}
                   </option>

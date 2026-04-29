@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
 import { getJob, getJobResults, gradeResult } from '../../api/v3'
-import { listPipelines, startPipelineRun, cancelPipelineRun, listAllPipelineRuns, getPipelineRun } from '../../api/pipelines'
+import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun } from '../../api/pipelines'
 import NewsCard from './NewsCard'
 import GradeBar from './GradeBar'
 
@@ -140,6 +140,13 @@ function PipelineTabContent() {
     mutationFn: cancelPipelineRun,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] }),
   })
+  const deleteRun = useMutation({
+    mutationFn: deletePipeline,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pipelines'] })
+      qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] })
+    },
+  })
 
   const runId = col1Content?.type === 'pipeline_run' ? col1Content.runId : null
 
@@ -220,6 +227,18 @@ function PipelineTabContent() {
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--muted)' }}
               >
                 ↺
+              </button>
+              <button
+                title="Delete pipeline"
+                onClick={() => {
+                  if (window.confirm(`Delete "${pipeline.name}"?`)) {
+                    deleteRun.mutate(pipeline.id)
+                  }
+                }}
+                disabled={deleteRun.isPending}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#f87171', opacity: deleteRun.isPending ? 0.5 : 1 }}
+              >
+                🗑
               </button>
             </div>
           </div>
