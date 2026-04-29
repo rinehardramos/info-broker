@@ -128,6 +128,55 @@ CREATE TABLE IF NOT EXISTS linkedin_profile_grades (
     updated_at  TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (profile_id, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS pipelines (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    name        VARCHAR(255) NOT NULL,
+    description TEXT,
+    created_at  TIMESTAMPTZ DEFAULT now(),
+    updated_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_nodes (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_id UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    node_type   VARCHAR(64) NOT NULL,
+    label       VARCHAR(255) NOT NULL,
+    config      JSONB NOT NULL DEFAULT '{}',
+    position_x  INT NOT NULL DEFAULT 0,
+    position_y  INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_edges (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_id    UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    source_node_id UUID NOT NULL REFERENCES pipeline_nodes(id) ON DELETE CASCADE,
+    target_node_id UUID NOT NULL REFERENCES pipeline_nodes(id) ON DELETE CASCADE,
+    edge_type      VARCHAR(16) NOT NULL DEFAULT 'results'
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    pipeline_id          UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    user_id              UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    temporal_workflow_id TEXT,
+    status               VARCHAR(20) NOT NULL DEFAULT 'queued',
+    trigger_type         VARCHAR(16) NOT NULL DEFAULT 'manual',
+    started_at           TIMESTAMPTZ DEFAULT now(),
+    finished_at          TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_step_runs (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id        UUID NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    node_id       UUID NOT NULL REFERENCES pipeline_nodes(id) ON DELETE CASCADE,
+    status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+    item_count    INT NOT NULL DEFAULT 0,
+    error_message TEXT,
+    started_at    TIMESTAMPTZ,
+    finished_at   TIMESTAMPTZ
+);
 """
 
 
