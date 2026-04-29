@@ -18,6 +18,7 @@ from app.routers.v3.models import (
     PipelineOut,
     PipelineRunDetailOut,
     PipelineRunOut,
+    PipelineRunSummaryOut,
     PipelineStepRunOut,
 )
 
@@ -99,6 +100,33 @@ def set_node_type_enabled(
 # ---------------------------------------------------------------------------
 # Run detail (must come BEFORE parametric routes)
 # ---------------------------------------------------------------------------
+
+@router.get("/runs/all", response_model=list[PipelineRunSummaryOut])
+def list_all_pipeline_runs(user: dict = Depends(get_current_user)):
+    rows = fetch_all(
+        """
+        SELECT
+            pr.id,
+            pr.pipeline_id,
+            p.name            AS pipeline_name,
+            pr.status,
+            pr.trigger_type,
+            pr.started_at,
+            pr.finished_at,
+            COUNT(psr.id)                                          AS step_count,
+            COUNT(CASE WHEN psr.status IN ('succeeded','failed') THEN 1 END) AS steps_done
+        FROM pipeline_runs pr
+        JOIN pipelines p ON p.id = pr.pipeline_id
+        LEFT JOIN pipeline_step_runs psr ON psr.run_id = pr.id
+        WHERE pr.user_id = %s
+        GROUP BY pr.id, p.name
+        ORDER BY pr.started_at DESC
+        LIMIT 50
+        """,
+        (str(user["id"]),),
+    )
+    return [PipelineRunSummaryOut(**dict(r)) for r in rows]
+
 
 @router.get("/runs/{run_id}", response_model=PipelineRunDetailOut)
 def get_run(run_id: str, user: dict = Depends(get_current_user)):

@@ -247,6 +247,18 @@ class PipelineRunDetailOut(PipelineRunOut):
     steps: list[PipelineStepRunOut]
 
 
+class PipelineRunSummaryOut(BaseModel):
+    id: UUID
+    pipeline_id: UUID
+    pipeline_name: str
+    status: str
+    trigger_type: str
+    started_at: datetime
+    finished_at: datetime | None
+    step_count: int
+    steps_done: int
+
+
 class NodeTypeOut(BaseModel):
     node_type: str
     display_name: str
