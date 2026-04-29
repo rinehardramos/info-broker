@@ -26,6 +26,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const [creatingNew, setCreatingNew] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const { data: pipelines = [] } = useQuery({ queryKey: ['pipelines'], queryFn: listPipelines })
   const { data: nodeTypes = [] } = useQuery({ queryKey: ['nodeTypes'], queryFn: listNodeTypes })
@@ -78,6 +79,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       setLocalNodes([])
       setLocalEdges([])
       setLocalName('')
+      setConfirmDelete(false)
     },
   })
   const [runError, setRunError] = useState<string | null>(null)
@@ -201,9 +203,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
   const handleDelete = () => {
     if (!selectedPipelineId) return
-    if (window.confirm('Delete this pipeline?')) {
-      deleteMutation.mutate(selectedPipelineId)
-    }
+    deleteMutation.mutate(selectedPipelineId)
   }
 
   const isRunning = activeRun?.status === 'running'
@@ -318,40 +318,63 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                     {runError}
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
-                  <button
-                    onClick={handleSave}
-                    disabled={!dirty}
-                    style={{ flex: 1, padding: '5px 0', fontSize: 11, background: dirty ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: dirty ? '#e2e8f0' : '#475569', cursor: dirty ? 'pointer' : 'default' }}
-                  >
-                    Save
-                  </button>
-                  {isRunning ? (
+                {confirmDelete ? (
+                  <div style={{ flexShrink: 0, borderTop: '1px solid #ef4444' }}>
+                    <div style={{ padding: '5px 10px', fontSize: 10, color: '#fca5a5', background: '#7f1d1d22' }}>
+                      Permanently delete "{localName}"?
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, padding: '6px 10px' }}>
+                      <button
+                        onClick={() => setConfirmDelete(false)}
+                        style={{ flex: 1, padding: '5px 0', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#94a3b8', cursor: 'pointer' }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleDelete}
+                        disabled={deleteMutation.isPending}
+                        style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#7f1d1d', border: '1px solid #ef4444', borderRadius: 4, color: '#fca5a5', fontWeight: 700, cursor: 'pointer', opacity: deleteMutation.isPending ? 0.6 : 1 }}
+                      >
+                        {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
                     <button
-                      onClick={() => activeRunId && cancelMutation.mutate(activeRunId)}
-                      disabled={cancelMutation.isPending}
-                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#ef4444', border: 'none', borderRadius: 4, color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: cancelMutation.isPending ? 0.6 : 1 }}
+                      onClick={handleSave}
+                      disabled={!dirty}
+                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: dirty ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: dirty ? '#e2e8f0' : '#475569', cursor: dirty ? 'pointer' : 'default' }}
                     >
-                      {cancelMutation.isPending ? 'Stopping...' : 'Stop'}
+                      Save
                     </button>
-                  ) : (
-                    <button
-                      onClick={() => { setRunError(null); handleRun() }}
-                      disabled={!canRun}
-                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: canRun ? 'pointer' : 'default', opacity: canRun ? 1 : 0.4 }}
-                    >
-                      Run
-                    </button>
-                  )}
-                  {selectedPipelineId && (
-                    <button
-                      onClick={handleDelete}
-                      style={{ padding: '5px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
+                    {isRunning ? (
+                      <button
+                        onClick={() => activeRunId && cancelMutation.mutate(activeRunId)}
+                        disabled={cancelMutation.isPending}
+                        style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#ef4444', border: 'none', borderRadius: 4, color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: cancelMutation.isPending ? 0.6 : 1 }}
+                      >
+                        {cancelMutation.isPending ? 'Stopping...' : 'Stop'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => { setRunError(null); handleRun() }}
+                        disabled={!canRun}
+                        style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: canRun ? 'pointer' : 'default', opacity: canRun ? 1 : 0.4 }}
+                      >
+                        Run
+                      </button>
+                    )}
+                    {selectedPipelineId && (
+                      <button
+                        onClick={() => setConfirmDelete(true)}
+                        style={{ padding: '5px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             }
             right={
