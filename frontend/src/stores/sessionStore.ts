@@ -5,7 +5,10 @@ interface SessionState {
   username: string | null
   userId: string | null
   activeJobId: string | null
-  col1Content: { type: 'job'; jobId: string } | null
+  col1Content:
+    | { type: 'job'; jobId: string }
+    | { type: 'pipeline_run'; runId: string }
+    | null
 
   setTokens: (access: string, refresh: string) => void
   setUser: (id: string, username: string) => void
