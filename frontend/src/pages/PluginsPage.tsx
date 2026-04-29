@@ -1,12 +1,21 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
-import { getPipelineNodeEnabled, setPipelineNodeEnabled } from '../api/v3'
+import { getPipelineNodeEnabled, setPipelineNodeEnabled, getAppPluginEnabled, setAppPluginEnabled } from '../api/v3'
 
 // ─── Static plugin registry ──────────────────────────────────────────────────
 
 type AppPlugin = {
   kind: 'app'
+  id: string
+  title: string
+  description: string
+  tags: string[]
+  route: string
+}
+
+type HybridAppPlugin = {
+  kind: 'hybrid_app'
   id: string
   title: string
   description: string
@@ -23,11 +32,11 @@ type NodePlugin = {
   node_type: string
 }
 
-type PluginDef = AppPlugin | NodePlugin
+type PluginDef = AppPlugin | HybridAppPlugin | NodePlugin
 
 const PLUGINS: PluginDef[] = [
   {
-    kind: 'app',
+    kind: 'hybrid_app',
     id: 'linkedin-scraper',
     title: 'LinkedIn Scraper',
     description: 'Harvest LinkedIn profiles using Apify actor runs. Configure targeting, run scraper jobs, view ingested profiles, and build automated pipelines.',
@@ -97,9 +106,82 @@ function TagBadge({ tag }: { tag: string }) {
   )
 }
 
-// ─── Node plugin card (with enable/disable) ───────────────────────────────────
+// ─── Hybrid app plugin card (navigate + enable/disable) ───────────────────────
+
+function HybridAppPluginCard({ plugin }: { plugin: HybridAppPlugin }) {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+
+  const { data } = useQuery({
+    queryKey: ['app-plugin-enabled', plugin.id],
+    queryFn: () => getAppPluginEnabled(plugin.id).catch(() => ({ plugin_id: plugin.id, enabled: true })),
+  })
+
+  const enabled = data?.enabled !== false
+
+  const toggleMutation = useMutation({
+    mutationFn: (next: boolean) => setAppPluginEnabled(plugin.id, next),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['app-plugin-enabled', plugin.id] }),
+  })
+
+  return (
+    <div
+      onClick={() => enabled && navigate(plugin.route)}
+      style={{
+        background: 'var(--panel)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        opacity: enabled ? 1 : 0.55,
+        transition: 'opacity 0.15s, border-color 0.15s',
+        cursor: enabled ? 'pointer' : 'default',
+      }}
+      onMouseEnter={e => { if (enabled) e.currentTarget.style.borderColor = 'var(--accent)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{plugin.title}</span>
+        <button
+          onClick={e => { e.stopPropagation(); toggleMutation.mutate(!enabled) }}
+          disabled={toggleMutation.isPending}
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '3px 10px',
+            borderRadius: 20,
+            border: `1px solid ${enabled ? '#22c55e' : '#475569'}`,
+            background: enabled ? '#14532d33' : 'transparent',
+            color: enabled ? '#22c55e' : '#64748b',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          {enabled ? 'Enabled' : 'Disabled'}
+        </button>
+      </div>
+
+      <p style={{ fontSize: 11, color: 'var(--muted)', margin: 0, lineHeight: 1.5 }}>
+        {plugin.description}
+      </p>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {plugin.tags.map(t => <TagBadge key={t} tag={t} />)}
+        </div>
+        {enabled && <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>Open →</span>}
+      </div>
+    </div>
+  )
+}
+
+// ─── Node plugin card (with enable/disable + navigate to detail) ──────────────
 
 function NodePluginCard({ plugin }: { plugin: NodePlugin }) {
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const { data } = useQuery({
@@ -119,6 +201,7 @@ function NodePluginCard({ plugin }: { plugin: NodePlugin }) {
 
   return (
     <div
+      onClick={() => navigate(`/plugins/node/${plugin.node_type}`)}
       style={{
         background: 'var(--panel)',
         border: '1px solid var(--border)',
@@ -128,13 +211,16 @@ function NodePluginCard({ plugin }: { plugin: NodePlugin }) {
         flexDirection: 'column',
         gap: 10,
         opacity: enabled ? 1 : 0.55,
-        transition: 'opacity 0.15s',
+        transition: 'opacity 0.15s, border-color 0.15s',
+        cursor: 'pointer',
       }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)' }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)' }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{plugin.title}</span>
         <button
-          onClick={() => toggleMutation.mutate(!enabled)}
+          onClick={e => { e.stopPropagation(); toggleMutation.mutate(!enabled) }}
           disabled={toggleMutation.isPending}
           style={{
             fontSize: 10,
@@ -164,7 +250,7 @@ function NodePluginCard({ plugin }: { plugin: NodePlugin }) {
   )
 }
 
-// ─── App plugin card (navigates to full page) ─────────────────────────────────
+// ─── App plugin card (navigates to full page, no toggle) ─────────────────────
 
 function AppPluginCard({ plugin }: { plugin: AppPlugin }) {
   const navigate = useNavigate()
@@ -205,7 +291,7 @@ function AppPluginCard({ plugin }: { plugin: AppPlugin }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PluginsPage() {
-  const appPlugins = PLUGINS.filter((p): p is AppPlugin => p.kind === 'app')
+  const appPlugins = PLUGINS.filter((p): p is AppPlugin | HybridAppPlugin => p.kind === 'app' || p.kind === 'hybrid_app')
   const nodePlugins = PLUGINS.filter((p): p is NodePlugin => p.kind === 'node')
 
   return (
@@ -227,7 +313,6 @@ export default function PluginsPage() {
               Curated integrations and pipeline nodes
             </p>
           </div>
-          {/* Search stub — future feature */}
           <input
             disabled
             placeholder="Search plugins (coming soon)"
@@ -246,7 +331,7 @@ export default function PluginsPage() {
 
         {/* Content */}
         <div className="flex-1 overflow-auto" style={{ padding: 20 }}>
-          {/* App plugins */}
+          {/* App/Hybrid plugins */}
           <section style={{ marginBottom: 28 }}>
             <h2
               style={{
@@ -266,7 +351,11 @@ export default function PluginsPage() {
                 gap: 12,
               }}
             >
-              {appPlugins.map(p => <AppPluginCard key={p.id} plugin={p} />)}
+              {appPlugins.map(p =>
+                p.kind === 'hybrid_app'
+                  ? <HybridAppPluginCard key={p.id} plugin={p as HybridAppPlugin} />
+                  : <AppPluginCard key={p.id} plugin={p as AppPlugin} />
+              )}
             </div>
           </section>
 
