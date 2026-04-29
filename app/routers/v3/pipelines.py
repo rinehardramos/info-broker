@@ -128,6 +128,31 @@ def list_all_pipeline_runs(user: dict = Depends(get_current_user)):
     return [PipelineRunSummaryOut(**dict(r)) for r in rows]
 
 
+@router.post("/runs/{run_id}/cancel", status_code=204)
+async def cancel_pipeline_run(run_id: str, user: dict = Depends(get_current_user)):
+    from temporalio.client import Client
+    run = fetch_one(
+        "SELECT * FROM pipeline_runs WHERE id = %s AND user_id = %s",
+        (run_id, str(user["id"])),
+    )
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run["status"] not in ("queued", "running"):
+        raise HTTPException(status_code=400, detail=f"Run is not active (status: {run['status']})")
+    host = os.getenv("TEMPORAL_HOST", "localhost")
+    port = int(os.getenv("TEMPORAL_PORT", "7233"))
+    try:
+        client = await Client.connect(f"{host}:{port}")
+        handle = client.get_workflow_handle(str(run["temporal_workflow_id"]))
+        await handle.cancel()
+    except Exception as exc:
+        log.warning("Temporal cancel failed for run %s: %s", run_id, exc)
+    execute(
+        "UPDATE pipeline_runs SET status = 'paused', finished_at = now() WHERE id = %s",
+        (run_id,),
+    )
+
+
 @router.get("/runs/{run_id}", response_model=PipelineRunDetailOut)
 def get_run(run_id: str, user: dict = Depends(get_current_user)):
     run = fetch_one(
