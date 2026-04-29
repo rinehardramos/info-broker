@@ -4,6 +4,9 @@ const NODE_W = 160
 const NODE_H = 60
 const GAP_X = 80
 const GAP_Y = 30
+const SENTINEL_W = 64
+const SENTINEL_H = 28
+const SENTINEL_COLOR = '#475569'
 
 const CATEGORY_COLORS: Record<string, string> = {
   source: '#60a5fa',
@@ -59,24 +62,43 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
   const stepMap = Object.fromEntries(stepRuns.map(s => [s.node_id, s]))
   const layers = topoLayers(nodes, edges)
 
+  // Shift all real nodes right to make room for the START sentinel
+  const X_OFFSET = SENTINEL_W + GAP_X
+
   // Compute positions
   const positions: Record<string, { x: number; y: number }> = {}
   let maxY = 0
   layers.forEach((layer, layerIdx) => {
-    const totalH = layer.length * NODE_H + (layer.length - 1) * GAP_Y
     layer.forEach((node, nodeIdx) => {
-      const x = 20 + layerIdx * (NODE_W + GAP_X)
+      const x = 20 + X_OFFSET + layerIdx * (NODE_W + GAP_X)
       const y = 20 + nodeIdx * (NODE_H + GAP_Y)
       positions[node.id] = { x, y }
       maxY = Math.max(maxY, y + NODE_H)
     })
   })
 
-  const svgWidth = 20 + layers.length * (NODE_W + GAP_X) + 20
   const svgHeight = maxY + 40
 
+  // Sentinel positions — centered on their connected nodes
+  const incomingIds = new Set(edges.map(e => e.target_node_id))
+  const outgoingIds = new Set(edges.map(e => e.source_node_id))
+  const rootNodes = nodes.filter(n => !incomingIds.has(n.id))
+  const leafNodes = nodes.filter(n => !outgoingIds.has(n.id))
+
+  const avgCenterY = (ns: PipelineNodeOut[]) => {
+    if (!ns.length) return svgHeight / 2 - SENTINEL_H / 2
+    return ns.reduce((acc, n) => acc + (positions[n.id]?.y ?? 0) + NODE_H / 2, 0) / ns.length - SENTINEL_H / 2
+  }
+
+  const startX = 20
+  const startY = avgCenterY(rootNodes)
+  const endX = 20 + X_OFFSET + layers.length * (NODE_W + GAP_X)
+  const endY = avgCenterY(leafNodes)
+
+  const svgWidth = endX + SENTINEL_W + 20
+
   // Collect unique edge colors so we can define one arrowhead marker per color
-  const edgeColors = new Set<string>()
+  const edgeColors = new Set<string>([SENTINEL_COLOR])
   edges.forEach(edge => {
     const step = stepMap[edge.target_node_id]
     edgeColors.add(step ? STATUS_COLORS[step.status] ?? '#475569' : '#334155')
@@ -109,6 +131,48 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
         ))}
       </defs>
       <rect width={svgWidth} height={svgHeight} fill="url(#dots)" />
+
+      {/* Sentinel edges: START → roots and leaves → END (dashed) */}
+      {rootNodes.map(n => {
+        const tgt = positions[n.id]
+        if (!tgt) return null
+        const x1 = startX + SENTINEL_W
+        const y1 = startY + SENTINEL_H / 2
+        const x2 = tgt.x - 1
+        const y2 = tgt.y + NODE_H / 2
+        return (
+          <path
+            key={`start-${n.id}`}
+            d={`M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`}
+            fill="none"
+            stroke={SENTINEL_COLOR}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            opacity={0.6}
+            markerEnd={`url(#arrow-${SENTINEL_COLOR.replace('#', '')})`}
+          />
+        )
+      })}
+      {leafNodes.map(n => {
+        const src = positions[n.id]
+        if (!src) return null
+        const x1 = src.x + NODE_W
+        const y1 = src.y + NODE_H / 2
+        const x2 = endX - 1
+        const y2 = endY + SENTINEL_H / 2
+        return (
+          <path
+            key={`end-${n.id}`}
+            d={`M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`}
+            fill="none"
+            stroke={SENTINEL_COLOR}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            opacity={0.6}
+            markerEnd={`url(#arrow-${SENTINEL_COLOR.replace('#', '')})`}
+          />
+        )
+      })}
 
       {/* Edges */}
       {edges.map(edge => {
@@ -170,6 +234,25 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
           </g>
         )
       })}
+      {/* START sentinel */}
+      <g>
+        <rect x={startX} y={startY} width={SENTINEL_W} height={SENTINEL_H} rx={SENTINEL_H / 2}
+          fill="#1e293b" stroke={SENTINEL_COLOR} strokeWidth={1.5} strokeDasharray="3 2" opacity={0.8} />
+        <text x={startX + SENTINEL_W / 2} y={startY + SENTINEL_H / 2 + 4}
+          textAnchor="middle" fill={SENTINEL_COLOR} fontSize={9} fontWeight={700} letterSpacing="0.08em">
+          START
+        </text>
+      </g>
+
+      {/* END sentinel */}
+      <g>
+        <rect x={endX} y={endY} width={SENTINEL_W} height={SENTINEL_H} rx={SENTINEL_H / 2}
+          fill="#1e293b" stroke={SENTINEL_COLOR} strokeWidth={1.5} strokeDasharray="3 2" opacity={0.8} />
+        <text x={endX + SENTINEL_W / 2} y={endY + SENTINEL_H / 2 + 4}
+          textAnchor="middle" fill={SENTINEL_COLOR} fontSize={9} fontWeight={700} letterSpacing="0.08em">
+          END
+        </text>
+      </g>
     </svg>
   )
 }
