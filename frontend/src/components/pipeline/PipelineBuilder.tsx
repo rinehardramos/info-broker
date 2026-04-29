@@ -16,11 +16,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(initialPipelineId ?? null)
   const [localNodes, setLocalNodes] = useState<PipelineNodeOut[]>([])
   const [localEdges, setLocalEdges] = useState<PipelineEdgeOut[]>([])
-  const [localName, setLocalName] = useState('New Pipeline')
+  const [localName, setLocalName] = useState('')
   const [localDesc, setLocalDesc] = useState('')
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [creatingNew, setCreatingNew] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newDesc, setNewDesc] = useState('')
 
   const { data: pipelines = [] } = useQuery({ queryKey: ['pipelines'], queryFn: listPipelines })
   const { data: nodeTypes = [] } = useQuery({ queryKey: ['nodeTypes'], queryFn: listNodeTypes })
@@ -47,6 +50,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     onSuccess: p => {
       qc.invalidateQueries({ queryKey: ['pipelines'] })
       setSelectedPipelineId(p.id)
+      setLocalNodes([])
+      setLocalEdges([])
+      setCreatingNew(false)
+      setNewName('')
+      setNewDesc('')
       setDirty(false)
     },
   })
@@ -66,7 +74,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       setSelectedPipelineId(null)
       setLocalNodes([])
       setLocalEdges([])
-      setLocalName('New Pipeline')
+      setLocalName('')
     },
   })
   const runMutation = useMutation({
@@ -132,28 +140,38 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   }
 
   const handleSave = () => {
-    const body = {
-      name: localName,
-      description: localDesc || null,
-      nodes: localNodes.map(n => ({
-        id: n.id,                   // pass frontend UUID through
-        node_type: n.node_type,
-        label: n.label,
-        config: n.config,
-        position_x: n.position_x,
-        position_y: n.position_y,
-      })),
-      edges: localEdges.map(e => ({
-        source_node_id: e.source_node_id,
-        target_node_id: e.target_node_id,
-        edge_type: e.edge_type,
-      })),
-    }
-    if (selectedPipelineId) {
-      updateMutation.mutate({ id: selectedPipelineId, body })
-    } else {
-      createMutation.mutate(body)
-    }
+    if (!selectedPipelineId) return
+    updateMutation.mutate({
+      id: selectedPipelineId,
+      body: {
+        name: localName,
+        description: localDesc || null,
+        nodes: localNodes.map(n => ({
+          id: n.id,
+          node_type: n.node_type,
+          label: n.label,
+          config: n.config,
+          position_x: n.position_x,
+          position_y: n.position_y,
+        })),
+        edges: localEdges.map(e => ({
+          source_node_id: e.source_node_id,
+          target_node_id: e.target_node_id,
+          edge_type: e.edge_type,
+        })),
+      },
+    })
+  }
+
+  const handleCreateSubmit = () => {
+    const name = newName.trim()
+    if (!name) return
+    createMutation.mutate({
+      name,
+      description: newDesc.trim() || null,
+      nodes: [],
+      edges: [],
+    })
   }
 
   const handleRun = () => {
@@ -176,18 +194,18 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   return (
     <div style={{ display: 'flex', height: '100%', background: '#0d1117', color: '#e2e8f0', overflow: 'hidden' }}>
       {/* Saved pipelines sidebar */}
-      <div style={{ width: 160, borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ width: 180, borderRight: '1px solid #1e293b', display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '8px', borderBottom: '1px solid #1e293b', fontSize: 11, color: '#94a3b8' }}>PIPELINES</div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {pipelines.map(p => (
             <div
               key={p.id}
-              onClick={() => { setSelectedPipelineId(p.id); setActiveRunId(null) }}
+              onClick={() => { setSelectedPipelineId(p.id); setActiveRunId(null); setCreatingNew(false) }}
               style={{
                 padding: '8px 10px',
                 cursor: 'pointer',
-                background: p.id === selectedPipelineId ? '#1e293b' : 'transparent',
-                borderLeft: p.id === selectedPipelineId ? '2px solid #60a5fa' : '2px solid transparent',
+                background: p.id === selectedPipelineId && !creatingNew ? '#1e293b' : 'transparent',
+                borderLeft: p.id === selectedPipelineId && !creatingNew ? '2px solid #60a5fa' : '2px solid transparent',
                 fontSize: 11,
               }}
             >
@@ -195,19 +213,49 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
             </div>
           ))}
         </div>
-        <button
-          onClick={() => {
-            setSelectedPipelineId(null)
-            setLocalNodes([])
-            setLocalEdges([])
-            setLocalName('New Pipeline')
-            setLocalDesc('')
-            setDirty(false)
-          }}
-          style={{ padding: '8px', fontSize: 11, background: 'transparent', border: 'none', borderTop: '1px solid #1e293b', color: '#60a5fa', cursor: 'pointer' }}
-        >
-          + New Pipeline
-        </button>
+
+        {/* Inline new pipeline form */}
+        {creatingNew ? (
+          <div style={{ borderTop: '1px solid #1e293b', padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <input
+              autoFocus
+              placeholder="Pipeline name *"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateSubmit(); if (e.key === 'Escape') setCreatingNew(false) }}
+              style={{ padding: '4px 6px', fontSize: 11, background: '#1e293b', border: '1px solid #334155', borderRadius: 4, color: '#e2e8f0', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+            />
+            <input
+              placeholder="Description (optional)"
+              value={newDesc}
+              onChange={e => setNewDesc(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleCreateSubmit(); if (e.key === 'Escape') setCreatingNew(false) }}
+              style={{ padding: '4px 6px', fontSize: 11, background: '#1e293b', border: '1px solid #334155', borderRadius: 4, color: '#e2e8f0', outline: 'none', width: '100%', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button
+                onClick={handleCreateSubmit}
+                disabled={!newName.trim() || createMutation.isPending}
+                style={{ flex: 1, padding: '4px 0', fontSize: 10, fontWeight: 700, background: newName.trim() ? '#60a5fa' : '#1e293b', color: newName.trim() ? '#0d1117' : '#475569', border: 'none', borderRadius: 4, cursor: newName.trim() ? 'pointer' : 'default' }}
+              >
+                {createMutation.isPending ? '…' : 'Create'}
+              </button>
+              <button
+                onClick={() => { setCreatingNew(false); setNewName(''); setNewDesc('') }}
+                style={{ padding: '4px 8px', fontSize: 10, background: 'transparent', color: '#94a3b8', border: '1px solid #334155', borderRadius: 4, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => { setCreatingNew(true); setNewName(''); setNewDesc('') }}
+            style={{ padding: '8px', fontSize: 11, background: 'transparent', border: 'none', borderTop: '1px solid #1e293b', color: '#60a5fa', cursor: 'pointer' }}
+          >
+            + New Pipeline
+          </button>
+        )}
       </div>
 
       {/* Main area */}
