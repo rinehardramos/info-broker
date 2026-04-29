@@ -3,16 +3,32 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import time
-
-import requests
 
 from app.pipeline.nodes.base import RunContext
 
 log = logging.getLogger(__name__)
 
-_POLL_INTERVAL = 10
-_MAX_POLL_TIME = 600
+
+def _resolve_api_key() -> str:
+    """Env vars take priority over DB so .env works out of the box."""
+    key = os.getenv("APIFY_API_TOKEN") or os.getenv("APIFY_API_KEY")
+    if key:
+        return key
+    try:
+        from app.routers.v3.db import fetch_one
+        row = fetch_one("SELECT value FROM core_settings WHERE key = 'apify_api_key'", ())
+        if row and row["value"]:
+            return row["value"]
+    except Exception:
+        pass
+    raise RuntimeError(
+        "Apify API key not found. Set APIFY_API_TOKEN in .env or configure it in Settings."
+    )
+
+
+def _actor_slug(actor_id: str) -> str:
+    """Normalise 'owner/name' → 'owner~name' for the Apify REST path."""
+    return actor_id.replace("/", "~")
 
 
 class ApifyActorNode:
@@ -22,110 +38,77 @@ class ApifyActorNode:
     config_schema = {
         "type": "object",
         "properties": {
-            "actor_id": {"type": "string", "title": "Actor ID"},
-            "currentJobTitles": {
-                "type": "array",
-                "items": {"type": "string"},
-                "title": "Job Titles",
+            "actor_id": {
+                "type": "string",
+                "title": "Actor ID",
+                "default": "harvestapi/linkedin-profile-search",
             },
-            "locations": {
-                "type": "array",
-                "items": {"type": "string"},
-                "title": "Locations",
+            "profileScraperMode": {
+                "type": "string",
+                "title": "Scraper Mode",
+                "enum": ["Full", "Fast"],
+                "default": "Fast",
             },
-            "maxItems": {"type": "integer", "title": "Max Items", "default": 100},
-            "scraperMode": {"type": "string", "title": "Scraper Mode", "default": "fast"},
-            "autoQuerySegmentation": {"type": "boolean", "title": "Auto Query Segmentation", "default": False},
-            "autoQuerySegmentationLevels": {"type": "integer", "title": "Segmentation Levels", "default": 1},
-            "autoQuerySegmentationTargetCountries": {
-                "type": "array",
-                "items": {"type": "string"},
-                "title": "Segmentation Countries",
+            "maxItems": {
+                "type": "integer",
+                "title": "Max Items",
+                "default": 20,
+                "minimum": 1,
+                "maximum": 1000,
             },
-            "recentlyChangedJobs": {"type": "boolean", "title": "Recently Changed Jobs", "default": False},
-            "recentlyPostedOnLinkedin": {"type": "boolean", "title": "Recently Posted", "default": False},
+            "startPage": {
+                "type": "integer",
+                "title": "Start Page",
+                "default": 1,
+                "minimum": 1,
+            },
         },
         "required": ["actor_id"],
     }
 
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
-        from app.routers.v3.db import fetch_one
+        api_key = _resolve_api_key()
+        actor_id = config.get("actor_id", "harvestapi/linkedin-profile-search")
+        actor_input = {k: v for k, v in config.items() if k != "actor_id" and v is not None}
 
-        api_key_row = fetch_one("SELECT value FROM core_settings WHERE key = 'apify_api_key'", ())
-        api_key = api_key_row["value"] if api_key_row else None
-        if not api_key:
-            raise RuntimeError("Apify API key not configured in core_settings")
-
-        actor_id = config.get("actor_id", "")
-        if not actor_id:
-            raise RuntimeError("actor_id is required in node config")
-
-        actor_input = {k: v for k, v in config.items() if k != "actor_id"}
-
-        base_url = os.getenv("APIFY_BASE_URL", "https://api.apify.com/v2")
         loop = asyncio.get_running_loop()
-        profiles = await loop.run_in_executor(
-            None, self._run_sync, base_url, actor_id, api_key, actor_input
+        return await loop.run_in_executor(
+            None, self._run_sync, actor_id, api_key, actor_input
         )
-        return profiles
 
-    def _run_sync(self, base_url: str, actor_id: str, api_key: str, actor_input: dict) -> list[dict]:
-        # Start actor run
-        resp = requests.post(
-            f"{base_url}/acts/{actor_id}/runs",
-            params={"token": api_key},
-            json=actor_input,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        apify_run_id = resp.json()["data"]["id"]
+    def _run_sync(self, actor_id: str, api_key: str, actor_input: dict) -> list[dict]:
+        from apify_client import ApifyClient
 
-        # Poll until terminal
-        dataset_id = None
-        deadline = time.time() + _MAX_POLL_TIME
-        while time.time() < deadline:
-            time.sleep(_POLL_INTERVAL)
-            try:
-                r = requests.get(
-                    f"{base_url}/actor-runs/{apify_run_id}",
-                    params={"token": api_key},
-                    timeout=30,
-                )
-                r.raise_for_status()
-                run_data = r.json()["data"]
-                status = run_data.get("status")
-                if status == "SUCCEEDED":
-                    dataset_id = run_data.get("defaultDatasetId")
-                    break
-                if status in ("FAILED", "ABORTED", "TIMED-OUT"):
-                    raise RuntimeError(f"Apify actor run ended with status {status}")
-            except RuntimeError:
-                raise
-            except Exception as exc:
-                log.warning("Apify poll error: %s", exc)
+        client = ApifyClient(api_key)
+        slug = _actor_slug(actor_id)
+        log.info("Starting Apify actor: %s input=%s", slug, actor_input)
 
+        run = client.actor(slug).call(run_input=actor_input)
+        if not run:
+            raise RuntimeError(f"Apify actor {slug} returned no run result")
+
+        dataset_id = run.get("defaultDatasetId")
         if not dataset_id:
-            raise RuntimeError(f"Apify actor run timed out after {_MAX_POLL_TIME}s")
+            raise RuntimeError(f"Apify run for {slug} has no dataset")
 
-        # Fetch dataset items
-        r = requests.get(
-            f"{base_url}/datasets/{dataset_id}/items",
-            params={"token": api_key},
-            timeout=120,
-        )
-        r.raise_for_status()
-        raw = r.json()
-        if not isinstance(raw, list):
-            return []
+        items = list(client.dataset(dataset_id).iterate_items())
+        log.info("Apify actor %s returned %d items", slug, len(items))
+        return [self._map_item(item) for item in items]
 
-        return [
-            {
-                "id": item.get("linkedinUrl") or item.get("id") or "",
-                "first_name": item.get("firstName", ""),
-                "last_name": item.get("lastName", ""),
-                "headline": item.get("headline", ""),
-                "about": item.get("about", ""),
-                "source": "apify",
-            }
-            for item in raw
-        ]
+    @staticmethod
+    def _map_item(item: dict) -> dict:
+        """Normalise a harvestapi/linkedin-profile-search response item."""
+        return {
+            "id": item.get("linkedinUrl") or item.get("profileUrl") or item.get("id") or "",
+            "first_name": item.get("firstName") or item.get("first_name", ""),
+            "last_name": item.get("lastName") or item.get("last_name", ""),
+            "full_name": item.get("fullName") or item.get("name", ""),
+            "headline": item.get("headline", ""),
+            "about": item.get("about") or item.get("summary", ""),
+            "location": item.get("location", ""),
+            "linkedin_url": item.get("linkedinUrl") or item.get("profileUrl", ""),
+            "company": item.get("currentCompanyName") or item.get("company", ""),
+            "title": item.get("currentPositionTitle") or item.get("headline", ""),
+            "source": "apify",
+            "_raw": item,
+        }
