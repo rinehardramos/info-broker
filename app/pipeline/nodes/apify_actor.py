@@ -35,6 +35,9 @@ class ApifyActorNode:
     node_type = "apify_actor"
     display_name = "Apify Actor"
     category = "source"
+    # Fields that are stored as arrays but entered as comma-separated strings.
+    _ARRAY_FIELDS = {"jobTitles", "locations", "segmentationCountries"}
+
     config_schema = {
         "type": "object",
         "properties": {
@@ -43,11 +46,15 @@ class ApifyActorNode:
                 "title": "Actor ID",
                 "default": "harvestapi/linkedin-profile-search",
             },
-            "profileScraperMode": {
-                "type": "string",
-                "title": "Scraper Mode",
-                "enum": ["Full", "Fast"],
-                "default": "Fast",
+            "jobTitles": {
+                "type": "array",
+                "title": "Job Titles",
+                "items": {"type": "string"},
+            },
+            "locations": {
+                "type": "array",
+                "title": "Locations",
+                "items": {"type": "string"},
             },
             "maxItems": {
                 "type": "integer",
@@ -56,11 +63,51 @@ class ApifyActorNode:
                 "minimum": 1,
                 "maximum": 1000,
             },
+            "profileScraperMode": {
+                "type": "string",
+                "title": "Scraper Mode",
+                "enum": ["Full", "Fast"],
+                "default": "Fast",
+            },
+            "autoQuerySegmentation": {
+                "type": "boolean",
+                "title": "Auto Query Segmentation",
+                "default": False,
+            },
+            "segmentationLevels": {
+                "type": "integer",
+                "title": "Segmentation Levels",
+                "default": 1,
+                "minimum": 1,
+                "maximum": 5,
+            },
+            "segmentationCountries": {
+                "type": "array",
+                "title": "Segmentation Countries",
+                "items": {"type": "string"},
+            },
+            "recentlyChangedJobs": {
+                "type": "boolean",
+                "title": "Recently Changed Jobs",
+                "default": False,
+            },
+            "recentlyPosted": {
+                "type": "boolean",
+                "title": "Recently Posted",
+                "default": False,
+            },
             "startPage": {
                 "type": "integer",
                 "title": "Start Page",
                 "default": 1,
                 "minimum": 1,
+            },
+            "timeout": {
+                "type": "integer",
+                "title": "Timeout (seconds)",
+                "default": 60,
+                "minimum": 10,
+                "maximum": 3600,
             },
         },
         "required": ["actor_id"],
@@ -69,7 +116,14 @@ class ApifyActorNode:
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         api_key = _resolve_api_key()
         actor_id = config.get("actor_id", "harvestapi/linkedin-profile-search")
-        actor_input = {k: v for k, v in config.items() if k != "actor_id" and v is not None}
+        actor_input = {}
+        for k, v in config.items():
+            if k == "actor_id" or v is None:
+                continue
+            # Coerce legacy string values for array fields (e.g. "CEO, CTO" → ["CEO", "CTO"])
+            if k in self._ARRAY_FIELDS and isinstance(v, str):
+                v = [s.strip() for s in v.split(",") if s.strip()]
+            actor_input[k] = v
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
