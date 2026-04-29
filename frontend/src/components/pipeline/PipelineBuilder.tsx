@@ -308,7 +308,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       .map(n => n.id),
   )
   const invalidCount = invalidNodeIds.size
-  const canSave = dirty && invalidCount === 0
+  const canSave = !!selectedPipelineId && invalidCount === 0
   const canRun = !!selectedPipelineId && !isRunning && hasSource && !needsAggregator && invalidCount === 0
 
   // Compute topological order so StepList numbers match DAG flow
@@ -483,9 +483,16 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                     <button
                       onClick={handleSave}
                       disabled={!canSave}
-                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: canSave ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: canSave ? '#e2e8f0' : '#475569', cursor: canSave ? 'pointer' : 'default' }}
+                      style={{
+                        flex: 1, padding: '5px 0', fontSize: 11,
+                        background: canSave ? (dirty ? '#1e3a5f' : '#1e293b') : 'transparent',
+                        border: `1px solid ${canSave ? (dirty ? '#60a5fa' : '#334155') : '#1e293b'}`,
+                        borderRadius: 4,
+                        color: canSave ? '#e2e8f0' : '#475569',
+                        cursor: canSave ? 'pointer' : 'default',
+                      }}
                     >
-                      Save
+                      Save{dirty ? ' *' : ''}
                     </button>
                     {isRunning ? (
                       <button
