@@ -154,6 +154,18 @@ export function NodeConfigForm({ node, schema, onChange, onClose, onDone, nodes,
                 onChange={e => update(key, e.target.value)}
                 style={{ width: '100%', padding: '6px 8px', background: '#1e293b', border: inputBorder, borderRadius: 4, color: '#e2e8f0', fontSize: 12, boxSizing: 'border-box' }}
               />
+              <button
+                type="button"
+                onClick={() => update(key, '{{agent_input}}')}
+                title="Insert agent input variable"
+                style={{
+                  marginTop: 4, fontSize: 9, padding: '2px 8px', borderRadius: 10,
+                  border: '1px solid #334155', background: 'transparent',
+                  color: '#60a5fa', cursor: 'pointer', fontFamily: 'monospace',
+                }}
+              >
+                {'{{agent_input}}'}
+              </button>
             </div>
           )
         })}

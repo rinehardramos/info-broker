@@ -5,7 +5,8 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
@@ -282,8 +283,27 @@ def delete_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
 # Pipeline runs
 # ---------------------------------------------------------------------------
 
+class RunVariables(BaseModel):
+    variables: dict[str, str] = {}
+
+
+def _substitute_variables(config: dict, variables: dict[str, str]) -> dict:
+    """Replace {{var}} placeholders in string config values."""
+    result = {}
+    for k, v in config.items():
+        if isinstance(v, str):
+            for var_name, var_value in variables.items():
+                v = v.replace(f"{{{{{var_name}}}}}", var_value)
+        result[k] = v
+    return result
+
+
 @router.post("/{pipeline_id}/run", response_model=PipelineRunOut, status_code=202)
-async def start_pipeline_run(pipeline_id: str, user: dict = Depends(get_current_user)):
+async def start_pipeline_run(
+    pipeline_id: str,
+    body: RunVariables = Body(default_factory=RunVariables),
+    user: dict = Depends(get_current_user),
+):
     from temporalio.client import Client
     from app.pipeline.workflow import TASK_QUEUE, PipelineRunInput, NodeSpec, EdgeSpec, PipelineWorkflow
 
@@ -349,7 +369,7 @@ async def start_pipeline_run(pipeline_id: str, user: dict = Depends(get_current_
                         node_id=str(n["id"]),
                         node_type=n["node_type"],
                         label=n["label"],
-                        config=n["config"] or {},
+                        config=_substitute_variables(n["config"] or {}, body.variables),
                     )
                     for n in nodes_rows
                 ],

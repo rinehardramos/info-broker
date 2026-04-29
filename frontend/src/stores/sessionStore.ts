@@ -5,6 +5,7 @@ interface SessionState {
   username: string | null
   userId: string | null
   activeJobId: string | null
+  agentInput: string
   col1Content:
     | { type: 'job'; jobId: string }
     | { type: 'pipeline_run'; runId: string }
@@ -13,6 +14,7 @@ interface SessionState {
   setTokens: (access: string, refresh: string) => void
   setUser: (id: string, username: string) => void
   setActiveJobId: (id: string | null) => void
+  setAgentInput: (text: string) => void
   setCol1Content: (content: SessionState['col1Content']) => void
   logout: () => void
 }
@@ -22,6 +24,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   username: null,
   userId: null,
   activeJobId: null,
+  agentInput: '',
   col1Content: null,
 
   setTokens: (access, refresh) => {
@@ -33,6 +36,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   setUser: (id, username) => set({ userId: id, username }),
 
   setActiveJobId: (id) => set({ activeJobId: id }),
+
+  setAgentInput: (text) => set({ agentInput: text }),
 
   setCol1Content: (content) => set({ col1Content: content }),
 

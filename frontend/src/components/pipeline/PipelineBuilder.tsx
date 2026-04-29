@@ -6,6 +6,7 @@ import {
   deletePipeline, startPipelineRun, cancelPipelineRun, listPipelineRuns, getPipelineRun,
   PipelineNodeOut, PipelineEdgeOut,
 } from '../../api/pipelines'
+import { useSessionStore } from '../../stores/sessionStore'
 import { ResizableSplit } from './ResizableSplit'
 import { StepList } from './StepList'
 import { DagPreview } from './DagPreview'
@@ -14,6 +15,7 @@ import { NodeConfigForm } from './NodeConfigForm'
 export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: string } = {}) {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const agentInput = useSessionStore(s => s.agentInput)
 
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(initialPipelineId ?? null)
   const [localNodes, setLocalNodes] = useState<PipelineNodeOut[]>([])
@@ -85,7 +87,8 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   })
   const [runError, setRunError] = useState<string | null>(null)
   const runMutation = useMutation({
-    mutationFn: startPipelineRun,
+    mutationFn: ({ id, variables }: { id: string; variables?: Record<string, string> }) =>
+      startPipelineRun(id, variables),
     onSuccess: run => {
       setRunError(null)
       setActiveRunId(run.id)
@@ -266,7 +269,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
   const handleRun = () => {
     if (!selectedPipelineId) return
-    runMutation.mutate(selectedPipelineId)
+    runMutation.mutate({ id: selectedPipelineId, variables: agentInput ? { agent_input: agentInput } : undefined })
   }
 
   const handleDelete = () => {

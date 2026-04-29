@@ -17,7 +17,7 @@ export default function AgentChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
-  const { activeJobId, setActiveJobId } = useSessionStore()
+  const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
   const bottomRef               = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -53,6 +53,7 @@ export default function AgentChat() {
     if (!text || sending) return
     setInput('')
     setSending(true)
+    setAgentInput(text)
 
     const userMsg: Message = { id: `user-${++_msgCounter}`, role: 'user', content: text }
     setMessages(prev => [...prev, userMsg])

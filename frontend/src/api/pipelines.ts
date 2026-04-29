@@ -97,8 +97,8 @@ export const updatePipeline = (id: string, body: PipelineIn): Promise<Pipeline> 
 export const deletePipeline = (id: string): Promise<void> =>
   api.delete(`/v3/pipelines/${id}`).then(() => undefined)
 
-export const startPipelineRun = (id: string): Promise<PipelineRun> =>
-  api.post(`/v3/pipelines/${id}/run`).then(r => r.data)
+export const startPipelineRun = (id: string, variables?: Record<string, string>): Promise<PipelineRun> =>
+  api.post(`/v3/pipelines/${id}/run`, { variables: variables ?? {} }).then(r => r.data)
 
 export const listPipelineRuns = (id: string): Promise<PipelineRun[]> =>
   api.get(`/v3/pipelines/${id}/runs`).then(r => r.data)
