@@ -124,6 +124,7 @@ function PipelineTabContent() {
   const qc = useQueryClient()
   const col1Content = useSessionStore(s => s.col1Content)
   const setCol1Content = useSessionStore(s => s.setCol1Content)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   const { data: pipelines = [] } = useQuery({ queryKey: ['pipelines'], queryFn: listPipelines })
   const { data: allRuns = [] } = useQuery({
@@ -143,6 +144,7 @@ function PipelineTabContent() {
   const deleteRun = useMutation({
     mutationFn: deletePipeline,
     onSuccess: () => {
+      setConfirmDeleteId(null)
       qc.invalidateQueries({ queryKey: ['pipelines'] })
       qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] })
     },
@@ -184,63 +186,97 @@ function PipelineTabContent() {
           r => r.pipeline_id === pipeline.id && (r.status === 'running' || r.status === 'queued'),
         )
         const isSelected = runId && allRuns.find(r => r.id === runId && r.pipeline_id === pipeline.id)
+        const isConfirming = confirmDeleteId === pipeline.id
 
         return (
-          <div
-            key={pipeline.id}
-            className="flex items-center justify-between px-3 py-2 rounded mb-2"
-            style={{
-              background: isSelected ? 'var(--panel2)' : 'var(--panel)',
-              border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
-            }}
-          >
-            <span
-              className="text-xs font-medium truncate"
-              style={{ color: 'var(--text)', cursor: 'pointer', flex: 1 }}
-              onClick={() => navigate(`/pipelines/${pipeline.id}`)}
+          <div key={pipeline.id} className="mb-2">
+            <div
+              className="flex items-center justify-between px-3 py-2 rounded"
+              style={{
+                background: isSelected ? 'var(--panel2)' : 'var(--panel)',
+                border: `1px solid ${isConfirming ? '#ef4444' : isSelected ? 'var(--accent)' : 'var(--border)'}`,
+              }}
             >
-              {pipeline.name}
-            </span>
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              {activeRun ? (
-                <button
-                  title="Pause (cancel run)"
-                  onClick={() => pauseRun.mutate(activeRun.id)}
-                  disabled={pauseRun.isPending}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#facc15' }}
-                >
-                  ⏸
-                </button>
-              ) : (
-                <button
-                  title="Run pipeline"
-                  onClick={() => startRun.mutate(pipeline.id)}
-                  disabled={startRun.isPending}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#4ade80' }}
-                >
-                  ▶
-                </button>
-              )}
-              <button
-                title="Reset (clear selection)"
-                onClick={() => setCol1Content(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--muted)' }}
+              <span
+                className="text-xs font-medium truncate"
+                style={{ color: 'var(--text)', cursor: 'pointer', flex: 1 }}
+                onClick={() => navigate(`/pipelines/${pipeline.id}`)}
               >
-                ↺
-              </button>
-              <button
-                title="Delete pipeline"
-                onClick={() => {
-                  if (window.confirm(`Delete "${pipeline.name}"?`)) {
-                    deleteRun.mutate(pipeline.id)
-                  }
-                }}
-                disabled={deleteRun.isPending}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#f87171', opacity: deleteRun.isPending ? 0.5 : 1 }}
-              >
-                🗑
-              </button>
+                {pipeline.name}
+              </span>
+              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                {!isConfirming && (
+                  <>
+                    {activeRun ? (
+                      <button
+                        title="Pause (cancel run)"
+                        onClick={() => pauseRun.mutate(activeRun.id)}
+                        disabled={pauseRun.isPending}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#facc15' }}
+                      >
+                        ⏸
+                      </button>
+                    ) : (
+                      <button
+                        title="Run pipeline"
+                        onClick={() => startRun.mutate(pipeline.id)}
+                        disabled={startRun.isPending}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#4ade80' }}
+                      >
+                        ▶
+                      </button>
+                    )}
+                    <button
+                      title="Reset (clear selection)"
+                      onClick={() => setCol1Content(null)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--muted)' }}
+                    >
+                      ↺
+                    </button>
+                    <button
+                      title="Delete pipeline"
+                      onClick={() => setConfirmDeleteId(pipeline.id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#f87171' }}
+                    >
+                      🗑
+                    </button>
+                  </>
+                )}
+                {isConfirming && (
+                  <>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      style={{
+                        fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                        background: 'transparent', border: '1px solid var(--border)',
+                        color: 'var(--muted)', cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => deleteRun.mutate(pipeline.id)}
+                      disabled={deleteRun.isPending}
+                      style={{
+                        fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+                        background: '#7f1d1d', border: '1px solid #ef4444',
+                        color: '#fca5a5', cursor: 'pointer', opacity: deleteRun.isPending ? 0.6 : 1,
+                      }}
+                    >
+                      {deleteRun.isPending ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
+            {isConfirming && (
+              <div
+                className="px-3 py-1 text-[10px] rounded-b"
+                style={{ background: '#7f1d1d22', color: '#fca5a5', border: '1px solid #ef444433', borderTop: 'none', marginTop: -2 }}
+              >
+                This will permanently delete "{pipeline.name}" and all its runs.
+              </div>
+            )}
           </div>
         )
       })}
