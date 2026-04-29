@@ -136,8 +136,32 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       position_y: 0,
     }
     setLocalNodes(prev => {
+      if (nt.category === 'source') {
+        // Insert after the last existing source node (sources always lead the chain)
+        const insertAt = prev.reduce((idx, n, i) => n.category === 'source' ? i + 1 : idx, 0)
+        const next = [...prev.slice(0, insertAt), newNode, ...prev.slice(insertAt)]
+        setLocalEdges(edges => {
+          let updated = edges
+          // Splice into an existing chain: remove the direct edge that newNode now interrupts
+          if (insertAt > 0 && insertAt < prev.length) {
+            updated = updated.filter(
+              e => !(e.source_node_id === prev[insertAt - 1].id && e.target_node_id === prev[insertAt].id),
+            )
+          }
+          // Connect predecessor → newNode
+          if (insertAt > 0) {
+            updated = [...updated, { id: crypto.randomUUID(), source_node_id: prev[insertAt - 1].id, target_node_id: newNode.id, edge_type: 'results' }]
+          }
+          // Connect newNode → successor
+          if (insertAt < prev.length) {
+            updated = [...updated, { id: crypto.randomUUID(), source_node_id: newNode.id, target_node_id: prev[insertAt].id, edge_type: 'results' }]
+          }
+          return updated
+        })
+        return next
+      }
+      // Non-source: append to end
       const next = [...prev, newNode]
-      // Auto-connect to previous node
       if (prev.length > 0) {
         setLocalEdges(edges => [
           ...edges,
