@@ -114,6 +114,53 @@ curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
   "$BASE/search"
 ```
 
+## Media endpoints (`/v1/*`)
+
+Used by **playgen-dj** for DJ script generation (weather intros, news segments, song enrichment, jokes, listener activity).
+
+```bash
+BASE="http://localhost:8000"
+KEY="your-api-key"
+
+# Weather
+curl -s -H "X-API-Key: $KEY" "$BASE/v1/weather?city=Manila&country_code=PH"
+
+# News
+curl -s -H "X-API-Key: $KEY" "$BASE/v1/news?scope=global&topic=tech&limit=10"
+
+# Song enrichment
+curl -s -H "X-API-Key: $KEY" \
+  "$BASE/v1/songs/enrich?title=Yesterday&artist=The+Beatles"
+
+# Joke
+curl -s -H "X-API-Key: $KEY" "$BASE/v1/jokes?style=witty&safe=true"
+
+# Store a social token (returns opaque UUID ref)
+curl -s -X POST -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"platform":"twitter","owner_ref":"station-1","raw_token":"BEARER_TOKEN"}' \
+  "$BASE/v1/social/tokens"
+
+# Social mentions (pass vault UUID as oauth_token_ref)
+curl -s -H "X-API-Key: $KEY" \
+  "$BASE/v1/social/mentions?platform=twitter&handle=myhandle&oauth_token_ref=<vault-uuid>&limit=20"
+```
+
+### Environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `OPENWEATHER_API_KEY` | for weather | OpenWeatherMap API key |
+| `NEWSAPI_KEY` | for news | NewsAPI.org key |
+| `MUSICBRAINZ_USER_AGENT` | for song enrichment | e.g. `MyApp/1.0 (contact@example.com)` |
+| `JOKEAPI_BASE_URL` | optional | Override JokeAPI base URL |
+| `TWITTER_API_BASE` | for Twitter mentions | Twitter v2 API base URL |
+| `FACEBOOK_API_BASE` | for Facebook mentions | Facebook Graph API base URL |
+| `SOCIAL_TOKEN_ENCRYPTION_KEY` | for token vault | 64-char hex (32 raw bytes, AES-256-GCM) — generate with `openssl rand -hex 32` |
+
+### Who consumes this
+
+**playgen-dj** reads weather/news/songs/jokes for script segments and uses `/v1/social/mentions` for listener_activity blocks. info-broker is the only service that holds provider secrets — playgen services carry only the broker API key.
+
 ## Security
 
 See [`SECURITY.md`](./SECURITY.md) for the threat model and supply-chain

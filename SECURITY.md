@@ -17,6 +17,8 @@ All untrusted data flows through `security.py`:
 | String-built SQL queries | **Two-layer enforcement**: ruff `S608` at lint time + `test_no_sql_string_formatting.py` AST scan in pytest. Forbids f-strings, `.format()`, `%`, and `+` interpolation as the first arg of any `execute` / `executemany` / `read_sql*` call. Cannot be silenced with `# noqa` — the test always runs in CI. Devs **must** pass values as parameters: `cur.execute("... WHERE id = %s", (var,))`. |
 | LLM-driven search abuse | `validate_search_query` strips control chars, collapses whitespace, caps length |
 | CLI input → DB | `interactive_grading` runs feedback through `coerce_db_text` before INSERT |
+| DJ data exfiltration via stored social tokens | Tokens encrypted at rest with AES-256-GCM (`app/lib/token_vault.py`); only an opaque UUID is returned to the caller — the raw bearer token never leaves the vault. Key sourced from `SOCIAL_TOKEN_ENCRYPTION_KEY` (env var; 32 raw bytes). |
+| Upstream provider abuse (weather, news, social APIs) | TTL cache (5–15 min) per endpoint limits fan-out; slowapi enforces 30–60 req/min per API key. info-broker is the **only** place that holds provider secrets — downstream playgen services carry only the broker API key. |
 
 Tests: `python3 -m pytest test_security.py -v` (60 unit, 4 integration).
 
