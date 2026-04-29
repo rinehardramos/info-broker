@@ -129,95 +129,64 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     if (!nt) return
     setAddStepError(null)
 
-    setLocalNodes(prev => {
-      const rawSources = prev.filter(n => n.category === 'source' && n.node_type !== 'aggregator')
-      const aggregatorNode = prev.find(n => n.node_type === 'aggregator')
-      const nonSources = prev.filter(n => n.category !== 'source')
+    // Read current state directly — event handlers always see the latest snapshot.
+    // Avoids calling setLocalEdges as a side-effect inside a setLocalNodes updater,
+    // which React may invoke multiple times and which reads stale edge state.
+    const cur = localNodes
+    const curEdges = localEdges
 
-      // Helper: rebuild a clean linear edge chain for the full node list
-      const buildChain = (nodes: PipelineNodeOut[]): PipelineEdgeOut[] =>
-        nodes.slice(1).map((n, i) => ({
-          id: crypto.randomUUID(), source_node_id: nodes[i].id, target_node_id: n.id, edge_type: 'results' as const,
-        }))
+    const rawSources = cur.filter(n => n.category === 'source' && n.node_type !== 'aggregator')
+    const aggregatorNode = cur.find(n => n.node_type === 'aggregator')
+    const nonSources = cur.filter(n => n.category !== 'source')
 
-      if (nt.category === 'source') {
-        const rawSourceCount = rawSources.length
-
-        // Adding Aggregator: place it as last source; fan-in all raw sources → aggregator → first non-source
-        if (nt.node_type === 'aggregator') {
-          const newAgg: PipelineNodeOut = {
-            id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
-            config: {}, category: nt.category, position_x: 0, position_y: 0,
-          }
-          const next = [...rawSources, newAgg, ...nonSources]
-          setLocalEdges(_ => {
-            const edges: PipelineEdgeOut[] = []
-            // All raw sources → aggregator
-            for (const src of rawSources) {
-              edges.push({ id: crypto.randomUUID(), source_node_id: src.id, target_node_id: newAgg.id, edge_type: 'results' })
-            }
-            // Aggregator → rest of chain
-            const tail = [newAgg, ...nonSources]
-            edges.push(...buildChain(tail))
-            return edges
-          })
-          return next
-        }
-
-        // Adding a regular source when no aggregator exists yet: only allow one
-        if (rawSourceCount >= 1 && !aggregatorNode) {
-          setAddStepError('Add an Aggregator step to merge multiple sources.')
-          return prev
-        }
-
-        // Adding a regular source when aggregator already exists: insert before aggregator, wire → aggregator
-        const newNode: PipelineNodeOut = {
-          id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
-          config: {}, category: nt.category, position_x: 0, position_y: 0,
-        }
-        if (aggregatorNode) {
-          const next = [...rawSources, newNode, aggregatorNode, ...nonSources]
-          setLocalEdges(edges => [
-            ...edges,
-            { id: crypto.randomUUID(), source_node_id: newNode.id, target_node_id: aggregatorNode.id, edge_type: 'results' },
-          ])
-          return next
-        }
-
-        // First source ever
-        const next = [newNode, ...nonSources]
-        setLocalEdges(_ => buildChain(next))
-        return next
-      }
-
-      // Non-source node
-      const newNode: PipelineNodeOut = {
-        id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
-        config: {}, category: nt.category, position_x: 0, position_y: 0,
-      }
-
-      // SCORE parallel: if last node is also score, share its predecessor (fan-out)
-      if (nt.category === 'score' && prev.length > 0 && prev[prev.length - 1].category === 'score') {
-        const lastScore = prev[prev.length - 1]
-        setLocalEdges(edges => {
-          const predecessorEdge = edges.find(e => e.target_node_id === lastScore.id)
-          const parallelEdge: PipelineEdgeOut[] = predecessorEdge
-            ? [{ id: crypto.randomUUID(), source_node_id: predecessorEdge.source_node_id, target_node_id: newNode.id, edge_type: 'results' }]
-            : []
-          return [...edges, ...parallelEdge]
-        })
-        return [...prev, newNode]
-      }
-
-      // All others: append to end, chain to previous last node
-      if (prev.length > 0) {
-        setLocalEdges(edges => [
-          ...edges,
-          { id: crypto.randomUUID(), source_node_id: prev[prev.length - 1].id, target_node_id: newNode.id, edge_type: 'results' },
-        ])
-      }
-      return [...prev, newNode]
+    const mkNode = (): PipelineNodeOut => ({
+      id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
+      config: {}, category: nt.category, position_x: 0, position_y: 0,
     })
+    const mkEdge = (src: string, tgt: string): PipelineEdgeOut =>
+      ({ id: crypto.randomUUID(), source_node_id: src, target_node_id: tgt, edge_type: 'results' })
+
+    if (nt.category === 'source') {
+      if (nt.node_type === 'aggregator') {
+        // Aggregator is always the last source: fan-in all raw sources → agg → non-source chain
+        const agg = mkNode()
+        const newNodes = [...rawSources, agg, ...nonSources]
+        const newEdges: PipelineEdgeOut[] = [
+          ...rawSources.map(s => mkEdge(s.id, agg.id)),
+          ...[agg, ...nonSources].slice(1).map((n, i) => mkEdge([agg, ...nonSources][i].id, n.id)),
+        ]
+        setLocalNodes(newNodes)
+        setLocalEdges(newEdges)
+        setDirty(true)
+        return
+      }
+
+      if (rawSources.length >= 1 && !aggregatorNode) {
+        setAddStepError('Add an Aggregator step to merge multiple sources.')
+        return
+      }
+
+      const newNode = mkNode()
+      if (aggregatorNode) {
+        // Insert before aggregator, wire newNode → aggregator only
+        setLocalNodes([...rawSources, newNode, aggregatorNode, ...nonSources])
+        setLocalEdges([...curEdges, mkEdge(newNode.id, aggregatorNode.id)])
+      } else {
+        // First source: prepend, chain into existing non-source list
+        const newNodes = [newNode, ...nonSources]
+        const newEdges = nonSources.length > 0 ? [mkEdge(newNode.id, nonSources[0].id)] : []
+        setLocalNodes(newNodes)
+        setLocalEdges(newEdges)
+      }
+      setDirty(true)
+      return
+    }
+
+    // Non-source: always append sequentially to the end of the list
+    const newNode = mkNode()
+    const newEdge = cur.length > 0 ? [mkEdge(cur[cur.length - 1].id, newNode.id)] : []
+    setLocalNodes([...cur, newNode])
+    setLocalEdges([...curEdges, ...newEdge])
     setDirty(true)
   }
 
