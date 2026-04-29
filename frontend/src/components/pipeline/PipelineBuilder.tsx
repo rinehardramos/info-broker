@@ -130,17 +130,19 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setAddStepError(null)
 
     setLocalNodes(prev => {
-      // SOURCE: only one allowed — sources are the genesis and cannot chain into each other
+      // SOURCE / AGGREGATOR: sources always go first; multiple sources allowed when Aggregator is present
       if (nt.category === 'source') {
-        if (prev.some(n => n.category === 'source')) {
-          setAddStepError('A pipeline can only have one source. Remove the existing source first.')
+        const existingSourceCount = prev.filter(n => n.category === 'source' && n.node_type !== 'aggregator').length
+        const aggregatorPresent = prev.some(n => n.node_type === 'aggregator')
+        if (nt.node_type !== 'aggregator' && existingSourceCount >= 1 && !aggregatorPresent) {
+          setAddStepError('Add an Aggregator step to merge multiple sources.')
           return prev
         }
         const newNode: PipelineNodeOut = {
           id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
           config: {}, category: nt.category, position_x: 0, position_y: 0,
         }
-        // Source always goes first; connect to current first node if one exists
+        // Source nodes go first; connect newNode → current first node
         if (prev.length > 0) {
           setLocalEdges(edges => [
             ...edges,
@@ -240,10 +242,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
   const isRunning = activeRun?.status === 'running'
   const stepRuns = activeRun?.steps ?? []
-  const sourceCount = localNodes.filter(n => n.category === 'source').length
+  const sourceCount = localNodes.filter(n => n.category === 'source' && n.node_type !== 'aggregator').length
+  const hasAggregator = localNodes.some(n => n.node_type === 'aggregator')
   const hasSource = sourceCount > 0
-  const hasTooManySources = sourceCount > 1
-  const canRun = !!selectedPipelineId && !isRunning && hasSource && !hasTooManySources
+  const needsAggregator = sourceCount > 1 && !hasAggregator
+  const canRun = !!selectedPipelineId && !isRunning && hasSource && !needsAggregator
   const noSourceHint = selectedPipelineId && localNodes.length > 0 && !hasSource
   const editingNode = editingNodeId ? localNodes.find(n => n.id === editingNodeId) ?? null : null
   const editingNodeType = editingNode ? nodeTypes.find(t => t.node_type === editingNode.node_type) : null
@@ -347,9 +350,9 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                     Add a source step before running
                   </div>
                 )}
-                {hasTooManySources && (
+                {needsAggregator && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
-                    Only one source is allowed — remove the extra source to run
+                    Multiple sources require an Aggregator step
                   </div>
                 )}
                 {addStepError && (
