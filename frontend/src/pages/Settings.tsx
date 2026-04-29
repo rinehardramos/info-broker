@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getCoreSettings, updateCoreSettings } from '../api/v3'
 import { useForm } from 'react-hook-form'
@@ -59,8 +59,58 @@ function CoreSettingsForm() {
   )
 }
 
+function PluginSettingsForm() {
+  const qc = useQueryClient()
+  const { data } = useQuery({ queryKey: ['core-settings'], queryFn: getCoreSettings })
+  const [retention, setRetention] = useState(600)
+
+  useEffect(() => {
+    const v = data?.settings['live_panel.retention_seconds']
+    if (v) setRetention(Number(v))
+  }, [data])
+
+  const save = useMutation({
+    mutationFn: () =>
+      updateCoreSettings([
+        { key: 'live_panel.retention_seconds', value: String(retention), is_secret: false },
+      ]),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['core-settings'] }),
+  })
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <label className="text-[11px] mb-1 block" style={{ color: 'var(--subtext)' }}>
+          LivePanel Retention (seconds)
+        </label>
+        <input
+          type="number"
+          min={60}
+          max={86400}
+          value={retention}
+          onChange={e => setRetention(Number(e.target.value))}
+          className="px-2 py-1 rounded text-xs outline-none"
+          style={{ background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
+        />
+        <p className="text-[10px] mt-1" style={{ color: 'var(--muted)' }}>
+          How long items stay visible in the Live panel. Default: 600s.
+        </p>
+      </div>
+      <button
+        onClick={() => save.mutate()}
+        disabled={save.isPending}
+        className="px-4 py-2 rounded text-xs font-semibold w-fit disabled:opacity-50"
+        style={{ background: 'var(--accent)', color: 'var(--bg)', border: 'none', cursor: 'pointer' }}
+      >
+        {save.isPending ? 'Saving…' : 'Save Plugin Settings'}
+      </button>
+      {save.isSuccess && <span className="text-xs" style={{ color: '#4ade80' }}>Saved</span>}
+    </div>
+  )
+}
+
 export default function Settings() {
-  const [section] = useState<'core'>('core')
+  const [section, setSection] = useState<'core' | 'plugins'>('core')
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
@@ -68,7 +118,7 @@ export default function Settings() {
         <div className="w-40 flex-shrink-0 col-scroll py-3 px-2" style={{ background: 'var(--panel)', borderRight: '1px solid var(--border)' }}>
           <div className="text-[10px] font-semibold mb-2 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
           <button
-            onClick={() => {}}
+            onClick={() => setSection('core')}
             className="w-full text-left px-2 py-1 rounded text-xs mb-1"
             style={{
               background: section === 'core' ? 'var(--panel2)' : 'transparent',
@@ -78,13 +128,26 @@ export default function Settings() {
           >
             Core Settings
           </button>
+
+          <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>PLUGINS</div>
+          <button
+            onClick={() => setSection('plugins')}
+            className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+            style={{
+              background: section === 'plugins' ? 'var(--panel2)' : 'transparent',
+              color: section === 'plugins' ? 'var(--accent)' : 'var(--text)',
+              border: 'none', cursor: 'pointer',
+            }}
+          >
+            General
+          </button>
         </div>
 
         <div className="flex-1 col-scroll p-4">
           <h2 className="text-sm font-bold mb-4 capitalize" style={{ color: 'var(--accent)' }}>
-            Core Settings
+            {section === 'core' ? 'Core Settings' : 'Plugin Settings'}
           </h2>
-          <CoreSettingsForm />
+          {section === 'core' ? <CoreSettingsForm /> : <PluginSettingsForm />}
         </div>
       </div>
       <IconRail />
