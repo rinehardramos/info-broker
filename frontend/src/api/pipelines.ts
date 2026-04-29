@@ -108,3 +108,18 @@ export const getPipelineRun = (runId: string): Promise<PipelineRunDetail> =>
 
 export const listNodeTypes = (): Promise<NodeType[]> =>
   api.get('/v3/pipelines/nodes/types').then(r => r.data)
+
+export interface PipelineRunSummary {
+  id: string
+  pipeline_id: string
+  pipeline_name: string
+  status: string
+  trigger_type: string
+  started_at: string
+  finished_at: string | null
+  step_count: number
+  steps_done: number
+}
+
+export const listAllPipelineRuns = (): Promise<PipelineRunSummary[]> =>
+  api.get('/v3/pipelines/runs/all').then(r => r.data)
