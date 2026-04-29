@@ -26,6 +26,33 @@ log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Node type enable/disable helpers
+# ---------------------------------------------------------------------------
+
+def _node_enabled_key(node_type: str) -> str:
+    return f"pipeline_node.{node_type}.enabled"
+
+
+def _is_node_enabled(node_type: str) -> bool:
+    row = fetch_one(
+        "SELECT value FROM core_settings WHERE key = %s",
+        (_node_enabled_key(node_type),),
+    )
+    return row["value"].lower() == "true" if row else True  # default: enabled
+
+
+def _set_node_enabled(node_type: str, enabled: bool) -> None:
+    execute(
+        """
+        INSERT INTO core_settings (key, value, is_secret)
+        VALUES (%s, %s, false)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+        """,
+        (_node_enabled_key(node_type), "true" if enabled else "false"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Node types (must come BEFORE parametric routes)
 # ---------------------------------------------------------------------------
 
@@ -41,7 +68,32 @@ def list_node_types(user: dict = Depends(get_current_user)):
             config_schema=n.config_schema,
         )
         for n in NodeRegistry.all()
+        if _is_node_enabled(n.node_type)
     ]
+
+
+@router.get("/nodes/types/{node_type}/enabled")
+def get_node_type_enabled(node_type: str, user: dict = Depends(get_current_user)):
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+    valid = {n.node_type for n in NodeRegistry.all()}
+    if node_type not in valid:
+        raise HTTPException(status_code=404, detail=f"Unknown node type: {node_type!r}")
+    return {"node_type": node_type, "enabled": _is_node_enabled(node_type)}
+
+
+@router.put("/nodes/types/{node_type}/enabled", status_code=204)
+def set_node_type_enabled(
+    node_type: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+    valid = {n.node_type for n in NodeRegistry.all()}
+    if node_type not in valid:
+        raise HTTPException(status_code=404, detail=f"Unknown node type: {node_type!r}")
+    _set_node_enabled(node_type, bool(body.get("enabled", True)))
 
 
 # ---------------------------------------------------------------------------
