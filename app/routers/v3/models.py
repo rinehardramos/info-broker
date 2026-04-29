@@ -176,3 +176,77 @@ class LinkedInProfileOut(BaseModel):
 
 class LinkedInProfileGradeIn(BaseModel):
     grade: str  # target | interesting | amazing | not_close | undecided
+
+
+# --- Pipeline models ---
+
+class PipelineNodeIn(BaseModel):
+    node_type: str
+    label: str
+    config: dict = {}
+    position_x: int = 0
+    position_y: int = 0
+
+
+class PipelineNodeOut(PipelineNodeIn):
+    id: UUID
+
+
+class PipelineEdgeIn(BaseModel):
+    source_node_id: UUID
+    target_node_id: UUID
+    edge_type: str = "results"
+
+
+class PipelineEdgeOut(PipelineEdgeIn):
+    id: UUID
+
+
+class PipelineIn(BaseModel):
+    name: str
+    description: str | None = None
+    nodes: list[PipelineNodeIn] = []
+    edges: list[PipelineEdgeIn] = []
+
+
+class PipelineOut(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PipelineDetailOut(PipelineOut):
+    nodes: list[PipelineNodeOut]
+    edges: list[PipelineEdgeOut]
+
+
+class PipelineStepRunOut(BaseModel):
+    id: UUID
+    node_id: UUID
+    status: str
+    item_count: int
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class PipelineRunOut(BaseModel):
+    id: UUID
+    pipeline_id: UUID
+    status: str
+    trigger_type: str
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class PipelineRunDetailOut(PipelineRunOut):
+    steps: list[PipelineStepRunOut]
+
+
+class NodeTypeOut(BaseModel):
+    node_type: str
+    display_name: str
+    category: str
+    config_schema: dict
