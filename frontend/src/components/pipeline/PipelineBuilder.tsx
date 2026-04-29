@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listPipelines, getPipeline, listNodeTypes, createPipeline, updatePipeline,
-  deletePipeline, startPipelineRun, listPipelineRuns, getPipelineRun,
+  deletePipeline, startPipelineRun, cancelPipelineRun, listPipelineRuns, getPipelineRun,
   PipelineNodeOut, PipelineEdgeOut,
 } from '../../api/pipelines'
 import { ResizableSplit } from './ResizableSplit'
@@ -92,6 +92,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       const msg = (err as { response?: { data?: { detail?: string } }; message?: string })
         ?.response?.data?.detail ?? (err as { message?: string })?.message ?? 'Failed to start run'
       setRunError(msg)
+    },
+  })
+  const cancelMutation = useMutation({
+    mutationFn: cancelPipelineRun,
+    onSuccess: () => {
+      setActiveRunId(null)
+      qc.invalidateQueries({ queryKey: ['pipelineRuns', selectedPipelineId] })
+      qc.invalidateQueries({ queryKey: ['pipelineRun', activeRunId] })
     },
   })
 
@@ -318,13 +326,23 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   >
                     Save
                   </button>
-                  <button
-                    onClick={() => { setRunError(null); handleRun() }}
-                    disabled={!canRun}
-                    style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: canRun ? 'pointer' : 'default', opacity: canRun ? 1 : 0.4 }}
-                  >
-                    {isRunning ? 'Running...' : 'Run'}
-                  </button>
+                  {isRunning ? (
+                    <button
+                      onClick={() => activeRunId && cancelMutation.mutate(activeRunId)}
+                      disabled={cancelMutation.isPending}
+                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#ef4444', border: 'none', borderRadius: 4, color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: cancelMutation.isPending ? 0.6 : 1 }}
+                    >
+                      {cancelMutation.isPending ? 'Stopping...' : 'Stop'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setRunError(null); handleRun() }}
+                      disabled={!canRun}
+                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: canRun ? 'pointer' : 'default', opacity: canRun ? 1 : 0.4 }}
+                    >
+                      Run
+                    </button>
+                  )}
                   {selectedPipelineId && (
                     <button
                       onClick={handleDelete}

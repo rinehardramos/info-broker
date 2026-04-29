@@ -57,6 +57,26 @@ def _set_node_enabled(node_type: str, enabled: bool) -> None:
 # Node types (must come BEFORE parametric routes)
 # ---------------------------------------------------------------------------
 
+_TIMEOUT_SCHEMA = {
+    "timeout_seconds": {
+        "type": "integer",
+        "title": "Timeout (seconds)",
+        "default": 60,
+        "minimum": 5,
+        "maximum": 3600,
+    }
+}
+
+
+def _with_timeout(schema: dict) -> dict:
+    """Inject timeout_seconds into a node's config schema."""
+    import copy
+    s = copy.deepcopy(schema)
+    s.setdefault("properties", {})
+    s["properties"].update(_TIMEOUT_SCHEMA)
+    return s
+
+
 @router.get("/nodes/types", response_model=list[NodeTypeOut])
 def list_node_types(user: dict = Depends(get_current_user)):
     from app.pipeline.nodes import NodeRegistry
@@ -66,7 +86,7 @@ def list_node_types(user: dict = Depends(get_current_user)):
             node_type=n.node_type,
             display_name=n.display_name,
             category=n.category,
-            config_schema=n.config_schema,
+            config_schema=_with_timeout(n.config_schema),
         )
         for n in NodeRegistry.all()
         if _is_node_enabled(n.node_type)

@@ -84,7 +84,14 @@ async def execute_node(inp: ActivityInput) -> list[dict]:
     try:
         node = NodeRegistry.get(inp.node.node_type)
         ctx = RunContext(user_id=inp.user_id, run_id=inp.run_id, node_id=inp.node.node_id)
-        result = await node.execute(inp.node.config, inp.inputs, ctx)
+        timeout = int(inp.node.config.get("timeout_seconds", 60))
+        try:
+            result = await asyncio.wait_for(
+                node.execute(inp.node.config, inp.inputs, ctx),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"Timed out after {timeout}s")
         item_count = len(result) if isinstance(result, list) else 0
 
         db_execute(
