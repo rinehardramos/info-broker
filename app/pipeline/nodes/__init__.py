@@ -25,6 +25,7 @@ class NodeRegistry:
 
     @classmethod
     def auto_discover(cls) -> None:
+        from app.pipeline.nodes.agent_input import AgentInputNode
         from app.pipeline.nodes.ddg_search import DdgSearchNode
         from app.pipeline.nodes.qdrant_search import QdrantSearchNode
         from app.pipeline.nodes.rss_monitor import RssMonitorNode
@@ -33,5 +34,5 @@ class NodeRegistry:
         from app.pipeline.nodes.manual_scoring import ManualScoringNode
         from app.pipeline.nodes.aggregator import AggregatorNode
 
-        for node in [DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(), ApifyActorNode(), AiScoringNode(), ManualScoringNode(), AggregatorNode()]:
+        for node in [AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(), ApifyActorNode(), AiScoringNode(), ManualScoringNode(), AggregatorNode()]:
             cls.register(node)

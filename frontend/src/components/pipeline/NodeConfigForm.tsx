@@ -63,6 +63,7 @@ export function NodeConfigForm({ node, schema, onChange, onClose, nodes, edges, 
           overflowY: 'auto',
         }}
         onClick={e => e.stopPropagation()}
+        data-testid="node-config-panel"
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
           <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{node.label}</span>
@@ -175,6 +176,7 @@ export function NodeConfigForm({ node, schema, onChange, onClose, nodes, edges, 
                     <span style={{ fontSize: 9, color, flexShrink: 0 }}>{other.category.toUpperCase()}</span>
                   </div>
                   <button
+                    data-testid={`output-connect-${other.node_type}`}
                     onClick={() => onEdgeChange?.(node.id, other.id, !connected)}
                     style={{
                       fontSize: 10, padding: '2px 10px', borderRadius: 20, flexShrink: 0, marginLeft: 6,

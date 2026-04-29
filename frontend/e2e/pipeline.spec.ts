@@ -199,6 +199,94 @@ test.describe('PipelineBuilder — steps', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Pipeline — Agent Input → DDG Search → AI Scoring full flow (#30)
+// ---------------------------------------------------------------------------
+
+test.describe('PipelineBuilder — Agent Input → DDG Search → AI Scoring', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+    await page.goto('/pipelines')
+
+    // Create a fresh pipeline
+    await page.getByText('+ New Pipeline').click({ timeout: 8_000 })
+    await page.getByPlaceholder('Pipeline name *').fill(`AgentInput-Test-${Date.now()}`)
+
+    const detailResponse = page.waitForResponse(
+      r => /\/api\/v3\/pipelines\/[^/]+$/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
+      { timeout: 10_000 },
+    )
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.waitForURL(/\/pipelines\/.+/, { timeout: 8_000 })
+    await detailResponse
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(0, { timeout: 5_000 })
+  })
+
+  test('can build and save Agent Input → DDG Search → AI Scoring pipeline', async ({ page }) => {
+    const addStepSelect = page.locator('select').filter({ hasText: /Add Step/i })
+    const panel = page.getByTestId('node-config-panel')
+
+    // Helper: open step config, fill first text input, close
+    async function fillFirstInput(nodeType: string, value: string) {
+      await page.getByTestId(`step-card-${nodeType}`).click()
+      await expect(panel).toBeVisible({ timeout: 5_000 })
+      await panel.locator('input[type="text"]').first().fill(value)
+      await panel.getByRole('button', { name: 'Done' }).click()
+      await expect(panel).not.toBeVisible({ timeout: 3_000 })
+    }
+
+    // Helper: ensure sourceNodeType → targetNodeType edge exists via the OUTPUTS section
+    async function ensureConnected(sourceNodeType: string, targetNodeType: string) {
+      await page.getByTestId(`step-card-${sourceNodeType}`).click()
+      await expect(panel).toBeVisible({ timeout: 5_000 })
+      await expect(panel.getByText('OUTPUTS')).toBeVisible({ timeout: 3_000 })
+      // Click only if not already connected (auto-wiring may have done it)
+      const btn = panel.getByTestId(`output-connect-${targetNodeType}`)
+      const label = await btn.textContent()
+      if (label?.trim() === 'Connect') {
+        await btn.click()
+        await expect(btn).toHaveText('Connected', { timeout: 3_000 })
+      }
+      await panel.getByRole('button', { name: 'Done' }).click()
+      await expect(panel).not.toBeVisible({ timeout: 3_000 })
+    }
+
+    // --- Add steps ---
+    await addStepSelect.selectOption({ label: 'Agent Input' })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(1, { timeout: 5_000 })
+
+    await addStepSelect.selectOption({ label: 'DDG Search' })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 5_000 })
+
+    await addStepSelect.selectOption({ label: 'AI Scoring' })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(3, { timeout: 5_000 })
+
+    // --- Fill required config fields ---
+    await fillFirstInput('agent_input', 'what is pi?')
+    await fillFirstInput('ddg_search', 'what is pi?')
+    await fillFirstInput('ai_scoring', 'relevant to mathematics')
+
+    // --- Ensure edges: Agent Input → DDG Search, DDG Search → AI Scoring ---
+    await ensureConnected('agent_input', 'ddg_search')
+    await ensureConnected('ddg_search', 'ai_scoring')
+
+    // --- Save ---
+    await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled({ timeout: 5_000 })
+    const [saveResponse] = await Promise.all([
+      page.waitForResponse(
+        r => /\/api\/v3\/pipelines\/[^/]+$/.test(r.url()) && r.request().method() === 'PUT',
+        { timeout: 10_000 },
+      ),
+      page.getByRole('button', { name: 'Save' }).click(),
+    ])
+    expect(saveResponse.status()).toBe(200)
+
+    // --- Reload and verify all 3 steps persisted ---
+    await page.reload()
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(3, { timeout: 8_000 })
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Pipeline — run and LiveStream
 // ---------------------------------------------------------------------------
 

@@ -19,6 +19,7 @@ interface Props {
   stepRuns?: PipelineStepRun[]
   nodeTypes?: NodeType[]
   selectedNodeId?: string | null
+  invalidNodeIds?: Set<string>
   onSelect?: (nodeId: string) => void
   onRemove?: (nodeId: string) => void
   onAdd?: (nodeType: string) => void
@@ -30,6 +31,7 @@ export function StepList({
   stepRuns = [],
   nodeTypes = [],
   selectedNodeId,
+  invalidNodeIds = new Set(),
   onSelect,
   onRemove,
   onAdd,
@@ -54,6 +56,7 @@ export function StepList({
         const step = stepMap[node.id]
         const color = CATEGORY_COLORS[node.category] ?? '#60a5fa'
         const isSelected = node.id === selectedNodeId
+        const isInvalid = invalidNodeIds.has(node.id)
 
         return (
           <div key={node.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -76,17 +79,20 @@ export function StepList({
             </div>
             <div
               onClick={() => onSelect?.(node.id)}
+              data-testid={`step-card-${node.node_type}`}
               style={{
                 flex: 1,
                 background: isSelected ? '#1e3a5f' : '#1e293b',
-                border: `1px solid ${isSelected ? color : '#334155'}`,
+                border: `1px solid ${isInvalid ? '#ef4444' : isSelected ? color : '#334155'}`,
+                borderLeft: `3px solid ${isInvalid ? '#ef4444' : isSelected ? color : '#334155'}`,
                 borderRadius: 6,
                 padding: '6px 8px',
                 cursor: 'pointer',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 600 }}>
+                <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span style={{ fontSize: 7, color: isInvalid ? '#ef4444' : '#4ade80' }}>●</span>
                   {node.label}{' '}
                   <span style={{ color, fontSize: 9 }}>{node.category.toUpperCase()}</span>
                 </span>
