@@ -27,6 +27,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [addStepError, setAddStepError] = useState<string | null>(null)
 
   const { data: pipelines = [] } = useQuery({ queryKey: ['pipelines'], queryFn: listPipelines })
   const { data: nodeTypes = [] } = useQuery({ queryKey: ['nodeTypes'], queryFn: listNodeTypes })
@@ -126,49 +127,56 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const handleAddNode = (nodeType: string) => {
     const nt = nodeTypes.find(t => t.node_type === nodeType)
     if (!nt) return
-    const newNode: PipelineNodeOut = {
-      id: crypto.randomUUID(),
-      node_type: nt.node_type,
-      label: nt.display_name,
-      config: {},
-      category: nt.category,
-      position_x: 0,
-      position_y: 0,
-    }
+    setAddStepError(null)
+
     setLocalNodes(prev => {
+      // SOURCE: only one allowed — sources are the genesis and cannot chain into each other
       if (nt.category === 'source') {
-        // Insert after the last existing source node (sources always lead the chain)
-        const insertAt = prev.reduce((idx, n, i) => n.category === 'source' ? i + 1 : idx, 0)
-        const next = [...prev.slice(0, insertAt), newNode, ...prev.slice(insertAt)]
-        setLocalEdges(edges => {
-          let updated = edges
-          // Splice into an existing chain: remove the direct edge that newNode now interrupts
-          if (insertAt > 0 && insertAt < prev.length) {
-            updated = updated.filter(
-              e => !(e.source_node_id === prev[insertAt - 1].id && e.target_node_id === prev[insertAt].id),
-            )
-          }
-          // Connect predecessor → newNode
-          if (insertAt > 0) {
-            updated = [...updated, { id: crypto.randomUUID(), source_node_id: prev[insertAt - 1].id, target_node_id: newNode.id, edge_type: 'results' }]
-          }
-          // Connect newNode → successor
-          if (insertAt < prev.length) {
-            updated = [...updated, { id: crypto.randomUUID(), source_node_id: newNode.id, target_node_id: prev[insertAt].id, edge_type: 'results' }]
-          }
-          return updated
-        })
-        return next
+        if (prev.some(n => n.category === 'source')) {
+          setAddStepError('A pipeline can only have one source. Remove the existing source first.')
+          return prev
+        }
+        const newNode: PipelineNodeOut = {
+          id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
+          config: {}, category: nt.category, position_x: 0, position_y: 0,
+        }
+        // Source always goes first; connect to current first node if one exists
+        if (prev.length > 0) {
+          setLocalEdges(edges => [
+            ...edges,
+            { id: crypto.randomUUID(), source_node_id: newNode.id, target_node_id: prev[0].id, edge_type: 'results' },
+          ])
+        }
+        return [newNode, ...prev]
       }
-      // Non-source: append to end
-      const next = [...prev, newNode]
+
+      const newNode: PipelineNodeOut = {
+        id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
+        config: {}, category: nt.category, position_x: 0, position_y: 0,
+      }
+
+      // SCORE: if the last node is also a score, make them parallel (share the same predecessor)
+      if (nt.category === 'score' && prev.length > 0 && prev[prev.length - 1].category === 'score') {
+        const lastScore = prev[prev.length - 1]
+        setLocalEdges(edges => {
+          // Find what feeds into the existing last score node
+          const predecessorEdge = edges.find(e => e.target_node_id === lastScore.id)
+          const parallelEdges: PipelineEdgeOut[] = predecessorEdge
+            ? [{ id: crypto.randomUUID(), source_node_id: predecessorEdge.source_node_id, target_node_id: newNode.id, edge_type: 'results' }]
+            : []
+          return [...edges, ...parallelEdges]
+        })
+        return [...prev, newNode]
+      }
+
+      // All others (ENRICH, SCORE after non-SCORE, FILTER): append to end
       if (prev.length > 0) {
         setLocalEdges(edges => [
           ...edges,
           { id: crypto.randomUUID(), source_node_id: prev[prev.length - 1].id, target_node_id: newNode.id, edge_type: 'results' },
         ])
       }
-      return next
+      return [...prev, newNode]
     })
     setDirty(true)
   }
@@ -335,6 +343,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                 {noSourceHint && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#facc15', background: '#facc1511', borderTop: '1px solid #facc1533' }}>
                     Add a source step before running
+                  </div>
+                )}
+                {addStepError && (
+                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
+                    {addStepError}
                   </div>
                 )}
                 {runError && (
