@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { listJobs, type JobOut } from '../../api/v3'
+import { listJobs, getCoreSettings, type JobOut } from '../../api/v3'
 import { listAllPipelineRuns, type PipelineRunSummary } from '../../api/pipelines'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import JobItem from './JobItem'
@@ -8,6 +8,13 @@ import PipelineRunItem from './PipelineRunItem'
 
 export default function LiveStream() {
   const qc = useQueryClient()
+  const { data: coreSettings } = useQuery({
+    queryKey: ['core-settings'],
+    queryFn: getCoreSettings,
+    staleTime: 60_000,
+  })
+  const retentionMs = Number(coreSettings?.settings['live_panel.retention_seconds'] ?? 600) * 1000
+
   const { data: jobs = [] } = useQuery({ queryKey: ['jobs'], queryFn: listJobs, refetchInterval: 30_000 })
   const { data: pipelineRuns = [] } = useQuery({
     queryKey: ['pipeline-runs-all'],
@@ -67,6 +74,8 @@ export default function LiveStream() {
     }
   })
 
+  const cutoff = Date.now() - retentionMs
+
   const mergedJobs: JobOut[] = [
     ...liveEvents,
     ...jobs.filter(j => !liveEvents.find(l => l.id === j.id)),
@@ -79,6 +88,9 @@ export default function LiveStream() {
     })
     .slice(0, 20)
 
+  const visibleJobs = mergedJobs.filter(j => new Date(j.created_at).getTime() > cutoff)
+  const visibleRuns = mergedPipelineRuns.filter(r => new Date(r.started_at).getTime() > cutoff)
+
   return (
     <div className="flex flex-col h-full">
       <div
@@ -90,7 +102,7 @@ export default function LiveStream() {
 
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {/* Research jobs */}
-        {mergedJobs.length > 0 && (
+        {visibleJobs.length > 0 && (
           <>
             <div
               className="px-1 pb-1 text-[9px] font-semibold tracking-widest"
@@ -98,24 +110,24 @@ export default function LiveStream() {
             >
               RESEARCH
             </div>
-            {mergedJobs.map(job => <JobItem key={job.id} job={job} />)}
+            {visibleJobs.map(job => <JobItem key={job.id} job={job} />)}
           </>
         )}
 
         {/* Pipeline runs */}
-        {mergedPipelineRuns.length > 0 && (
-          <div className={mergedJobs.length > 0 ? 'mt-3' : ''}>
+        {visibleRuns.length > 0 && (
+          <div className={visibleJobs.length > 0 ? 'mt-3' : ''}>
             <div
               className="px-1 pb-1 text-[9px] font-semibold tracking-widest"
               style={{ color: 'var(--muted)' }}
             >
               PIPELINES
             </div>
-            {mergedPipelineRuns.map(run => <PipelineRunItem key={run.id} run={run} />)}
+            {visibleRuns.map(run => <PipelineRunItem key={run.id} run={run} />)}
           </div>
         )}
 
-        {mergedJobs.length === 0 && mergedPipelineRuns.length === 0 && (
+        {visibleJobs.length === 0 && visibleRuns.length === 0 && (
           <p className="text-[10px] text-center mt-6" style={{ color: 'var(--muted)' }}>
             No active jobs
           </p>
