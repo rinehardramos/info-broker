@@ -5,6 +5,7 @@ import { api } from './client'
 // ---------------------------------------------------------------------------
 
 export interface PipelineNodeIn {
+  id?: string                      // frontend UUID — sent to backend to use as DB node ID
   node_type: string
   label: string
   config: Record<string, unknown>

@@ -181,6 +181,7 @@ class LinkedInProfileGradeIn(BaseModel):
 # --- Pipeline models ---
 
 class PipelineNodeIn(BaseModel):
+    id: UUID | None = None      # frontend-generated UUID; used as DB node ID
     node_type: str
     label: str
     config: dict = {}
@@ -190,6 +191,7 @@ class PipelineNodeIn(BaseModel):
 
 class PipelineNodeOut(PipelineNodeIn):
     id: UUID
+    category: str = ""
 
 
 class PipelineEdgeIn(BaseModel):

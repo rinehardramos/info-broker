@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
@@ -243,32 +244,27 @@ def list_pipeline_runs(pipeline_id: str, user: dict = Depends(get_current_user))
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _upsert_nodes_edges(pipeline_id: str, body: PipelineIn) -> dict[int, str]:
-    """Insert nodes, returning a mapping from body index → new node UUID."""
-    node_ids: list[str] = []
+def _upsert_nodes_edges(pipeline_id: str, body: PipelineIn) -> None:
+    """Insert nodes and edges. Nodes use frontend-provided UUIDs as DB IDs."""
+    # Build map: frontend_uuid → db_uuid (use frontend UUID directly)
+    node_id_map: dict[str, str] = {}
     for node in body.nodes:
-        nid = str(uuid.uuid4())
-        node_ids.append(nid)
+        nid = str(node.id) if node.id else str(uuid.uuid4())
+        if node.id:
+            node_id_map[str(node.id)] = nid
         execute(
             """
             INSERT INTO pipeline_nodes (id, pipeline_id, node_type, label, config, position_x, position_y)
             VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
             """,
             (nid, pipeline_id, node.node_type, node.label,
-             __import__("json").dumps(node.config),
+             json.dumps(node.config),
              node.position_x, node.position_y),
         )
 
     for edge in body.edges:
-        src_idx = next(
-            (i for i, n in enumerate(body.nodes) if str(n) == str(edge.source_node_id)), None
-        )
-        tgt_idx = next(
-            (i for i, n in enumerate(body.nodes) if str(n) == str(edge.target_node_id)), None
-        )
-        # Try to use provided UUIDs directly (for updates where IDs are known)
-        src_id = str(edge.source_node_id)
-        tgt_id = str(edge.target_node_id)
+        src_id = node_id_map.get(str(edge.source_node_id), str(edge.source_node_id))
+        tgt_id = node_id_map.get(str(edge.target_node_id), str(edge.target_node_id))
         execute(
             """
             INSERT INTO pipeline_edges (id, pipeline_id, source_node_id, target_node_id, edge_type)
@@ -276,5 +272,3 @@ def _upsert_nodes_edges(pipeline_id: str, body: PipelineIn) -> dict[int, str]:
             """,
             (str(uuid.uuid4()), pipeline_id, src_id, tgt_id, edge.edge_type),
         )
-
-    return {i: nid for i, nid in enumerate(node_ids)}

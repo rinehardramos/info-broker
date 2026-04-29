@@ -136,6 +136,7 @@ export function PipelineBuilder() {
       name: localName,
       description: localDesc || null,
       nodes: localNodes.map(n => ({
+        id: n.id,                   // pass frontend UUID through
         node_type: n.node_type,
         label: n.label,
         config: n.config,
