@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { PipelineBuilder } from '../components/pipeline/PipelineBuilder'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
 import TagInput from '../components/linkedin/TagInput'
@@ -123,7 +124,7 @@ function ProfileCard({ p }: { p: LinkedInProfile }) {
 }
 
 function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: boolean }) {
-  const [tab, setTab] = useState<'profiles' | 'runs'>('profiles')
+  const [tab, setTab] = useState<'profiles' | 'runs' | 'pipelines'>('profiles')
 
   const { data: profiles = [], isLoading: profilesLoading } = useQuery({
     queryKey: ['linkedin-profiles'],
@@ -131,7 +132,7 @@ function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: b
     refetchInterval: tab === 'profiles' ? 10000 : false,
   })
 
-  const tabBtn = (label: string, key: 'profiles' | 'runs') => (
+  const tabBtn = (label: string, key: 'profiles' | 'runs' | 'pipelines') => (
     <button
       onClick={() => setTab(key)}
       className="px-2 py-1 rounded text-[11px] font-medium"
@@ -151,8 +152,14 @@ function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: b
       <div className="flex items-center gap-1 px-3 pt-2 pb-1" style={{ borderBottom: '1px solid var(--border)' }}>
         {tabBtn('Profiles', 'profiles')}
         {tabBtn('Run History', 'runs')}
+        {tabBtn('Pipelines', 'pipelines')}
       </div>
-      <div className="flex-1 col-scroll p-3">
+      {tab === 'pipelines' && (
+        <div style={{ flex: 1, overflow: 'hidden' }}>
+          <PipelineBuilder />
+        </div>
+      )}
+      <div className="flex-1 col-scroll p-3" style={{ display: tab === 'pipelines' ? 'none' : undefined }}>
         {tab === 'profiles' && (
           <>
             {profilesLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}

@@ -1,0 +1,108 @@
+import { api } from './client'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface PipelineNodeIn {
+  node_type: string
+  label: string
+  config: Record<string, unknown>
+  position_x?: number
+  position_y?: number
+}
+
+export interface PipelineNodeOut extends PipelineNodeIn {
+  id: string
+}
+
+export interface PipelineEdgeIn {
+  source_node_id: string
+  target_node_id: string
+  edge_type?: string
+}
+
+export interface PipelineEdgeOut extends PipelineEdgeIn {
+  id: string
+}
+
+export interface PipelineIn {
+  name: string
+  description?: string | null
+  nodes?: PipelineNodeIn[]
+  edges?: PipelineEdgeIn[]
+}
+
+export interface Pipeline {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PipelineDetail extends Pipeline {
+  nodes: PipelineNodeOut[]
+  edges: PipelineEdgeOut[]
+}
+
+export interface PipelineStepRun {
+  id: string
+  node_id: string
+  status: string
+  item_count: number
+  error_message: string | null
+  started_at: string | null
+  finished_at: string | null
+}
+
+export interface PipelineRun {
+  id: string
+  pipeline_id: string
+  status: string
+  trigger_type: string
+  started_at: string
+  finished_at: string | null
+}
+
+export interface PipelineRunDetail extends PipelineRun {
+  steps: PipelineStepRun[]
+}
+
+export interface NodeType {
+  node_type: string
+  display_name: string
+  category: string
+  config_schema: Record<string, unknown>
+}
+
+// ---------------------------------------------------------------------------
+// API functions
+// ---------------------------------------------------------------------------
+
+export const createPipeline = (body: PipelineIn): Promise<Pipeline> =>
+  api.post('/v3/pipelines', body).then(r => r.data)
+
+export const listPipelines = (): Promise<Pipeline[]> =>
+  api.get('/v3/pipelines').then(r => r.data)
+
+export const getPipeline = (id: string): Promise<PipelineDetail> =>
+  api.get(`/v3/pipelines/${id}`).then(r => r.data)
+
+export const updatePipeline = (id: string, body: PipelineIn): Promise<Pipeline> =>
+  api.put(`/v3/pipelines/${id}`, body).then(r => r.data)
+
+export const deletePipeline = (id: string): Promise<void> =>
+  api.delete(`/v3/pipelines/${id}`).then(() => undefined)
+
+export const startPipelineRun = (id: string): Promise<PipelineRun> =>
+  api.post(`/v3/pipelines/${id}/run`).then(r => r.data)
+
+export const listPipelineRuns = (id: string): Promise<PipelineRun[]> =>
+  api.get(`/v3/pipelines/${id}/runs`).then(r => r.data)
+
+export const getPipelineRun = (runId: string): Promise<PipelineRunDetail> =>
+  api.get(`/v3/pipelines/runs/${runId}`).then(r => r.data)
+
+export const listNodeTypes = (): Promise<NodeType[]> =>
+  api.get('/v3/pipelines/nodes/types').then(r => r.data)
