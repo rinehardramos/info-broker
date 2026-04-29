@@ -313,10 +313,13 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
   // Compute topological order so StepList numbers match DAG flow
   const topoOrderMap = (() => {
+    const validIds = new Set(localNodes.map(n => n.id))
     const deps: Record<string, Set<string>> = {}
     for (const n of localNodes) deps[n.id] = new Set()
     for (const e of localEdges) {
-      if (deps[e.target_node_id]) deps[e.target_node_id].add(e.source_node_id)
+      if (deps[e.target_node_id] && validIds.has(e.source_node_id)) {
+        deps[e.target_node_id].add(e.source_node_id)
+      }
     }
     const order: Record<string, number> = {}
     const resolved = new Set<string>()
@@ -326,6 +329,8 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       if (!batch.length) break
       batch.forEach(n => { order[n.id] = i++; resolved.add(n.id) })
     }
+    // Assign remaining (cycles/disconnected) in array order
+    localNodes.filter(n => !resolved.has(n.id)).forEach(n => { order[n.id] = i++ })
     return order
   })()
 

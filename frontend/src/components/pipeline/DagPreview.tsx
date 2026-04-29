@@ -29,10 +29,14 @@ interface Props {
 }
 
 function topoLayers(nodes: PipelineNodeOut[], edges: PipelineEdgeOut[]): PipelineNodeOut[][] {
+  const validIds = new Set(nodes.map(n => n.id))
   const deps: Record<string, Set<string>> = {}
   for (const n of nodes) deps[n.id] = new Set()
   for (const e of edges) {
-    if (deps[e.target_node_id]) deps[e.target_node_id].add(e.source_node_id)
+    // Only track deps for edges where both ends are valid nodes
+    if (deps[e.target_node_id] && validIds.has(e.source_node_id)) {
+      deps[e.target_node_id].add(e.source_node_id)
+    }
   }
 
   const layers: PipelineNodeOut[][] = []
@@ -46,6 +50,10 @@ function topoLayers(nodes: PipelineNodeOut[], edges: PipelineEdgeOut[]): Pipelin
     layers.push(layer)
     layer.forEach(n => resolved.add(n.id))
   }
+
+  // Any nodes not placed (cycles or completely disconnected) get a final layer
+  const unplaced = nodes.filter(n => !resolved.has(n.id))
+  if (unplaced.length) layers.push(unplaced)
 
   return layers
 }
