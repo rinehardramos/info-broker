@@ -122,3 +122,14 @@ export const getCoreSettings = () =>
 
 export const updateCoreSettings = (items: { key: string; value: string; is_secret?: boolean }[]) =>
   api.put<CoreSettingsOut>('/v3/settings/core', items).then(r => r.data)
+
+export const getPipelineNodeEnabled = (
+  nodeType: string,
+): Promise<{ node_type: string; enabled: boolean }> =>
+  api.get(`/v3/pipelines/nodes/types/${nodeType}/enabled`).then(r => r.data)
+
+export const setPipelineNodeEnabled = (
+  nodeType: string,
+  enabled: boolean,
+): Promise<void> =>
+  api.put(`/v3/pipelines/nodes/types/${nodeType}/enabled`, { enabled }).then(() => undefined)
