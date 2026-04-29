@@ -303,13 +303,15 @@ async def start_pipeline_run(pipeline_id: str, user: dict = Depends(get_current_
         (pipeline_id,),
     )
 
-    # Validate: pipeline must have at least one source node
+    # Validate: exactly one source node required
     from app.pipeline.nodes import NodeRegistry
     NodeRegistry.auto_discover()
     node_category = {n.node_type: n.category for n in NodeRegistry.all()}
-    has_source = any(node_category.get(str(row["node_type"])) == "source" for row in nodes_rows)
-    if not has_source:
+    source_count = sum(1 for row in nodes_rows if node_category.get(str(row["node_type"])) == "source")
+    if source_count == 0:
         raise HTTPException(status_code=422, detail="Pipeline has no source node")
+    if source_count > 1:
+        raise HTTPException(status_code=422, detail="Pipeline has multiple source nodes — only one source is allowed")
 
     run_id = str(uuid.uuid4())
     workflow_id = f"pipeline-{run_id}"

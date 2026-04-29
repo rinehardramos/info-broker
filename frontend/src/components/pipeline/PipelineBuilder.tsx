@@ -240,8 +240,10 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
   const isRunning = activeRun?.status === 'running'
   const stepRuns = activeRun?.steps ?? []
-  const hasSource = localNodes.some(n => n.category === 'source')
-  const canRun = !!selectedPipelineId && !isRunning && hasSource
+  const sourceCount = localNodes.filter(n => n.category === 'source').length
+  const hasSource = sourceCount > 0
+  const hasTooManySources = sourceCount > 1
+  const canRun = !!selectedPipelineId && !isRunning && hasSource && !hasTooManySources
   const noSourceHint = selectedPipelineId && localNodes.length > 0 && !hasSource
   const editingNode = editingNodeId ? localNodes.find(n => n.id === editingNodeId) ?? null : null
   const editingNodeType = editingNode ? nodeTypes.find(t => t.node_type === editingNode.node_type) : null
@@ -343,6 +345,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                 {noSourceHint && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#facc15', background: '#facc1511', borderTop: '1px solid #facc1533' }}>
                     Add a source step before running
+                  </div>
+                )}
+                {hasTooManySources && (
+                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
+                    Only one source is allowed — remove the extra source to run
                   </div>
                 )}
                 {addStepError && (
