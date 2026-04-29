@@ -80,11 +80,18 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       setLocalName('')
     },
   })
+  const [runError, setRunError] = useState<string | null>(null)
   const runMutation = useMutation({
     mutationFn: startPipelineRun,
     onSuccess: run => {
+      setRunError(null)
       setActiveRunId(run.id)
       qc.invalidateQueries({ queryKey: ['pipelineRuns', selectedPipelineId] })
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } }; message?: string })
+        ?.response?.data?.detail ?? (err as { message?: string })?.message ?? 'Failed to start run'
+      setRunError(msg)
     },
   })
 
@@ -265,51 +272,61 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
       {/* Main area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderBottom: '1px solid #1e293b' }}>
+        {/* Header — pipeline name only */}
+        <div style={{ display: 'flex', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #1e293b' }}>
           <input
             value={localName}
             onChange={e => { setLocalName(e.target.value); setDirty(true) }}
             style={{ flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 13, fontWeight: 600, outline: 'none' }}
           />
-          <button
-            onClick={handleSave}
-            disabled={!dirty}
-            style={{ padding: '4px 10px', fontSize: 11, background: dirty ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: dirty ? '#e2e8f0' : '#475569', cursor: dirty ? 'pointer' : 'default' }}
-          >
-            Save
-          </button>
-          <button
-            onClick={handleRun}
-            disabled={!selectedPipelineId || isRunning}
-            style={{ padding: '4px 10px', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: selectedPipelineId ? 'pointer' : 'default', opacity: selectedPipelineId ? 1 : 0.4 }}
-          >
-            {isRunning ? 'Running...' : 'Run'}
-          </button>
-          {selectedPipelineId && (
-            <button
-              onClick={handleDelete}
-              style={{ padding: '4px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}
-            >
-              Delete
-            </button>
-          )}
         </div>
 
         {/* Resizable panels */}
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <ResizableSplit
             left={
-              <StepList
-                nodes={localNodes}
-                stepRuns={stepRuns}
-                nodeTypes={nodeTypes}
-                selectedNodeId={editingNodeId}
-                onSelect={setEditingNodeId}
-                onRemove={handleRemoveNode}
-                onAdd={handleAddNode}
-                readOnly={isRunning}
-              />
+              <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <StepList
+                  nodes={localNodes}
+                  stepRuns={stepRuns}
+                  nodeTypes={nodeTypes}
+                  selectedNodeId={editingNodeId}
+                  onSelect={setEditingNodeId}
+                  onRemove={handleRemoveNode}
+                  onAdd={handleAddNode}
+                  readOnly={isRunning}
+                />
+                {/* Action buttons pinned below the step list */}
+                {runError && (
+                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
+                    {runError}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
+                  <button
+                    onClick={handleSave}
+                    disabled={!dirty}
+                    style={{ flex: 1, padding: '5px 0', fontSize: 11, background: dirty ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: dirty ? '#e2e8f0' : '#475569', cursor: dirty ? 'pointer' : 'default' }}
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => { setRunError(null); handleRun() }}
+                    disabled={!selectedPipelineId || isRunning}
+                    style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: selectedPipelineId ? 'pointer' : 'default', opacity: selectedPipelineId ? 1 : 0.4 }}
+                  >
+                    {isRunning ? 'Running...' : 'Run'}
+                  </button>
+                  {selectedPipelineId && (
+                    <button
+                      onClick={handleDelete}
+                      style={{ padding: '5px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
             }
             right={
               <DagPreview nodes={localNodes} edges={localEdges} stepRuns={stepRuns} />

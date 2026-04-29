@@ -6,7 +6,7 @@ from app.pipeline.nodes.base import RunContext
 class DdgSearchNode:
     node_type = "ddg_search"
     display_name = "DDG Search"
-    category = "source"
+    category = "enrich"
     config_schema = {
         "type": "object",
         "properties": {
