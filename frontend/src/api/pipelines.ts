@@ -14,6 +14,7 @@ export interface PipelineNodeIn {
 
 export interface PipelineNodeOut extends PipelineNodeIn {
   id: string
+  category: string
 }
 
 export interface PipelineEdgeIn {

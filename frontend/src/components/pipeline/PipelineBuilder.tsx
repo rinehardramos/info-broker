@@ -81,7 +81,12 @@ export function PipelineBuilder() {
   const prevPipelineId = useRef<string | null>(null)
   if (pipelineDetail && pipelineDetail.id !== prevPipelineId.current) {
     prevPipelineId.current = pipelineDetail.id
-    setLocalNodes(pipelineDetail.nodes)
+    // Enrich nodes with category from nodeTypes registry
+    const enriched = pipelineDetail.nodes.map(n => ({
+      ...n,
+      category: n.category || nodeTypes.find(t => t.node_type === n.node_type)?.category || 'source',
+    }))
+    setLocalNodes(enriched)
     setLocalEdges(pipelineDetail.edges)
     setLocalName(pipelineDetail.name)
     setLocalDesc(pipelineDetail.description ?? '')
