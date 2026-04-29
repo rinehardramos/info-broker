@@ -31,8 +31,9 @@ class NodeRegistry:
         from app.pipeline.nodes.rss_monitor import RssMonitorNode
         from app.pipeline.nodes.apify_actor import ApifyActorNode
         from app.pipeline.nodes.ai_scoring import AiScoringNode
+        from app.pipeline.nodes.ai_provider import AiProviderNode
         from app.pipeline.nodes.manual_scoring import ManualScoringNode
         from app.pipeline.nodes.aggregator import AggregatorNode
 
-        for node in [AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(), ApifyActorNode(), AiScoringNode(), ManualScoringNode(), AggregatorNode()]:
+        for node in [AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(), ApifyActorNode(), AiScoringNode(), AiProviderNode(), ManualScoringNode(), AggregatorNode()]:
             cls.register(node)
