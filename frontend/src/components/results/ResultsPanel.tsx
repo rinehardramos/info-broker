@@ -187,7 +187,11 @@ function PipelineTabContent() {
               border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
             }}
           >
-            <span className="text-xs font-medium truncate" style={{ color: 'var(--text)' }}>
+            <span
+              className="text-xs font-medium truncate"
+              style={{ color: 'var(--text)', cursor: 'pointer', flex: 1 }}
+              onClick={() => navigate(`/pipelines/${pipeline.id}`)}
+            >
               {pipeline.name}
             </span>
             <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>

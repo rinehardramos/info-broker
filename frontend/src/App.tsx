@@ -15,6 +15,7 @@ const Settings    = lazy(() => import('./pages/Settings'))
 const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 const PluginsPage    = lazy(() => import('./pages/PluginsPage'))
 const NodePluginPage = lazy(() => import('./pages/NodePluginPage'))
+const PipelinePage   = lazy(() => import('./pages/PipelinePage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
             <Route path="/plugins" element={<AuthGuard><PluginsPage /></AuthGuard>} />
             <Route path="/plugins/node/:nodeType" element={<AuthGuard><NodePluginPage /></AuthGuard>} />
+            <Route path="/pipelines/:id" element={<AuthGuard><PipelinePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="*" element={<Navigate to="/" replace />} />

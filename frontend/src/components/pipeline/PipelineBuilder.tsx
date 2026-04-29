@@ -10,10 +10,10 @@ import { StepList } from './StepList'
 import { DagPreview } from './DagPreview'
 import { NodeConfigForm } from './NodeConfigForm'
 
-export function PipelineBuilder() {
+export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: string } = {}) {
   const qc = useQueryClient()
 
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null)
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(initialPipelineId ?? null)
   const [localNodes, setLocalNodes] = useState<PipelineNodeOut[]>([])
   const [localEdges, setLocalEdges] = useState<PipelineEdgeOut[]>([])
   const [localName, setLocalName] = useState('New Pipeline')
