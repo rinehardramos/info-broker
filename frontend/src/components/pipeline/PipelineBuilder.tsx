@@ -200,6 +200,9 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
 
   const isRunning = activeRun?.status === 'running'
   const stepRuns = activeRun?.steps ?? []
+  const hasSource = localNodes.some(n => n.category === 'source')
+  const canRun = !!selectedPipelineId && !isRunning && hasSource
+  const noSourceHint = selectedPipelineId && localNodes.length > 0 && !hasSource
   const editingNode = editingNodeId ? localNodes.find(n => n.id === editingNodeId) ?? null : null
   const editingNodeType = editingNode ? nodeTypes.find(t => t.node_type === editingNode.node_type) : null
 
@@ -297,6 +300,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   readOnly={isRunning}
                 />
                 {/* Action buttons pinned below the step list */}
+                {noSourceHint && (
+                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#facc15', background: '#facc1511', borderTop: '1px solid #facc1533' }}>
+                    Add a source step before running
+                  </div>
+                )}
                 {runError && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
                     {runError}
@@ -312,8 +320,8 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   </button>
                   <button
                     onClick={() => { setRunError(null); handleRun() }}
-                    disabled={!selectedPipelineId || isRunning}
-                    style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: selectedPipelineId ? 'pointer' : 'default', opacity: selectedPipelineId ? 1 : 0.4 }}
+                    disabled={!canRun}
+                    style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: canRun ? 'pointer' : 'default', opacity: canRun ? 1 : 0.4 }}
                   >
                     {isRunning ? 'Running...' : 'Run'}
                   </button>
