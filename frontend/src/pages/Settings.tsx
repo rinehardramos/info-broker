@@ -1,12 +1,8 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useParams } from 'react-router-dom'
-import { getCoreSettings, updateCoreSettings, listPlugins, type PluginInfo } from '../api/v3'
+import { getCoreSettings, updateCoreSettings } from '../api/v3'
 import { useForm } from 'react-hook-form'
 import IconRail from '../components/layout/IconRail'
-import PluginConfigPage from '../components/plugins/PluginConfigPage'
-
-type Section = 'core' | string
 
 const CORE_FIELDS = [
   { key: 'db.postgres_url',        label: 'Postgres URL',         secret: false },
@@ -64,9 +60,7 @@ function CoreSettingsForm() {
 }
 
 export default function Settings() {
-  const params = useParams<{ name?: string }>()
-  const [section, setSection] = useState<Section>(params.name ?? 'core')
-  const { data: plugins = [] } = useQuery({ queryKey: ['plugins'], queryFn: listPlugins })
+  const [section] = useState<'core'>('core')
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
@@ -74,7 +68,7 @@ export default function Settings() {
         <div className="w-40 flex-shrink-0 col-scroll py-3 px-2" style={{ background: 'var(--panel)', borderRight: '1px solid var(--border)' }}>
           <div className="text-[10px] font-semibold mb-2 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
           <button
-            onClick={() => setSection('core')}
+            onClick={() => {}}
             className="w-full text-left px-2 py-1 rounded text-xs mb-1"
             style={{
               background: section === 'core' ? 'var(--panel2)' : 'transparent',
@@ -84,34 +78,13 @@ export default function Settings() {
           >
             Core Settings
           </button>
-
-          <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>PLUGINS</div>
-          {plugins.map((p: PluginInfo) => (
-            <button
-              key={p.name}
-              onClick={() => setSection(p.name)}
-              className="w-full text-left px-2 py-1 rounded text-xs mb-1"
-              style={{
-                background: section === p.name ? 'var(--panel2)' : 'transparent',
-                color: section === p.name ? 'var(--accent)' : 'var(--text)',
-                border: 'none', cursor: 'pointer',
-              }}
-            >
-              {p.name}
-              {!p.available && <span className="ml-1 text-[9px]" style={{ color: '#ef4444' }}>✕</span>}
-            </button>
-          ))}
         </div>
 
         <div className="flex-1 col-scroll p-4">
           <h2 className="text-sm font-bold mb-4 capitalize" style={{ color: 'var(--accent)' }}>
-            {section === 'core' ? 'Core Settings' : `${section} Plugin`}
+            Core Settings
           </h2>
-          {section === 'core' ? (
-            <CoreSettingsForm />
-          ) : (
-            <PluginConfigPage pluginName={section} />
-          )}
+          <CoreSettingsForm />
         </div>
       </div>
       <IconRail />

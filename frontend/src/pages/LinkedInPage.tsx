@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { PipelineBuilder } from '../components/pipeline/PipelineBuilder'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
@@ -184,6 +185,7 @@ function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: b
 }
 
 export default function LinkedInPage() {
+  const navigate = useNavigate()
   const qc = useQueryClient()
 
   const { data: config } = useQuery({ queryKey: ['apify-config'], queryFn: getApifyConfig })
@@ -253,6 +255,22 @@ export default function LinkedInPage() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left column: config */}
         <div className="w-80 flex-shrink-0 col-scroll p-4" style={{ borderRight: '1px solid var(--border)' }}>
+          <button
+            onClick={() => navigate('/plugins')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              fontSize: 10,
+              color: 'var(--muted)',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '0 0 8px',
+            }}
+          >
+            ← Plugins
+          </button>
           <h2 className="text-sm font-bold mb-4" style={{ color: 'var(--accent)' }}>LinkedIn Harvester</h2>
 
           <div className="flex flex-col gap-3">

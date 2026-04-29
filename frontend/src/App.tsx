@@ -13,6 +13,7 @@ const Monitors  = lazy(() => import('./pages/Monitors'))
 const History   = lazy(() => import('./pages/History'))
 const Settings    = lazy(() => import('./pages/Settings'))
 const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
+const PluginsPage  = lazy(() => import('./pages/PluginsPage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/monitors" element={<AuthGuard><Monitors /></AuthGuard>} />
             <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
+            <Route path="/plugins" element={<AuthGuard><PluginsPage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="*" element={<Navigate to="/" replace />} />

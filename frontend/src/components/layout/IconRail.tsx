@@ -8,7 +8,7 @@ const NAV = [
   { icon: '◉', path: '/jobs',      label: 'Jobs' },
   { icon: '◈', path: '/monitors',  label: 'Monitors' },
   { icon: '▤', path: '/history',   label: 'History' },
-  { icon: '⊞', path: '/linkedin',  label: 'LinkedIn' },
+  { icon: '❖', path: '/plugins',   label: 'Plugins' },
   { icon: '⚙', path: '/settings',  label: 'Settings' },
 ]
 
