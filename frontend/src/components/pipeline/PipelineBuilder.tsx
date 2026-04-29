@@ -253,10 +253,33 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const hasAggregator = localNodes.some(n => n.node_type === 'aggregator')
   const hasSource = sourceCount > 0
   const needsAggregator = sourceCount > 1 && !hasAggregator
-  const canRun = !!selectedPipelineId && !isRunning && hasSource && !needsAggregator
   const noSourceHint = selectedPipelineId && localNodes.length > 0 && !hasSource
   const editingNode = editingNodeId ? localNodes.find(n => n.id === editingNodeId) ?? null : null
   const editingNodeType = editingNode ? nodeTypes.find(t => t.node_type === editingNode.node_type) : null
+
+  // Required-field validation: a node is invalid when it has a required field
+  // with no value and no schema default (enum fields always have an implicit default).
+  const invalidNodeIds = new Set<string>(
+    localNodes
+      .filter(node => {
+        const nt = nodeTypes.find(t => t.node_type === node.node_type)
+        if (!nt) return false
+        const schema = nt.config_schema as { properties?: Record<string, { default?: unknown; enum?: string[] }>; required?: string[] }
+        const requiredFields = schema.required ?? []
+        const props = schema.properties ?? {}
+        return requiredFields.some(field => {
+          const val = node.config[field]
+          if (val !== undefined && val !== null && val !== '') return false
+          if (props[field]?.default !== undefined) return false
+          if (props[field]?.enum?.length) return false
+          return true
+        })
+      })
+      .map(n => n.id),
+  )
+  const invalidCount = invalidNodeIds.size
+  const canSave = dirty && invalidCount === 0
+  const canRun = !!selectedPipelineId && !isRunning && hasSource && !needsAggregator && invalidCount === 0
 
   return (
     <div style={{ display: 'flex', height: '100%', background: '#0d1117', color: '#e2e8f0', overflow: 'hidden' }}>
@@ -346,6 +369,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   stepRuns={stepRuns}
                   nodeTypes={nodeTypes}
                   selectedNodeId={editingNodeId}
+                  invalidNodeIds={invalidNodeIds}
                   onSelect={setEditingNodeId}
                   onRemove={handleRemoveNode}
                   onAdd={handleAddNode}
@@ -365,6 +389,11 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                 {addStepError && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
                     {addStepError}
+                  </div>
+                )}
+                {invalidCount > 0 && dirty && (
+                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
+                    {invalidCount} step{invalidCount > 1 ? 's' : ''} have required fields missing
                   </div>
                 )}
                 {runError && (
@@ -397,8 +426,8 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
                     <button
                       onClick={handleSave}
-                      disabled={!dirty}
-                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: dirty ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: dirty ? '#e2e8f0' : '#475569', cursor: dirty ? 'pointer' : 'default' }}
+                      disabled={!canSave}
+                      style={{ flex: 1, padding: '5px 0', fontSize: 11, background: canSave ? '#1e293b' : 'transparent', border: '1px solid #334155', borderRadius: 4, color: canSave ? '#e2e8f0' : '#475569', cursor: canSave ? 'pointer' : 'default' }}
                     >
                       Save
                     </button>

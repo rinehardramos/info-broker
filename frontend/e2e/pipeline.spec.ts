@@ -180,7 +180,8 @@ test.describe('PipelineBuilder — steps', () => {
     const addStepSelect = page.locator('select').filter({ hasText: /Add Step/i })
     await addStepSelect.selectOption({ label: 'DDG Search' })
     await expect(page.getByRole('button', { name: '×' })).toHaveCount(1, { timeout: 3_000 })
-    await addStepSelect.selectOption({ label: 'RSS Monitor' })
+    // Use Qdrant Search (no required fields) so Save stays enabled after DDG Search is deleted
+    await addStepSelect.selectOption({ label: 'Qdrant Search' })
     await expect(page.getByRole('button', { name: '×' })).toHaveCount(2)
 
     // Delete Step 1 (DDG Search)
@@ -191,7 +192,7 @@ test.describe('PipelineBuilder — steps', () => {
     await page.getByRole('button', { name: 'Save' }).click()
     await page.waitForTimeout(1000)
 
-    // Reload and verify the remaining step (RSS Monitor) persists
+    // Reload and verify the remaining step (Qdrant Search) persists
     await page.reload()
     await expect(page.getByRole('button', { name: '×' })).toHaveCount(1, { timeout: 8_000 })
   })
