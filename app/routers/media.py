@@ -32,6 +32,7 @@ from app.adapters.audio import (
 from app.adapters.jokes import JokeUnavailable, fetch_joke
 from app.adapters.music import SongEnrichmentUnavailable, fetch_song_enrichment
 from app.adapters.news import NewsUnavailable, fetch_news
+from app.adapters.social import fetch_mentions
 from app.adapters.weather import WeatherUnavailable, fetch_weather
 from app.deps import require_api_key
 from app.lib.cache import TTLCache, cache_key
@@ -45,9 +46,13 @@ from app.schemas_media import (
     PlaylistSourceRequest,
     PlaylistSourceResult,
     SourcedSong,
+    SocialMentionItem,
+    SocialMentionsResponse,
+    SocialPlatform,
     SongEnrichmentResponse,
     SongSourceRequest,
     SongSourceResult,
+    StoreTokenRequest,
     WeatherResponse,
 )
 
@@ -520,3 +525,78 @@ async def source_playlist_audio(
     job_id = str(uuid.uuid4())
     background_tasks.add_task(_process_playlist_source, job_id, body)
     return {"job_id": job_id, "status": "queued", "station_id": body.station_id}
+
+
+# ── social mentions ────────────────────────────────────────────────────────────
+
+_mentions_cache: TTLCache[SocialMentionsResponse] = TTLCache(default_ttl=300, max_entries=256)
+
+
+@router.get(
+    "/social/mentions",
+    response_model=SocialMentionsResponse,
+    summary="Fetch recent social mentions for a handle (Twitter or Facebook)",
+)
+@limiter.limit("30/minute")
+def get_social_mentions(
+    request: Request,
+    response: Response,
+    platform: SocialPlatform = Query(...),
+    handle: str = Query(..., max_length=128),
+    oauth_token_ref: str = Query(..., description="Bearer token or vault UUID"),
+    since_id: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    _api_key: str = Depends(require_api_key),
+) -> SocialMentionsResponse:
+    key = cache_key("social", platform, handle, since_id, limit)
+    cached = _mentions_cache.get(key)
+    if cached is not None:
+        return cached
+
+    result = fetch_mentions(
+        platform=platform,
+        handle=handle,
+        oauth_token_ref=oauth_token_ref,
+        since_id=since_id,
+        limit=limit,
+    )
+    if not result.error:
+        _mentions_cache.set(key, result)
+    return result
+
+
+@router.post(
+    "/social/tokens",
+    summary="Store an encrypted social token; returns an opaque UUID ref",
+    status_code=201,
+)
+@limiter.limit("20/minute")
+def store_social_token(
+    request: Request,
+    response: Response,
+    body: StoreTokenRequest,
+    _api_key: str = Depends(require_api_key),
+) -> dict:
+    from app.lib.token_vault import store
+    token_id = store(
+        platform=body.platform,
+        owner_ref=body.owner_ref,
+        raw_token=body.raw_token,
+    )
+    return {"token_id": token_id}
+
+
+@router.delete(
+    "/social/tokens/{token_id}",
+    summary="Delete a stored social token",
+    status_code=204,
+)
+@limiter.limit("20/minute")
+def delete_social_token(
+    request: Request,
+    response: Response,
+    token_id: str,
+    _api_key: str = Depends(require_api_key),
+) -> None:
+    from app.lib.token_vault import delete
+    delete(token_id)

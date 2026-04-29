@@ -42,6 +42,16 @@ ALTER TABLE linkedin_profiles
     ADD COLUMN IF NOT EXISTS search_queries_used    TEXT,
     ADD COLUMN IF NOT EXISTS user_grade             INT,
     ADD COLUMN IF NOT EXISTS user_feedback          TEXT;
+
+CREATE TABLE IF NOT EXISTS social_tokens (
+    id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    platform   TEXT        NOT NULL CHECK (platform IN ('twitter','facebook')),
+    owner_ref  TEXT        NOT NULL,
+    ciphertext BYTEA       NOT NULL,
+    nonce      BYTEA       NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS social_tokens_owner_idx ON social_tokens (owner_ref, platform);
 """
 
 

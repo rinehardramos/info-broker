@@ -188,3 +188,29 @@ class PlaylistSourceResult(BaseModel):
     songs: list[SourcedSong] = []
     errors: list[dict] = []
     error: str | None = None
+
+
+# ── social ────────────────────────────────────────────────────────────────────
+
+SocialPlatform = Literal["twitter", "facebook"]
+
+
+class SocialMentionItem(BaseModel):
+    id: str
+    text: str
+    author_id: str | None = None
+    created_at: str | None = None
+    platform: str
+
+
+class SocialMentionsResponse(BaseModel):
+    platform: str
+    handle: str
+    mentions: list[SocialMentionItem] = []
+    error: str | None = None
+
+
+class StoreTokenRequest(BaseModel):
+    platform: SocialPlatform
+    owner_ref: str = Field(..., max_length=256)
+    raw_token: str = Field(..., min_length=1)
