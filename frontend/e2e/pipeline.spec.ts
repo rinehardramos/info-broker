@@ -283,6 +283,66 @@ test.describe('PipelineBuilder — Agent Input → DDG Search → AI Scoring', (
 })
 
 // ---------------------------------------------------------------------------
+// PipelineBuilder — reorder steps (#32)
+// ---------------------------------------------------------------------------
+
+test.describe('PipelineBuilder — reorder steps', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+    await page.goto('/pipelines')
+    await page.getByText('+ New Pipeline').click({ timeout: 8_000 })
+    await page.getByPlaceholder('Pipeline name *').fill(`Reorder-Test-${Date.now()}`)
+    const detailResponse = page.waitForResponse(
+      r => /\/api\/v3\/pipelines\/[^/]+$/.test(r.url()) && r.request().method() === 'GET' && r.status() === 200,
+      { timeout: 10_000 },
+    )
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.waitForURL(/\/pipelines\/.+/, { timeout: 8_000 })
+    await detailResponse
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(0, { timeout: 5_000 })
+  })
+
+  test('can move a step up and the order persists after save', async ({ page }) => {
+    const addStepSelect = page.locator('select').filter({ hasText: /Add Step/i })
+
+    // Use 2 enrich/score nodes with no required fields so order is deterministic and Save stays enabled
+    // Order after add: Qdrant Search (1), Manual Scoring (2)
+    await addStepSelect.selectOption({ label: 'Qdrant Search' })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(1, { timeout: 5_000 })
+    await addStepSelect.selectOption({ label: 'Manual Scoring' })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 5_000 })
+
+    // Verify initial order: Qdrant Search is first
+    const firstBefore = await page.locator('[data-testid^="step-card-"]').first().getAttribute('data-testid')
+    expect(firstBefore).toBe('step-card-qdrant_search')
+
+    // Move Manual Scoring (step 2, nth(1) ▲) up → new order: Manual Scoring · Qdrant Search
+    await page.getByTitle('Move up').nth(1).click()
+
+    // First step card should now be Manual Scoring
+    await expect(async () => {
+      const firstAfter = await page.locator('[data-testid^="step-card-"]').first().getAttribute('data-testid')
+      expect(firstAfter).toBe('step-card-manual_scoring')
+    }).toPass({ timeout: 3_000 })
+
+    // Save via toolbar Save button (dirty after move)
+    await Promise.all([
+      page.waitForResponse(
+        r => /\/api\/v3\/pipelines\/[^/]+$/.test(r.url()) && r.request().method() === 'PUT' && r.status() === 200,
+        { timeout: 10_000 },
+      ),
+      page.getByRole('button', { name: 'Save' }).click(),
+    ])
+
+    // Reload and verify Manual Scoring is still first
+    await page.reload()
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 8_000 })
+    const firstAfterReload = await page.locator('[data-testid^="step-card-"]').first().getAttribute('data-testid')
+    expect(firstAfterReload).toBe('step-card-manual_scoring')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Pipeline — run and LiveStream
 // ---------------------------------------------------------------------------
 

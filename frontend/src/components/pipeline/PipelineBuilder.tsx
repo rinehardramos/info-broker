@@ -202,6 +202,17 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setDirty(true)
   }
 
+  const handleMoveNode = (nodeId: string, direction: 'up' | 'down') => {
+    const idx = localNodes.findIndex(n => n.id === nodeId)
+    if (idx === -1) return
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= localNodes.length) return
+    const next = [...localNodes]
+    ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+    setLocalNodes(next)
+    setDirty(true)
+  }
+
   const handleEdgeChange = (sourceId: string, targetId: string, connected: boolean) => {
     if (connected) {
       const newEdge: PipelineEdgeOut = {
@@ -388,6 +399,8 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   invalidNodeIds={invalidNodeIds}
                   onSelect={setEditingNodeId}
                   onRemove={handleRemoveNode}
+                  onMoveUp={id => handleMoveNode(id, 'up')}
+                  onMoveDown={id => handleMoveNode(id, 'down')}
                   onAdd={handleAddNode}
                   readOnly={isRunning}
                 />

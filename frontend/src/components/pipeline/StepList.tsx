@@ -22,6 +22,8 @@ interface Props {
   invalidNodeIds?: Set<string>
   onSelect?: (nodeId: string) => void
   onRemove?: (nodeId: string) => void
+  onMoveUp?: (nodeId: string) => void
+  onMoveDown?: (nodeId: string) => void
   onAdd?: (nodeType: string) => void
   readOnly?: boolean
 }
@@ -34,6 +36,8 @@ export function StepList({
   invalidNodeIds = new Set(),
   onSelect,
   onRemove,
+  onMoveUp,
+  onMoveDown,
   onAdd,
   readOnly = false,
 }: Props) {
@@ -107,20 +111,58 @@ export function StepList({
               </div>
             </div>
             {!readOnly && (
-              <button
-                onClick={() => onRemove?.(node.id)}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #334155',
-                  borderRadius: 4,
-                  color: '#94a3b8',
-                  cursor: 'pointer',
-                  padding: '2px 5px',
-                  fontSize: 11,
-                }}
-              >
-                ×
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <button
+                  onClick={() => onMoveUp?.(node.id)}
+                  disabled={idx === 0}
+                  title="Move up"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #334155',
+                    borderRadius: 3,
+                    color: idx === 0 ? '#1e293b' : '#94a3b8',
+                    cursor: idx === 0 ? 'default' : 'pointer',
+                    padding: '1px 5px',
+                    fontSize: 9,
+                    lineHeight: 1,
+                  }}
+                >
+                  ▲
+                </button>
+                <button
+                  onClick={() => onMoveDown?.(node.id)}
+                  disabled={idx === nodes.length - 1}
+                  title="Move down"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #334155',
+                    borderRadius: 3,
+                    color: idx === nodes.length - 1 ? '#1e293b' : '#94a3b8',
+                    cursor: idx === nodes.length - 1 ? 'default' : 'pointer',
+                    padding: '1px 5px',
+                    fontSize: 9,
+                    lineHeight: 1,
+                  }}
+                >
+                  ▼
+                </button>
+                <button
+                  onClick={() => onRemove?.(node.id)}
+                  title="Remove step"
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #334155',
+                    borderRadius: 3,
+                    color: '#94a3b8',
+                    cursor: 'pointer',
+                    padding: '1px 5px',
+                    fontSize: 11,
+                    lineHeight: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             )}
           </div>
         )
