@@ -486,6 +486,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
               schema={editingNodeType.config_schema}
               onChange={handleConfigChange}
               onClose={() => setEditingNodeId(null)}
+              onDone={() => { setEditingNodeId(null); if (selectedPipelineId) handleSave() }}
               nodes={localNodes}
               edges={localEdges}
               onEdgeChange={handleEdgeChange}

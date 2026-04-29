@@ -12,7 +12,8 @@ interface Props {
   node: PipelineNodeOut
   schema: Record<string, unknown>
   onChange: (nodeId: string, config: Record<string, unknown>) => void
-  onClose: () => void
+  onClose: () => void   // ✕ button — discard / just close
+  onDone?: () => void   // Done button — close + save
   nodes?: PipelineNodeOut[]
   edges?: PipelineEdgeOut[]
   onEdgeChange?: (sourceId: string, targetId: string, connected: boolean) => void
@@ -29,7 +30,7 @@ type FieldSchema = {
   items?: { type?: string }
 }
 
-export function NodeConfigForm({ node, schema, onChange, onClose, nodes, edges, onEdgeChange }: Props) {
+export function NodeConfigForm({ node, schema, onChange, onClose, onDone, nodes, edges, onEdgeChange }: Props) {
   const properties = (schema.properties ?? {}) as Record<string, FieldSchema>
   const required = (schema.required ?? []) as string[]
   const [config, setConfig] = useState<Record<string, unknown>>({ ...node.config })
@@ -195,7 +196,7 @@ export function NodeConfigForm({ node, schema, onChange, onClose, nodes, edges, 
         )}
 
         <button
-          onClick={onClose}
+          onClick={onDone ?? onClose}
           style={{ width: '100%', padding: '8px', marginTop: 12, background: '#1e293b', border: '1px solid #334155', borderRadius: 4, color: '#e2e8f0', cursor: 'pointer', fontSize: 12 }}
         >
           Done

@@ -266,19 +266,15 @@ test.describe('PipelineBuilder — Agent Input → DDG Search → AI Scoring', (
     await fillFirstInput('ai_scoring', 'relevant to mathematics')
 
     // --- Ensure edges: Agent Input → DDG Search, DDG Search → AI Scoring ---
+    // Each ensureConnected call opens the panel and clicks Done, which auto-saves.
     await ensureConnected('agent_input', 'ddg_search')
     await ensureConnected('ddg_search', 'ai_scoring')
 
-    // --- Save ---
-    await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled({ timeout: 5_000 })
-    const [saveResponse] = await Promise.all([
-      page.waitForResponse(
-        r => /\/api\/v3\/pipelines\/[^/]+$/.test(r.url()) && r.request().method() === 'PUT',
-        { timeout: 10_000 },
-      ),
-      page.getByRole('button', { name: 'Save' }).click(),
-    ])
-    expect(saveResponse.status()).toBe(200)
+    // Done auto-saves — wait for the last PUT to complete before reloading
+    await page.waitForResponse(
+      r => /\/api\/v3\/pipelines\/[^/]+$/.test(r.url()) && r.request().method() === 'PUT' && r.status() === 200,
+      { timeout: 10_000 },
+    )
 
     // --- Reload and verify all 3 steps persisted ---
     await page.reload()
