@@ -133,3 +133,14 @@ export const setPipelineNodeEnabled = (
   enabled: boolean,
 ): Promise<void> =>
   api.put(`/v3/pipelines/nodes/types/${nodeType}/enabled`, { enabled }).then(() => undefined)
+
+export const getAppPluginEnabled = (
+  pluginId: string,
+): Promise<{ plugin_id: string; enabled: boolean }> =>
+  api.get(`/v3/settings/plugins/${pluginId}/enabled`).then(r => r.data)
+
+export const setAppPluginEnabled = (
+  pluginId: string,
+  enabled: boolean,
+): Promise<void> =>
+  api.put(`/v3/settings/plugins/${pluginId}/enabled`, { enabled }).then(() => undefined)

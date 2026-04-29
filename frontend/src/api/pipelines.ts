@@ -123,3 +123,6 @@ export interface PipelineRunSummary {
 
 export const listAllPipelineRuns = (): Promise<PipelineRunSummary[]> =>
   api.get('/v3/pipelines/runs/all').then(r => r.data)
+
+export const cancelPipelineRun = (runId: string): Promise<void> =>
+  api.post(`/v3/pipelines/runs/${runId}/cancel`).then(() => undefined)
