@@ -4,6 +4,8 @@ import { useSessionStore } from '../stores/sessionStore'
 export type WsEvent = {
   type: string
   job_id?: string
+  run_id?: string       // pipeline run ID
+  node_id?: string      // pipeline node ID
   plugin?: string
   status?: string
   result_count?: number
