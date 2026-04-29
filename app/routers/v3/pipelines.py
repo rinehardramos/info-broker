@@ -234,8 +234,16 @@ def update_pipeline(pipeline_id: str, body: PipelineIn, user: dict = Depends(get
     )
     if not row:
         raise HTTPException(status_code=404, detail="Pipeline not found")
-    # Delete and recreate nodes+edges
-    execute("DELETE FROM pipeline_nodes WHERE pipeline_id = %s", (pipeline_id,))
+    # Only delete nodes that were removed — preserves pipeline_step_runs for kept nodes.
+    # Edges have no dependent run data so delete-all-then-reinsert is safe.
+    incoming_ids = {str(n.id) for n in body.nodes if n.id}
+    existing = fetch_all(
+        "SELECT id FROM pipeline_nodes WHERE pipeline_id = %s", (pipeline_id,)
+    )
+    for removed in existing:
+        if str(removed["id"]) not in incoming_ids:
+            execute("DELETE FROM pipeline_nodes WHERE id = %s", (str(removed["id"]),))
+    execute("DELETE FROM pipeline_edges WHERE pipeline_id = %s", (pipeline_id,))
     _upsert_nodes_edges(pipeline_id, body)
     return PipelineOut(**dict(row))
 
@@ -361,6 +369,12 @@ def _upsert_nodes_edges(pipeline_id: str, body: PipelineIn) -> None:
             """
             INSERT INTO pipeline_nodes (id, pipeline_id, node_type, label, config, position_x, position_y)
             VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s)
+            ON CONFLICT (id) DO UPDATE SET
+                node_type  = EXCLUDED.node_type,
+                label      = EXCLUDED.label,
+                config     = EXCLUDED.config,
+                position_x = EXCLUDED.position_x,
+                position_y = EXCLUDED.position_y
             """,
             (nid, pipeline_id, node.node_type, node.label,
              json.dumps(node.config),
