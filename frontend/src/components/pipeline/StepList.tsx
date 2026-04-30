@@ -20,7 +20,6 @@ interface Props {
   nodeTypes?: NodeType[]
   selectedNodeId?: string | null
   invalidNodeIds?: Set<string>
-  topoOrderMap?: Record<string, number>
   onSelect?: (nodeId: string) => void
   onRemove?: (nodeId: string) => void
   onMoveUp?: (nodeId: string) => void
@@ -35,7 +34,6 @@ export function StepList({
   nodeTypes = [],
   selectedNodeId,
   invalidNodeIds = new Set(),
-  topoOrderMap,
   onSelect,
   onRemove,
   onMoveUp,
@@ -63,7 +61,7 @@ export function StepList({
         const color = CATEGORY_COLORS[node.category] ?? '#60a5fa'
         const isSelected = node.id === selectedNodeId
         const isInvalid = invalidNodeIds.has(node.id)
-        const displayNum = topoOrderMap ? (topoOrderMap[node.id] ?? idx) + 1 : idx + 1
+        const displayNum = idx + 1
 
         return (
           <div key={node.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

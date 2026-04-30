@@ -311,28 +311,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const canSave = !!selectedPipelineId && invalidCount === 0
   const canRun = !!selectedPipelineId && !isRunning && hasSource && !needsAggregator && invalidCount === 0
 
-  // Compute topological order so StepList numbers match DAG flow
-  const topoOrderMap = (() => {
-    const validIds = new Set(localNodes.map(n => n.id))
-    const deps: Record<string, Set<string>> = {}
-    for (const n of localNodes) deps[n.id] = new Set()
-    for (const e of localEdges) {
-      if (deps[e.target_node_id] && validIds.has(e.source_node_id)) {
-        deps[e.target_node_id].add(e.source_node_id)
-      }
-    }
-    const order: Record<string, number> = {}
-    const resolved = new Set<string>()
-    let i = 0
-    while (resolved.size < localNodes.length) {
-      const batch = localNodes.filter(n => !resolved.has(n.id) && [...deps[n.id]].every(d => resolved.has(d)))
-      if (!batch.length) break
-      batch.forEach(n => { order[n.id] = i++; resolved.add(n.id) })
-    }
-    // Assign remaining (cycles/disconnected) in array order
-    localNodes.filter(n => !resolved.has(n.id)).forEach(n => { order[n.id] = i++ })
-    return order
-  })()
 
   return (
     <div style={{ display: 'flex', height: '100%', background: '#0d1117', color: '#e2e8f0', overflow: 'hidden' }}>
@@ -423,7 +401,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   nodeTypes={nodeTypes}
                   selectedNodeId={editingNodeId}
                   invalidNodeIds={invalidNodeIds}
-                  topoOrderMap={topoOrderMap}
                   onSelect={setEditingNodeId}
                   onRemove={handleRemoveNode}
                   onMoveUp={id => handleMoveNode(id, 'up')}

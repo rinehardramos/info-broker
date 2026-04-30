@@ -140,7 +140,7 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
       </defs>
       <rect width={svgWidth} height={svgHeight} fill="url(#dots)" />
 
-      {/* Sentinel edges: START → roots and leaves → END (dashed) */}
+      {/* Sentinel edges: START → roots and leaves → END (dashed, elbow routing) */}
       {rootNodes.map(n => {
         const tgt = positions[n.id]
         if (!tgt) return null
@@ -148,10 +148,15 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
         const y1 = startY + SENTINEL_H / 2
         const x2 = tgt.x - 1
         const y2 = tgt.y + NODE_H / 2
+        const midX = x1 + (x2 - x1) * 0.4
+        // Elbow: go right to midX, then straight to target Y, then right to node
+        const d = y1 === y2
+          ? `M${x1},${y1} H${x2}`
+          : `M${x1},${y1} H${midX} V${y2} H${x2}`
         return (
           <path
             key={`start-${n.id}`}
-            d={`M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`}
+            d={d}
             fill="none"
             stroke={SENTINEL_COLOR}
             strokeWidth={1.5}
@@ -168,10 +173,15 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
         const y1 = src.y + NODE_H / 2
         const x2 = endX - 1
         const y2 = endY + SENTINEL_H / 2
+        const midX = x1 + (x2 - x1) * 0.6
+        // Elbow: go right to midX, then straight to END Y, then right to END
+        const d = y1 === y2
+          ? `M${x1},${y1} H${x2}`
+          : `M${x1},${y1} H${midX} V${y2} H${x2}`
         return (
           <path
             key={`end-${n.id}`}
-            d={`M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`}
+            d={d}
             fill="none"
             stroke={SENTINEL_COLOR}
             strokeWidth={1.5}
