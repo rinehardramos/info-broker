@@ -45,4 +45,4 @@ migrate.sh
 *.log
 
 # Additional env file variants
-.env.*
+.env.*.worktrees/
