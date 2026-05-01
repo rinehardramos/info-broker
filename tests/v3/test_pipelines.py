@@ -22,13 +22,14 @@ client = TestClient(app)
 
 
 def test_pipelines_table_has_is_system_column():
-    """Schema migration adds is_system and nullable user_id."""
+    """Schema migration adds is_system (NOT NULL boolean) column."""
     from app.routers.v3.db import fetch_one
     row = fetch_one(
-        "SELECT column_name, is_nullable FROM information_schema.columns "
+        "SELECT column_name, is_nullable, data_type FROM information_schema.columns "
         "WHERE table_name = 'pipelines' AND column_name = 'is_system'"
     )
     assert row is not None, "is_system column not found in pipelines table"
+    assert row["is_nullable"] == "NO", "is_system must be NOT NULL"
 
 
 NODE_A = str(uuid.uuid4())
