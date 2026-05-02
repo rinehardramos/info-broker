@@ -328,7 +328,7 @@ async def start_pipeline_run(
     from app.pipeline.runner import launch_pipeline_run
 
     pipeline = fetch_one(
-        "SELECT * FROM pipelines WHERE id = %s AND user_id = %s",
+        "SELECT * FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
         (pipeline_id, str(user["id"])),
     )
     if not pipeline:
