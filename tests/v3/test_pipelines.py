@@ -438,3 +438,30 @@ def test_pipeline_list_includes_is_system_field():
     system = next((p for p in pipelines if p.get("is_system")), None)
     assert system is not None, "No system pipeline in list"
     assert "is_system" in system
+
+
+SYSTEM_PIPELINE_ID = "00000000-0000-4000-8000-000000000001"
+
+
+def test_list_pipelines_includes_system():
+    headers = _auth("list_test_" + str(uuid.uuid4())[:8])
+    r = client.get("/v3/pipelines", headers=headers)
+    assert r.status_code == 200
+    ids = [p["id"] for p in r.json()]
+    assert SYSTEM_PIPELINE_ID in ids
+
+
+def test_delete_system_pipeline_returns_403():
+    headers = _auth("del_test_" + str(uuid.uuid4())[:8])
+    r = client.delete(f"/v3/pipelines/{SYSTEM_PIPELINE_ID}", headers=headers)
+    assert r.status_code == 403
+
+
+def test_update_system_pipeline_returns_403():
+    headers = _auth("upd_test_" + str(uuid.uuid4())[:8])
+    r = client.put(
+        f"/v3/pipelines/{SYSTEM_PIPELINE_ID}",
+        json={"name": "Hacked", "description": "", "nodes": [], "edges": []},
+        headers=headers,
+    )
+    assert r.status_code == 403

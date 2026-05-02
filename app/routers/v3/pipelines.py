@@ -227,7 +227,7 @@ def list_pipelines(user: dict = Depends(get_current_user)):
 @router.get("/{pipeline_id}", response_model=PipelineDetailOut)
 def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(
-        "SELECT * FROM pipelines WHERE id = %s AND user_id = %s",
+        "SELECT * FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
         (pipeline_id, str(user["id"])),
     )
     if not row:
@@ -249,6 +249,14 @@ def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
 
 @router.put("/{pipeline_id}", response_model=PipelineOut)
 def update_pipeline(pipeline_id: str, body: PipelineIn, user: dict = Depends(get_current_user)):
+    guard = fetch_one(
+        "SELECT is_system FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
+        (pipeline_id, str(user["id"])),
+    )
+    if not guard:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+    if guard.get("is_system"):
+        raise HTTPException(status_code=403, detail="System pipelines are read-only")
     row = fetch_one(
         """
         UPDATE pipelines SET name = %s, description = %s, updated_at = now()
@@ -275,6 +283,14 @@ def update_pipeline(pipeline_id: str, body: PipelineIn, user: dict = Depends(get
 
 @router.delete("/{pipeline_id}", status_code=204)
 def delete_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
+    guard = fetch_one(
+        "SELECT is_system FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
+        (pipeline_id, str(user["id"])),
+    )
+    if not guard:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+    if guard.get("is_system"):
+        raise HTTPException(status_code=403, detail="System pipelines cannot be deleted")
     row = fetch_one(
         "DELETE FROM pipelines WHERE id = %s AND user_id = %s RETURNING id",
         (pipeline_id, str(user["id"])),
