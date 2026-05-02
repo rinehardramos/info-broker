@@ -324,8 +324,8 @@ async def start_pipeline_run(
     body: RunVariables = Body(default_factory=RunVariables),
     user: dict = Depends(get_current_user),
 ):
-    from temporalio.client import Client
-    from app.pipeline.workflow import TASK_QUEUE, PipelineRunInput, NodeSpec, EdgeSpec, PipelineWorkflow
+    from app.pipeline.workflow import NodeSpec, EdgeSpec
+    from app.pipeline.runner import launch_pipeline_run
 
     pipeline = fetch_one(
         "SELECT * FROM pipelines WHERE id = %s AND user_id = %s",
@@ -376,43 +376,38 @@ async def start_pipeline_run(
 
     host = os.getenv("TEMPORAL_HOST", "localhost")
     port = int(os.getenv("TEMPORAL_PORT", "7233"))
+
     try:
-        client = await Client.connect(f"{host}:{port}")
-        await client.start_workflow(
-            PipelineWorkflow.run,
-            PipelineRunInput(
-                run_id=run_id,
-                user_id=str(user["id"]),
-                pipeline_id=pipeline_id,
-                nodes=[
-                    NodeSpec(
-                        node_id=str(n["id"]),
-                        node_type=n["node_type"],
-                        label=n["label"],
-                        config=_substitute_variables(n["config"] or {}, body.variables),
-                    )
-                    for n in nodes_rows
-                ],
-                edges=[
-                    EdgeSpec(
-                        source_node_id=str(e["source_node_id"]),
-                        target_node_id=str(e["target_node_id"]),
-                        edge_type=e["edge_type"],
-                    )
-                    for e in edges_rows
-                ],
-            ),
-            id=workflow_id,
-            task_queue=TASK_QUEUE,
+        await launch_pipeline_run(
+            run_id=run_id,
+            user_id=str(user["id"]),
+            pipeline_id=pipeline_id,
+            nodes=[
+                NodeSpec(
+                    node_id=str(n["id"]),
+                    node_type=n["node_type"],
+                    label=n["label"],
+                    config=_substitute_variables(n["config"] or {}, body.variables),
+                )
+                for n in nodes_rows
+            ],
+            edges=[
+                EdgeSpec(
+                    source_node_id=str(e["source_node_id"]),
+                    target_node_id=str(e["target_node_id"]),
+                    edge_type=e["edge_type"],
+                )
+                for e in edges_rows
+            ],
+            temporal_host=host,
+            temporal_port=port,
         )
-    except Exception as exc:
-        log.error("Failed to start Temporal workflow for run %s: %s", run_id, exc)
+    except HTTPException:
         execute(
             "UPDATE pipeline_runs SET status = 'failed', finished_at = now() WHERE id = %s",
             (run_id,),
         )
-        raise HTTPException(status_code=503, detail=f"Temporal unavailable: {exc}")
-
+        raise
     return PipelineRunOut(**dict(run_row))
 
 

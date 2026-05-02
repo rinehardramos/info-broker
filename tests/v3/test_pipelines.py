@@ -465,3 +465,23 @@ def test_update_system_pipeline_returns_403():
         headers=headers,
     )
     assert r.status_code == 403
+
+
+def test_runner_raises_503_when_temporal_unreachable():
+    import asyncio
+    from app.pipeline.runner import launch_pipeline_run
+    from app.pipeline.workflow import NodeSpec, EdgeSpec
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            launch_pipeline_run(
+                run_id="test-run-id",
+                user_id="test-user-id",
+                pipeline_id="test-pipeline-id",
+                nodes=[NodeSpec(node_id="n1", node_type="agent_input", label="A", config={})],
+                edges=[],
+                temporal_host="localhost",
+                temporal_port=19999,
+            )
+        )
+    assert exc_info.value.status_code == 503
