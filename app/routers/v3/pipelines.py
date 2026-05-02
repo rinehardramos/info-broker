@@ -214,7 +214,11 @@ def create_pipeline(body: PipelineIn, user: dict = Depends(get_current_user)):
 @router.get("", response_model=list[PipelineOut])
 def list_pipelines(user: dict = Depends(get_current_user)):
     rows = fetch_all(
-        "SELECT * FROM pipelines WHERE user_id = %s ORDER BY created_at DESC",
+        """
+        SELECT * FROM pipelines
+        WHERE user_id = %s OR is_system = true
+        ORDER BY is_system DESC, created_at DESC
+        """,
         (str(user["id"]),),
     )
     return [PipelineOut(**dict(r)) for r in rows]

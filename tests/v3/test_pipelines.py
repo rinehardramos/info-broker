@@ -428,3 +428,13 @@ class TestInputValidation:
         h = _auth("pl_val4")
         r = client.post("/v3/pipelines/runs/not-a-uuid/cancel", headers=h)
         assert r.status_code in (404, 422)
+
+
+def test_pipeline_list_includes_is_system_field():
+    headers = _auth("model_test_user_" + str(uuid.uuid4())[:8])
+    r = client.get("/v3/pipelines", headers=headers)
+    assert r.status_code == 200
+    pipelines = r.json()
+    system = next((p for p in pipelines if p.get("is_system")), None)
+    assert system is not None, "No system pipeline in list"
+    assert "is_system" in system
