@@ -127,6 +127,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setDirty(false)
   }, [pipelineDetail, nodeTypes])
 
+  const isSystemPipeline = pipelineDetail?.is_system ?? false
+  const isAgentPipeline = localNodes.some(n => n.node_type === 'agent_input')
+  const agentInputNode = localNodes.find(n => n.node_type === 'agent_input')
+  const lockedNodeIds = isAgentPipeline && agentInputNode
+    ? new Set([agentInputNode.id])
+    : new Set<string>()
+  const hiddenCategories = isAgentPipeline ? new Set(['source']) : new Set<string>()
+
   const handleAddNode = (nodeType: string) => {
     const nt = nodeTypes.find(t => t.node_type === nodeType)
     if (!nt) return
@@ -194,6 +202,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   }
 
   const handleRemoveNode = (nodeId: string) => {
+    if (lockedNodeIds.has(nodeId)) return
     setLocalNodes(prev => prev.filter(n => n.id !== nodeId))
     setLocalEdges(prev => prev.filter(e => e.source_node_id !== nodeId && e.target_node_id !== nodeId))
     if (editingNodeId === nodeId) setEditingNodeId(null)
@@ -388,6 +397,22 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
             onChange={e => { setLocalName(e.target.value); setDirty(true) }}
             style={{ flex: 1, background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 13, fontWeight: 600, outline: 'none' }}
           />
+          {isSystemPipeline && (
+            <span
+              style={{
+                fontSize: 9,
+                padding: '1px 5px',
+                borderRadius: 3,
+                background: '#1e3a5f',
+                color: '#60a5fa',
+                border: '1px solid #2d5a8f',
+                fontWeight: 600,
+                marginLeft: 4,
+              }}
+            >
+              DEFAULT
+            </span>
+          )}
         </div>
 
         {/* Resizable panels */}
@@ -401,12 +426,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   nodeTypes={nodeTypes}
                   selectedNodeId={editingNodeId}
                   invalidNodeIds={invalidNodeIds}
+                  lockedNodeIds={lockedNodeIds}
+                  hiddenCategories={hiddenCategories}
                   onSelect={setEditingNodeId}
                   onRemove={handleRemoveNode}
                   onMoveUp={id => handleMoveNode(id, 'up')}
                   onMoveDown={id => handleMoveNode(id, 'down')}
                   onAdd={handleAddNode}
-                  readOnly={isRunning}
+                  readOnly={isRunning || isSystemPipeline}
                 />
                 {/* Action buttons pinned below the step list */}
                 {noSourceHint && (
@@ -434,7 +461,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                     {runError}
                   </div>
                 )}
-                {confirmDelete ? (
+                {confirmDelete && !isSystemPipeline ? (
                   <div style={{ flexShrink: 0, borderTop: '1px solid #ef4444' }}>
                     <div style={{ padding: '5px 10px', fontSize: 10, color: '#fca5a5', background: '#7f1d1d22' }}>
                       Permanently delete "{localName}"?
@@ -459,14 +486,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
                     <button
                       onClick={handleSave}
-                      disabled={!canSave}
+                      disabled={!canSave || isSystemPipeline}
                       style={{
                         flex: 1, padding: '5px 0', fontSize: 11,
-                        background: canSave ? (dirty ? '#1e3a5f' : '#1e293b') : 'transparent',
-                        border: `1px solid ${canSave ? (dirty ? '#60a5fa' : '#334155') : '#1e293b'}`,
+                        background: (canSave && !isSystemPipeline) ? (dirty ? '#1e3a5f' : '#1e293b') : 'transparent',
+                        border: `1px solid ${(canSave && !isSystemPipeline) ? (dirty ? '#60a5fa' : '#334155') : '#1e293b'}`,
                         borderRadius: 4,
-                        color: canSave ? '#e2e8f0' : '#475569',
-                        cursor: canSave ? 'pointer' : 'default',
+                        color: (canSave && !isSystemPipeline) ? '#e2e8f0' : '#475569',
+                        cursor: (canSave && !isSystemPipeline) ? 'pointer' : 'default',
                       }}
                     >
                       Save{dirty ? ' *' : ''}
@@ -488,7 +515,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                         Run
                       </button>
                     )}
-                    {selectedPipelineId && (
+                    {selectedPipelineId && !isSystemPipeline && (
                       <button
                         onClick={() => setConfirmDelete(true)}
                         style={{ padding: '5px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}

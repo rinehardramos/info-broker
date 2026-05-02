@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getCoreSettings, updateCoreSettings } from '../api/v3'
+import { getCoreSettings, updateCoreSettings, getAgentPipeline, setAgentPipeline } from '../api/v3'
+import { listPipelines } from '../api/pipelines'
 import { useForm } from 'react-hook-form'
 import IconRail from '../components/layout/IconRail'
 
@@ -109,8 +110,59 @@ function PluginSettingsForm() {
   )
 }
 
+function AgentSettingsForm() {
+  const qc = useQueryClient()
+  const { data: pipelines = [] } = useQuery({ queryKey: ['pipelines'], queryFn: listPipelines })
+  const { data: activePipeline } = useQuery({ queryKey: ['agentPipeline'], queryFn: getAgentPipeline })
+
+  const save = useMutation({
+    mutationFn: (id: string) => setAgentPipeline(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['agentPipeline'] }),
+  })
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <label className="text-[11px]" style={{ color: 'var(--subtext)' }}>
+          Active Agent Pipeline
+        </label>
+        <select
+          value={activePipeline?.pipeline_id ?? ''}
+          onChange={e => save.mutate(e.target.value)}
+          disabled={save.isPending}
+          className="px-2 py-1 rounded text-xs outline-none"
+          style={{
+            background: 'var(--panel)',
+            color: 'var(--text)',
+            border: '1px solid var(--border)',
+            cursor: 'pointer',
+          }}
+        >
+          {pipelines.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.name}{p.is_system ? ' [Default]' : ''}
+            </option>
+          ))}
+        </select>
+        <p className="text-[10px] mt-1" style={{ color: 'var(--muted)' }}>
+          The pipeline used when you send a message in the Agent chat.
+          Must have an Agent CLI source node.
+        </p>
+      </div>
+      {save.isError && (
+        <span className="text-[11px]" style={{ color: '#f87171' }}>
+          {(save.error as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Failed to save'}
+        </span>
+      )}
+      {save.isSuccess && (
+        <span className="text-[11px]" style={{ color: '#4ade80' }}>Saved</span>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
-  const [section, setSection] = useState<'core' | 'plugins'>('core')
+  const [section, setSection] = useState<'core' | 'plugins' | 'agent'>('core')
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
@@ -141,13 +193,28 @@ export default function Settings() {
           >
             General
           </button>
+
+          <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>AGENT</div>
+          <button
+            onClick={() => setSection('agent')}
+            className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+            style={{
+              background: section === 'agent' ? 'var(--panel2)' : 'transparent',
+              color: section === 'agent' ? 'var(--accent)' : 'var(--text)',
+              border: 'none', cursor: 'pointer',
+            }}
+          >
+            Agent
+          </button>
         </div>
 
         <div className="flex-1 col-scroll p-4">
           <h2 className="text-sm font-bold mb-4 capitalize" style={{ color: 'var(--accent)' }}>
-            {section === 'core' ? 'Core Settings' : 'Plugin Settings'}
+            {section === 'core' ? 'Core Settings' : section === 'agent' ? 'Agent Settings' : 'Plugin Settings'}
           </h2>
-          {section === 'core' ? <CoreSettingsForm /> : <PluginSettingsForm />}
+          {section === 'core' && <CoreSettingsForm />}
+          {section === 'plugins' && <PluginSettingsForm />}
+          {section === 'agent' && <AgentSettingsForm />}
         </div>
       </div>
       <IconRail />

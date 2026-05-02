@@ -177,6 +177,16 @@ CREATE TABLE IF NOT EXISTS pipeline_step_runs (
     started_at    TIMESTAMPTZ,
     finished_at   TIMESTAMPTZ
 );
+
+ALTER TABLE pipelines ALTER COLUMN user_id DROP NOT NULL;
+
+ALTER TABLE pipelines ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE pipelines DROP CONSTRAINT IF EXISTS ck_pipeline_owner;
+
+ALTER TABLE pipelines ADD CONSTRAINT ck_pipeline_owner CHECK ((user_id IS NOT NULL) OR (is_system = true));
+
+ALTER TABLE ui_preferences ADD COLUMN IF NOT EXISTS agent_pipeline_id UUID REFERENCES pipelines(id) ON DELETE SET NULL;
 """
 
 
@@ -213,6 +223,29 @@ VALUES (
     '$2b$12$3cjgCjbJ/MLj.H7vGH9xHOKDUtgo492x98IdWILFNnadN4NbLgmym'
 )
 ON CONFLICT (username) DO NOTHING;
+
+INSERT INTO pipelines (id, user_id, name, description, is_system)
+VALUES (
+    '00000000-0000-4000-8000-000000000001',
+    NULL,
+    'Agent Default',
+    'Default pipeline for Agent chat: agent_input → ddg_search → manual_scoring',
+    true
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO pipeline_nodes (id, pipeline_id, node_type, label, config, position_x, position_y)
+VALUES
+    ('00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000001', 'agent_input',    'Agent CLI',      '{}', 0, 0),
+    ('00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000001', 'ddg_search',     'DDG Search',     '{}', 0, 1),
+    ('00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000001', 'manual_scoring', 'Manual Scoring', '{}', 0, 2)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO pipeline_edges (id, pipeline_id, source_node_id, target_node_id, edge_type)
+VALUES
+    ('00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', 'results'),
+    ('00000000-0000-4000-8000-000000000022', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013', 'results')
+ON CONFLICT (id) DO NOTHING;
 """
 # Default credentials: admin / admin
 # Change the password via the DB after first login.

@@ -39,6 +39,7 @@ export interface Pipeline {
   id: string
   name: string
   description: string | null
+  is_system: boolean
   created_at: string
   updated_at: string
 }

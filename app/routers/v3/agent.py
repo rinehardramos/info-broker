@@ -1,100 +1,188 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
-from app.routers.v3.db import execute, fetch_one
-from app.routers.v3.models import AgentMessageIn, AgentMessageOut
-from app.routers.v3.stream import push_event
+from app.routers.v3.db import execute, fetch_all, fetch_one
+from app.routers.v3.models import AgentMessageIn, AgentMessageOut, AgentPipelineOut
 
 router = APIRouter(prefix="/v3/agent", tags=["v3-agent"])
 log = logging.getLogger(__name__)
 
+SYSTEM_PIPELINE_ID = "00000000-0000-4000-8000-000000000001"
 
-async def _run_research(job_id: str, user_id: str, message: str) -> None:
-    try:
-        execute(
-            "UPDATE v3_jobs SET status = 'running' WHERE id = %s",
-            (job_id,),
+
+# ---------------------------------------------------------------------------
+# Agent pipeline preference
+# ---------------------------------------------------------------------------
+
+def _get_active_pipeline(user_id: str) -> dict:
+    """Return active pipeline row for this user (preference -> system default)."""
+    prefs = fetch_one(
+        "SELECT agent_pipeline_id FROM ui_preferences WHERE user_id = %s",
+        (user_id,),
+    )
+    preferred_id = prefs["agent_pipeline_id"] if prefs else None
+
+    if preferred_id:
+        row = fetch_one(
+            "SELECT id, name, is_system FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
+            (str(preferred_id), user_id),
         )
-        await push_event(user_id, {
-            "type": "job.update",
-            "job_id": job_id,
-            "status": "running",
-            "message": f"Starting research: {message}",
-        })
+        if row:
+            return row
 
-        from app.search_engine.plugins.ddg import DdgPlugin
-        from app.search_engine.qdrant import semantic_search
-        plugin = DdgPlugin()
-        ddg_results = await plugin.search(message, max_results=10)
+    row = fetch_one(
+        "SELECT id, name, is_system FROM pipelines WHERE id = %s",
+        (SYSTEM_PIPELINE_ID,),
+    )
+    if not row:
+        raise HTTPException(status_code=503, detail="No agent pipeline configured")
+    return row
 
-        seen_urls: set[str] = set()
-        rows_to_insert = []
 
-        for r in ddg_results:
-            url = r.url or ""
-            if url and url in seen_urls:
-                continue
-            seen_urls.add(url)
-            rows_to_insert.append(("ddg", r.title, url, r.snippet))
+@router.get("/pipeline", response_model=AgentPipelineOut)
+def get_agent_pipeline(user: dict = Depends(get_current_user)):
+    row = _get_active_pipeline(str(user["id"]))
+    return AgentPipelineOut(
+        pipeline_id=str(row["id"]),
+        pipeline_name=row["name"],
+        is_system=row["is_system"],
+    )
 
-        # Augment with Qdrant semantic hits
-        qdrant_hits = semantic_search(message, limit=5)
-        for h in qdrant_hits:
-            url = h.get("url") or ""
-            if url and url in seen_urls:
-                continue
-            seen_urls.add(url)
-            title = h.get("title") or "Qdrant result"
-            snippet = h.get("snippet") or ""
-            rows_to_insert.append(("qdrant", title, url, snippet))
 
-        for source, title, url, snippet in rows_to_insert:
-            execute(
-                "INSERT INTO v3_job_results (job_id, source, title, url, snippet) VALUES (%s, %s, %s, %s, %s)",
-                (job_id, source, title, url or None, snippet),
-            )
+class AgentPipelineIn(BaseModel):
+    pipeline_id: str
 
-        result_count = len(rows_to_insert)
-        execute(
-            "UPDATE v3_jobs SET status = 'completed', completed_at = now(), result_count = %s WHERE id = %s",
-            (result_count, job_id),
-        )
-        await push_event(user_id, {
-            "type": "job.completed",
-            "job_id": job_id,
-            "status": "completed",
-            "result_count": result_count,
-            "message": f"Research complete — {result_count} results",
-        })
-    except Exception as exc:
-        log.error("Research job %s failed: %s", job_id, exc)
-        execute("UPDATE v3_jobs SET status = 'failed' WHERE id = %s", (job_id,))
-        await push_event(user_id, {
-            "type": "job.failed",
-            "job_id": job_id,
-            "status": "failed",
-            "message": str(exc),
-        })
 
+@router.put("/pipeline", response_model=AgentPipelineOut)
+def set_agent_pipeline(body: AgentPipelineIn, user: dict = Depends(get_current_user)):
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+
+    uid = str(user["id"])
+    pipeline = fetch_one(
+        "SELECT * FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
+        (body.pipeline_id, uid),
+    )
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+
+    nodes = fetch_all(
+        "SELECT node_type, position_y FROM pipeline_nodes WHERE pipeline_id = %s",
+        (body.pipeline_id,),
+    )
+    node_meta = {n.node_type: n.category for n in NodeRegistry.all()}
+    sources = [n for n in nodes if node_meta.get(n["node_type"]) == "source" and n["node_type"] != "aggregator"]
+
+    if len(sources) != 1:
+        raise HTTPException(status_code=422, detail="Agent pipeline must have exactly one source node")
+    if sources[0]["node_type"] != "agent_input":
+        raise HTTPException(status_code=422, detail="Agent pipeline source must be agent_input")
+    if sources[0]["position_y"] != 0:
+        raise HTTPException(status_code=422, detail="agent_input must be the first node (position_y=0)")
+
+    execute(
+        """
+        INSERT INTO ui_preferences (user_id, agent_pipeline_id)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET agent_pipeline_id = EXCLUDED.agent_pipeline_id, updated_at = now()
+        """,
+        (uid, body.pipeline_id),
+    )
+    return AgentPipelineOut(
+        pipeline_id=body.pipeline_id,
+        pipeline_name=pipeline["name"],
+        is_system=pipeline["is_system"],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agent message — triggers pipeline run via Temporal
+# ---------------------------------------------------------------------------
 
 @router.post("/message", response_model=AgentMessageOut, status_code=202)
 async def send_message(
     body: AgentMessageIn,
-    background_tasks: BackgroundTasks,
     user: dict = Depends(get_current_user),
 ):
-    job_id = str(uuid.uuid4())
-    user_id = str(user["id"])
+    from app.pipeline.workflow import NodeSpec, EdgeSpec
+    from app.pipeline.runner import launch_pipeline_run
 
-    execute(
-        "INSERT INTO v3_jobs (id, user_id, query, status) VALUES (%s, %s, %s, 'pending')",
-        (job_id, user_id, body.message),
+    uid = str(user["id"])
+    pipeline_row = _get_active_pipeline(uid)
+    pipeline_id = str(pipeline_row["id"])
+
+    nodes_rows = fetch_all(
+        "SELECT * FROM pipeline_nodes WHERE pipeline_id = %s ORDER BY position_y, position_x",
+        (pipeline_id,),
+    )
+    edges_rows = fetch_all(
+        "SELECT * FROM pipeline_edges WHERE pipeline_id = %s",
+        (pipeline_id,),
     )
 
-    background_tasks.add_task(_run_research, job_id, user_id, body.message)
-    return AgentMessageOut(job_id=job_id)
+    run_id = str(uuid.uuid4())
+    workflow_id = f"pipeline-{run_id}"
+
+    fetch_one(
+        """
+        INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
+        VALUES (%s, %s, %s, %s, 'queued', 'agent')
+        RETURNING *
+        """,
+        (run_id, pipeline_id, uid, workflow_id),
+    )
+    for node in nodes_rows:
+        execute(
+            "INSERT INTO pipeline_step_runs (id, run_id, node_id, status) VALUES (%s, %s, %s, 'pending')",
+            (str(uuid.uuid4()), run_id, str(node["id"])),
+        )
+
+    def _node_config(node: dict) -> dict:
+        cfg = dict(node["config"] or {})
+        if node["node_type"] == "agent_input":
+            cfg["message"] = body.message
+        return cfg
+
+    host = os.getenv("TEMPORAL_HOST", "localhost")
+    port = int(os.getenv("TEMPORAL_PORT", "7233"))
+
+    try:
+        await launch_pipeline_run(
+            run_id=run_id,
+            user_id=uid,
+            pipeline_id=pipeline_id,
+            nodes=[
+                NodeSpec(
+                    node_id=str(n["id"]),
+                    node_type=n["node_type"],
+                    label=n["label"],
+                    config=_node_config(n),
+                )
+                for n in nodes_rows
+            ],
+            edges=[
+                EdgeSpec(
+                    source_node_id=str(e["source_node_id"]),
+                    target_node_id=str(e["target_node_id"]),
+                    edge_type=e["edge_type"],
+                )
+                for e in edges_rows
+            ],
+            temporal_host=host,
+            temporal_port=port,
+        )
+    except HTTPException:
+        execute(
+            "UPDATE pipeline_runs SET status = 'failed', finished_at = now() WHERE id = %s",
+            (run_id,),
+        )
+        raise
+
+    return AgentMessageOut(job_id=run_id)

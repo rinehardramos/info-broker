@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
-import { sendMessage } from '../../api/v3'
+import { sendMessage, getAgentPipeline } from '../../api/v3'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
 
@@ -19,6 +20,11 @@ export default function AgentChat() {
   const [sending, setSending]   = useState(false)
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
   const bottomRef               = useRef<HTMLDivElement>(null)
+
+  const { data: activePipeline } = useQuery({
+    queryKey: ['agentPipeline'],
+    queryFn: getAgentPipeline,
+  })
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -84,8 +90,22 @@ export default function AgentChat() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="px-3 py-2 text-[11px] font-semibold" style={{ color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}>
-        Agent
+      <div
+        className="px-3 py-2 text-[11px] font-semibold flex items-center justify-between"
+        style={{ color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}
+      >
+        <span>Agent</span>
+        {activePipeline && (
+          <span
+            style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}
+            title="Active pipeline — change in Settings"
+          >
+            {activePipeline.pipeline_name}
+            {activePipeline.is_system && (
+              <span style={{ color: '#60a5fa', marginLeft: 3 }}>[Default]</span>
+            )}
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-3">

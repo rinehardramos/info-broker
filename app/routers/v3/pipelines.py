@@ -214,7 +214,11 @@ def create_pipeline(body: PipelineIn, user: dict = Depends(get_current_user)):
 @router.get("", response_model=list[PipelineOut])
 def list_pipelines(user: dict = Depends(get_current_user)):
     rows = fetch_all(
-        "SELECT * FROM pipelines WHERE user_id = %s ORDER BY created_at DESC",
+        """
+        SELECT * FROM pipelines
+        WHERE user_id = %s OR is_system = true
+        ORDER BY is_system DESC, created_at DESC
+        """,
         (str(user["id"]),),
     )
     return [PipelineOut(**dict(r)) for r in rows]
@@ -223,7 +227,7 @@ def list_pipelines(user: dict = Depends(get_current_user)):
 @router.get("/{pipeline_id}", response_model=PipelineDetailOut)
 def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(
-        "SELECT * FROM pipelines WHERE id = %s AND user_id = %s",
+        "SELECT * FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
         (pipeline_id, str(user["id"])),
     )
     if not row:
@@ -245,6 +249,14 @@ def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
 
 @router.put("/{pipeline_id}", response_model=PipelineOut)
 def update_pipeline(pipeline_id: str, body: PipelineIn, user: dict = Depends(get_current_user)):
+    guard = fetch_one(
+        "SELECT is_system FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
+        (pipeline_id, str(user["id"])),
+    )
+    if not guard:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+    if guard.get("is_system"):
+        raise HTTPException(status_code=403, detail="System pipelines are read-only")
     row = fetch_one(
         """
         UPDATE pipelines SET name = %s, description = %s, updated_at = now()
@@ -271,6 +283,14 @@ def update_pipeline(pipeline_id: str, body: PipelineIn, user: dict = Depends(get
 
 @router.delete("/{pipeline_id}", status_code=204)
 def delete_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
+    guard = fetch_one(
+        "SELECT is_system FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
+        (pipeline_id, str(user["id"])),
+    )
+    if not guard:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+    if guard.get("is_system"):
+        raise HTTPException(status_code=403, detail="System pipelines cannot be deleted")
     row = fetch_one(
         "DELETE FROM pipelines WHERE id = %s AND user_id = %s RETURNING id",
         (pipeline_id, str(user["id"])),
@@ -304,11 +324,11 @@ async def start_pipeline_run(
     body: RunVariables = Body(default_factory=RunVariables),
     user: dict = Depends(get_current_user),
 ):
-    from temporalio.client import Client
-    from app.pipeline.workflow import TASK_QUEUE, PipelineRunInput, NodeSpec, EdgeSpec, PipelineWorkflow
+    from app.pipeline.workflow import NodeSpec, EdgeSpec
+    from app.pipeline.runner import launch_pipeline_run
 
     pipeline = fetch_one(
-        "SELECT * FROM pipelines WHERE id = %s AND user_id = %s",
+        "SELECT * FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
         (pipeline_id, str(user["id"])),
     )
     if not pipeline:
@@ -356,43 +376,38 @@ async def start_pipeline_run(
 
     host = os.getenv("TEMPORAL_HOST", "localhost")
     port = int(os.getenv("TEMPORAL_PORT", "7233"))
+
     try:
-        client = await Client.connect(f"{host}:{port}")
-        await client.start_workflow(
-            PipelineWorkflow.run,
-            PipelineRunInput(
-                run_id=run_id,
-                user_id=str(user["id"]),
-                pipeline_id=pipeline_id,
-                nodes=[
-                    NodeSpec(
-                        node_id=str(n["id"]),
-                        node_type=n["node_type"],
-                        label=n["label"],
-                        config=_substitute_variables(n["config"] or {}, body.variables),
-                    )
-                    for n in nodes_rows
-                ],
-                edges=[
-                    EdgeSpec(
-                        source_node_id=str(e["source_node_id"]),
-                        target_node_id=str(e["target_node_id"]),
-                        edge_type=e["edge_type"],
-                    )
-                    for e in edges_rows
-                ],
-            ),
-            id=workflow_id,
-            task_queue=TASK_QUEUE,
+        await launch_pipeline_run(
+            run_id=run_id,
+            user_id=str(user["id"]),
+            pipeline_id=pipeline_id,
+            nodes=[
+                NodeSpec(
+                    node_id=str(n["id"]),
+                    node_type=n["node_type"],
+                    label=n["label"],
+                    config=_substitute_variables(n["config"] or {}, body.variables),
+                )
+                for n in nodes_rows
+            ],
+            edges=[
+                EdgeSpec(
+                    source_node_id=str(e["source_node_id"]),
+                    target_node_id=str(e["target_node_id"]),
+                    edge_type=e["edge_type"],
+                )
+                for e in edges_rows
+            ],
+            temporal_host=host,
+            temporal_port=port,
         )
-    except Exception as exc:
-        log.error("Failed to start Temporal workflow for run %s: %s", run_id, exc)
+    except HTTPException:
         execute(
             "UPDATE pipeline_runs SET status = 'failed', finished_at = now() WHERE id = %s",
             (run_id,),
         )
-        raise HTTPException(status_code=503, detail=f"Temporal unavailable: {exc}")
-
+        raise
     return PipelineRunOut(**dict(run_row))
 
 

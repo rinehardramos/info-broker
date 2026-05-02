@@ -30,11 +30,13 @@ class UserOut(BaseModel):
 class PreferencesIn(BaseModel):
     theme: str | None = None          # 'navy' | 'hacker'
     column_layout: dict | None = None
+    agent_pipeline_id: str | None = None
 
 
 class PreferencesOut(BaseModel):
     theme: str
     column_layout: dict
+    agent_pipeline_id: str | None = None
 
 
 class PluginConfigIn(BaseModel):
@@ -82,6 +84,12 @@ class AgentMessageIn(BaseModel):
 class AgentMessageOut(BaseModel):
     job_id: str
     status: str = "pending"
+
+
+class AgentPipelineOut(BaseModel):
+    pipeline_id: str
+    pipeline_name: str
+    is_system: bool
 
 
 class JobOut(BaseModel):
@@ -215,6 +223,7 @@ class PipelineOut(BaseModel):
     id: UUID
     name: str
     description: str | None
+    is_system: bool = False
     created_at: datetime
     updated_at: datetime
 
