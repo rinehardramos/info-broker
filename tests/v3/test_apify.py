@@ -126,6 +126,27 @@ def test_get_run_status_not_found():
     assert resp.status_code == 404
 
 
+def test_apify_map_item_harvestapi_shape():
+    from app.pipeline.nodes.apify_actor import ApifyActorNode
+    node = ApifyActorNode()
+    item = {
+        "profileUrl": "https://linkedin.com/in/johndoe",
+        "firstName": "John",
+        "lastName": "Doe",
+        "fullName": "John Doe",
+        "headline": "CEO at Acme",
+        "location": "New York",
+        "summary": "Experienced executive",
+        "currentPosition": [{"companyName": "Acme", "title": "CEO"}],
+    }
+    result = node._map_item(item)
+    assert result["id"] == "https://linkedin.com/in/johndoe"
+    assert result["full_name"] == "John Doe"
+    assert result["company"] == "Acme"
+    assert result["title"] == "CEO"
+    assert result["source"] == "apify"
+
+
 def test_get_run_status_polls_apify():
     from unittest.mock import MagicMock, patch
 

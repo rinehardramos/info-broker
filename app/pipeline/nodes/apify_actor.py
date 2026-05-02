@@ -33,10 +33,8 @@ def _actor_slug(actor_id: str) -> str:
 
 class ApifyActorNode:
     node_type = "apify_actor"
-    display_name = "Apify Actor"
+    display_name = "Apify LinkedIn Search"
     category = "source"
-    # Fields that are stored as arrays but entered as comma-separated strings.
-    _ARRAY_FIELDS = {"jobTitles", "locations", "segmentationCountries"}
 
     config_schema = {
         "type": "object",
@@ -44,63 +42,18 @@ class ApifyActorNode:
             "actor_id": {
                 "type": "string",
                 "title": "Actor ID",
-                "default": "harvestapi/linkedin-profile-search",
+                "default": "harvestapi~linkedin-profile-search",
             },
-            "jobTitles": {
-                "type": "array",
-                "title": "Job Titles",
-                "items": {"type": "string"},
-            },
-            "locations": {
-                "type": "array",
-                "title": "Locations",
-                "items": {"type": "string"},
-            },
-            "maxItems": {
-                "type": "integer",
-                "title": "Max Items",
-                "default": 20,
-                "minimum": 1,
-                "maximum": 1000,
-            },
-            "profileScraperMode": {
+            "searchUrl": {
                 "type": "string",
-                "title": "Scraper Mode",
-                "enum": ["Full", "Fast"],
-                "default": "Fast",
+                "title": "LinkedIn Search URL",
             },
-            "autoQuerySegmentation": {
-                "type": "boolean",
-                "title": "Auto Query Segmentation",
-                "default": False,
-            },
-            "segmentationLevels": {
+            "maxResults": {
                 "type": "integer",
-                "title": "Segmentation Levels",
-                "default": 1,
+                "title": "Max Results",
+                "default": 10,
                 "minimum": 1,
-                "maximum": 5,
-            },
-            "segmentationCountries": {
-                "type": "array",
-                "title": "Segmentation Countries",
-                "items": {"type": "string"},
-            },
-            "recentlyChangedJobs": {
-                "type": "boolean",
-                "title": "Recently Changed Jobs",
-                "default": False,
-            },
-            "recentlyPosted": {
-                "type": "boolean",
-                "title": "Recently Posted",
-                "default": False,
-            },
-            "startPage": {
-                "type": "integer",
-                "title": "Start Page",
-                "default": 1,
-                "minimum": 1,
+                "maximum": 10,
             },
             "timeout": {
                 "type": "integer",
@@ -110,20 +63,16 @@ class ApifyActorNode:
                 "maximum": 3600,
             },
         },
-        "required": ["actor_id"],
+        "required": ["actor_id", "searchUrl"],
     }
 
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         api_key = _resolve_api_key()
-        actor_id = config.get("actor_id", "harvestapi/linkedin-profile-search")
-        actor_input = {}
-        for k, v in config.items():
-            if k == "actor_id" or v is None:
-                continue
-            # Coerce legacy string values for array fields (e.g. "CEO, CTO" → ["CEO", "CTO"])
-            if k in self._ARRAY_FIELDS and isinstance(v, str):
-                v = [s.strip() for s in v.split(",") if s.strip()]
-            actor_input[k] = v
+        actor_id = config.get("actor_id", "harvestapi~linkedin-profile-search")
+        actor_input = {
+            "searchUrl": config.get("searchUrl", ""),
+            "maxResults": min(int(config.get("maxResults", 10)), 10),
+        }
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -151,18 +100,19 @@ class ApifyActorNode:
 
     @staticmethod
     def _map_item(item: dict) -> dict:
-        """Normalise a harvestapi/linkedin-profile-search response item."""
+        """Normalise a harvestapi~linkedin-profile-search response item."""
+        current = (item.get("currentPosition") or [{}])[0] if item.get("currentPosition") else {}
         return {
-            "id": item.get("linkedinUrl") or item.get("profileUrl") or item.get("id") or "",
+            "id": item.get("profileUrl") or item.get("linkedinUrl") or "",
             "first_name": item.get("firstName") or item.get("first_name", ""),
             "last_name": item.get("lastName") or item.get("last_name", ""),
             "full_name": item.get("fullName") or item.get("name", ""),
             "headline": item.get("headline", ""),
-            "about": item.get("about") or item.get("summary", ""),
+            "about": item.get("summary") or item.get("about", ""),
             "location": item.get("location", ""),
-            "linkedin_url": item.get("linkedinUrl") or item.get("profileUrl", ""),
-            "company": item.get("currentCompanyName") or item.get("company", ""),
-            "title": item.get("currentPositionTitle") or item.get("headline", ""),
+            "linkedin_url": item.get("profileUrl") or item.get("linkedinUrl", ""),
+            "company": current.get("companyName") or item.get("currentCompanyName") or item.get("company", ""),
+            "title": current.get("title") or item.get("currentPositionTitle") or item.get("headline", ""),
             "source": "apify",
             "_raw": item,
         }
