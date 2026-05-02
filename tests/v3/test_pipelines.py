@@ -467,6 +467,44 @@ def test_update_system_pipeline_returns_403():
     assert r.status_code == 403
 
 
+def test_get_agent_pipeline_returns_system_default():
+    headers = _auth("agent_pip_" + str(uuid.uuid4())[:8])
+    r = client.get("/v3/agent/pipeline", headers=headers)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["pipeline_id"] == SYSTEM_PIPELINE_ID
+    assert data["is_system"] is True
+
+
+def test_put_agent_pipeline_rejects_pipeline_without_agent_input():
+    headers = _auth("agent_pip2_" + str(uuid.uuid4())[:8])
+    node_id = str(uuid.uuid4())
+    p = client.post(
+        "/v3/pipelines",
+        json={"name": "No agent input", "nodes": [
+            {"id": node_id, "node_type": "ddg_search", "label": "DDG", "config": {}, "position_x": 0, "position_y": 0},
+        ], "edges": []},
+        headers=headers,
+    ).json()
+    r = client.put("/v3/agent/pipeline", json={"pipeline_id": p["id"]}, headers=headers)
+    assert r.status_code == 422
+
+
+def test_put_agent_pipeline_accepts_valid_pipeline():
+    headers = _auth("agent_pip3_" + str(uuid.uuid4())[:8])
+    node_id = str(uuid.uuid4())
+    p = client.post(
+        "/v3/pipelines",
+        json={"name": "My Agent Pipeline", "nodes": [
+            {"id": node_id, "node_type": "agent_input", "label": "CLI", "config": {}, "position_x": 0, "position_y": 0},
+        ], "edges": []},
+        headers=headers,
+    ).json()
+    r = client.put("/v3/agent/pipeline", json={"pipeline_id": p["id"]}, headers=headers)
+    assert r.status_code == 200
+    assert r.json()["pipeline_id"] == p["id"]
+
+
 def test_runner_raises_503_when_temporal_unreachable():
     import asyncio
     from app.pipeline.runner import launch_pipeline_run
