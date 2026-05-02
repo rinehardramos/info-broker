@@ -20,6 +20,8 @@ interface Props {
   nodeTypes?: NodeType[]
   selectedNodeId?: string | null
   invalidNodeIds?: Set<string>
+  lockedNodeIds?: Set<string>
+  hiddenCategories?: Set<string>
   onSelect?: (nodeId: string) => void
   onRemove?: (nodeId: string) => void
   onMoveUp?: (nodeId: string) => void
@@ -34,6 +36,8 @@ export function StepList({
   nodeTypes = [],
   selectedNodeId,
   invalidNodeIds = new Set(),
+  lockedNodeIds = new Set(),
+  hiddenCategories = new Set(),
   onSelect,
   onRemove,
   onMoveUp,
@@ -111,59 +115,20 @@ export function StepList({
                 {node.node_type}
               </div>
             </div>
-            {!readOnly && (
+            {!readOnly && !lockedNodeIds.has(node.id) && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <button
-                  onClick={() => onMoveUp?.(node.id)}
-                  disabled={idx === 0}
-                  title="Move up"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #334155',
-                    borderRadius: 3,
-                    color: idx === 0 ? '#1e293b' : '#94a3b8',
-                    cursor: idx === 0 ? 'default' : 'pointer',
-                    padding: '1px 5px',
-                    fontSize: 9,
-                    lineHeight: 1,
-                  }}
-                >
-                  ▲
-                </button>
-                <button
-                  onClick={() => onMoveDown?.(node.id)}
-                  disabled={idx === nodes.length - 1}
-                  title="Move down"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #334155',
-                    borderRadius: 3,
-                    color: idx === nodes.length - 1 ? '#1e293b' : '#94a3b8',
-                    cursor: idx === nodes.length - 1 ? 'default' : 'pointer',
-                    padding: '1px 5px',
-                    fontSize: 9,
-                    lineHeight: 1,
-                  }}
-                >
-                  ▼
-                </button>
-                <button
-                  onClick={() => onRemove?.(node.id)}
-                  title="Remove step"
-                  style={{
-                    background: 'transparent',
-                    border: '1px solid #334155',
-                    borderRadius: 3,
-                    color: '#94a3b8',
-                    cursor: 'pointer',
-                    padding: '1px 5px',
-                    fontSize: 11,
-                    lineHeight: 1,
-                  }}
-                >
-                  ×
-                </button>
+                <button onClick={() => onMoveUp?.(node.id)} disabled={idx === 0} title="Move up" style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 3, color: idx === 0 ? '#1e293b' : '#94a3b8', cursor: idx === 0 ? 'default' : 'pointer', padding: '1px 5px', fontSize: 9, lineHeight: 1 }}>▲</button>
+                <button onClick={() => onMoveDown?.(node.id)} disabled={idx === nodes.length - 1} title="Move down" style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 3, color: idx === nodes.length - 1 ? '#1e293b' : '#94a3b8', cursor: idx === nodes.length - 1 ? 'default' : 'pointer', padding: '1px 5px', fontSize: 9, lineHeight: 1 }}>▼</button>
+                <button onClick={() => onRemove?.(node.id)} title="Remove step" style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 3, color: '#94a3b8', cursor: 'pointer', padding: '1px 5px', fontSize: 11, lineHeight: 1 }}>×</button>
               </div>
+            )}
+            {lockedNodeIds.has(node.id) && (
+              <span
+                title="This node is required and cannot be moved or removed"
+                style={{ fontSize: 8, color: '#60a5fa', padding: '0 4px', fontWeight: 700, letterSpacing: 0.5 }}
+              >
+                FIXED
+              </span>
             )}
           </div>
         )
@@ -186,15 +151,18 @@ export function StepList({
             defaultValue=""
           >
             <option value="" disabled>+ Add Step</option>
-            {orderedCategories.map(cat => (
-              <optgroup key={cat} label={cat.toUpperCase()}>
-                {byCategory[cat].map(nt => (
-                  <option key={nt.node_type} value={nt.node_type}>
-                    {nt.display_name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
+            {orderedCategories
+              .filter(c => !hiddenCategories.has(c))
+              .map(cat => (
+                <optgroup key={cat} label={cat.toUpperCase()}>
+                  {byCategory[cat].map(nt => (
+                    <option key={nt.node_type} value={nt.node_type}>
+                      {nt.display_name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))
+            }
           </select>
         </div>
       )}

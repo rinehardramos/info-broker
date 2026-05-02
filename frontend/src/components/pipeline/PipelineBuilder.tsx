@@ -127,6 +127,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setDirty(false)
   }, [pipelineDetail, nodeTypes])
 
+  const isSystemPipeline = pipelineDetail?.is_system ?? false
+  const isAgentPipeline = localNodes.some(n => n.node_type === 'agent_input')
+  const agentInputNode = localNodes.find(n => n.node_type === 'agent_input')
+  const lockedNodeIds = isAgentPipeline && agentInputNode
+    ? new Set([agentInputNode.id])
+    : new Set<string>()
+  const hiddenCategories = isAgentPipeline ? new Set(['source']) : new Set<string>()
+
   const handleAddNode = (nodeType: string) => {
     const nt = nodeTypes.find(t => t.node_type === nodeType)
     if (!nt) return
@@ -194,6 +202,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   }
 
   const handleRemoveNode = (nodeId: string) => {
+    if (lockedNodeIds.has(nodeId)) return
     setLocalNodes(prev => prev.filter(n => n.id !== nodeId))
     setLocalEdges(prev => prev.filter(e => e.source_node_id !== nodeId && e.target_node_id !== nodeId))
     if (editingNodeId === nodeId) setEditingNodeId(null)
@@ -278,7 +287,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   }
 
   const isRunning = activeRun?.status === 'running'
-  const isSystemPipeline = pipelineDetail?.is_system ?? false
   const stepRuns = activeRun?.steps ?? []
   const sourceCount = localNodes.filter(n => n.category === 'source' && n.node_type !== 'aggregator').length
   const hasAggregator = localNodes.some(n => n.node_type === 'aggregator')
@@ -418,6 +426,8 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                   nodeTypes={nodeTypes}
                   selectedNodeId={editingNodeId}
                   invalidNodeIds={invalidNodeIds}
+                  lockedNodeIds={lockedNodeIds}
+                  hiddenCategories={hiddenCategories}
                   onSelect={setEditingNodeId}
                   onRemove={handleRemoveNode}
                   onMoveUp={id => handleMoveNode(id, 'up')}
