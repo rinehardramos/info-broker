@@ -13,6 +13,7 @@ export interface UserOut {
 export interface PreferencesOut {
   theme: string
   column_layout: Record<string, unknown>
+  agent_pipeline_id: string | null
 }
 
 export interface JobOut {
@@ -51,6 +52,12 @@ export interface AgentMessageOut {
   status: string
 }
 
+export interface AgentPipelineOut {
+  pipeline_id: string
+  pipeline_name: string
+  is_system: boolean
+}
+
 export interface JobResult {
   id: string
   source: string
@@ -75,6 +82,12 @@ export const updatePreferences = (body: Partial<PreferencesOut>) =>
 
 export const sendMessage = (message: string, context_job_id?: string) =>
   api.post<AgentMessageOut>('/v3/agent/message', { message, context_job_id }).then(r => r.data)
+
+export const getAgentPipeline = (): Promise<AgentPipelineOut> =>
+  api.get<AgentPipelineOut>('/v3/agent/pipeline').then(r => r.data)
+
+export const setAgentPipeline = (pipeline_id: string): Promise<AgentPipelineOut> =>
+  api.put<AgentPipelineOut>('/v3/agent/pipeline', { pipeline_id }).then(r => r.data)
 
 // --- Jobs ---
 
