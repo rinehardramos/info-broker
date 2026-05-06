@@ -224,7 +224,8 @@ async def send_message(
         )
 
         # Fire and forget — research runs async, pushes WS events when done.
-        asyncio.create_task(_run_is_research(run_id, uid, pipeline_id, body.message))
+        task = asyncio.create_task(_run_is_research(run_id, uid, pipeline_id, body.message))
+        task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
 
         return AgentMessageOut(job_id=run_id)
 

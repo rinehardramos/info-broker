@@ -113,6 +113,8 @@ async def run_research(
                 "Run 'claude auth login' on the server, or set ANTHROPIC_API_KEY."
             )
 
+        log.info("IS Brain: Claude Code returned %d bytes", len(raw_out))
+        log.debug("IS Brain: raw output: %s", raw_out[:500])
         return _parse_output(raw_out)
 
     except asyncio.TimeoutError:
@@ -136,17 +138,40 @@ def _parse_output(raw: str) -> dict[str, Any]:
 
     # Claude Code wraps output in {"result": "...", "type": "result", ...}
     result_text = envelope.get("result", "")
+    log.info("IS Brain: envelope type=%s, result length=%d, is_error=%s",
+             envelope.get("type"), len(result_text), envelope.get("is_error"))
 
     # The result field may itself be JSON (our structured output)
-    try:
-        research = json.loads(result_text)
-        if isinstance(research, dict) and "findings" in research:
-            return research
-    except (json.JSONDecodeError, TypeError):
-        pass
+    for text in [result_text, _extract_json(result_text)]:
+        if not text:
+            continue
+        try:
+            research = json.loads(text)
+            if isinstance(research, dict) and "findings" in research:
+                log.info("IS Brain: parsed structured output with %d findings", len(research["findings"]))
+                return research
+            log.info("IS Brain: parsed JSON but no 'findings' key, keys=%s",
+                     list(research.keys()) if isinstance(research, dict) else type(research))
+        except (json.JSONDecodeError, TypeError):
+            continue
 
-    # If result is plain text, wrap it
+    log.info("IS Brain: result is plain text (%d chars), using fallback", len(result_text))
     return _fallback_result(result_text or raw)
+
+
+def _extract_json(text: str) -> str | None:
+    """Try to extract a JSON object from text that may contain markdown fences or preamble."""
+    import re
+    # Try ```json ... ``` blocks
+    m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if m:
+        return m.group(1)
+    # Try first { ... last }
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end > start:
+        return text[start:end + 1]
+    return None
 
 
 _EMPTY_TREE: dict[str, Any] = {

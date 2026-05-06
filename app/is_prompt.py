@@ -56,7 +56,7 @@ When all branches are resolved (fruit, dead end, or budget exhausted):
 - Max branches: {max_branches} total branches
 
 ## OUTPUT FORMAT
-Return your final answer as a JSON object with this structure:
+CRITICAL: Your ENTIRE response must be a single valid JSON object. No markdown, no explanation, no text before or after the JSON. Just the raw JSON object:
 {{
   "summary": "Coherent research report (2-3 paragraphs)",
   "entity_type": "person | company | product | event | concept",
@@ -105,6 +105,8 @@ Return your final answer as a JSON object with this structure:
   ],
   "gaps": ["things that could not be found"]
 }}
+
+IMPORTANT: Output ONLY the JSON object above. No other text. No markdown code fences. Start with {{ and end with }}.
 """
 
 
