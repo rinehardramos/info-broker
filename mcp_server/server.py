@@ -194,6 +194,148 @@ async def run_manual_scoring(items: str, criteria: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------
+# New plugin tools (from IS brain suggestions)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def run_wikipedia_api(title: str, language: str = "en") -> str:
+    """Fetch a structured Wikipedia article summary and content by title.
+
+    Returns title, extract (summary), URL, and optionally full content.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/wikipedia_api/execute",
+        json={"query": title, "language": language},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_apollo_search(
+    query: str,
+    search_type: str = "people",
+    filters: str = "{}",
+) -> str:
+    """Search Apollo.io for people or companies. Provides tech stack, intent data, and contact info.
+
+    search_type: 'people' or 'companies'
+    filters: JSON string of Apollo search filters (person_titles, organization_locations, etc.)
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/apollo_zoominfo/execute",
+        json={"query": query, "search_type": search_type, "filters": json.loads(filters)},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_ph_sec_dti(company_name: str) -> str:
+    """Search Philippine SEC/DTI business registry for company registration, officers, and status."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ph_sec_dti/execute",
+        json={"query": company_name},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_linkedin_lookup(
+    linkedin_url: str = "",
+    query: str = "",
+    lookup_type: str = "person",
+) -> str:
+    """Look up a LinkedIn profile or search for people/companies via Proxycurl.
+
+    Provide linkedin_url for direct lookup, or query for search.
+    lookup_type: 'person' or 'company'
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/linkedin_navigator/execute",
+        json={"query": query, "linkedin_url": linkedin_url, "lookup_type": lookup_type},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_clutch_goodfirms(
+    location: str = "Philippines",
+    service_type: str = "IT Services",
+    platform: str = "both",
+) -> str:
+    """Search Clutch and GoodFirms for IT service companies and client reviews.
+
+    Returns company listings with ratings, review counts, and reviewer details.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/clutch_goodfirms/execute",
+        json={"location": location, "service_type": service_type, "platform": platform},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_linkedin_profile_search(
+    search_url: str = "",
+    max_results: int = 10,
+    location: str = "Philippines",
+    title_filter: str = "",
+) -> str:
+    """Search LinkedIn profiles via Apify with location and title filters.
+
+    Provide a LinkedIn search URL, or use location/title_filter to auto-build one.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/linkedin_profile/execute",
+        json={"searchUrl": search_url, "maxResults": max_results, "location": location, "title_filter": title_filter},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_apify_actor_generic(
+    actor_id: str,
+    input_json: str = "{}",
+    max_items: int = 50,
+) -> str:
+    """Run any Apify actor with arbitrary input. Generic bridge to the Apify Actor Store.
+
+    actor_id: e.g. 'apify/web-scraper', 'harvestapi/linkedin-profile-search'
+    input_json: JSON string of actor input parameters
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/apify_mcp/execute",
+        json={"actor_id": actor_id, "input": json.loads(input_json), "max_items": max_items},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_web_search_fetch(
+    query: str,
+    max_results: int = 10,
+    fetch_content: bool = False,
+) -> str:
+    """Web search with optional full page content fetching. Alternative to DDG search.
+
+    If fetch_content=true, fetches and extracts text from each result URL.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/web_search_fetch/execute",
+        json={"query": query, "max_results": max_results, "fetch_content": fetch_content},
+    )
+    return json.dumps(result)
+
+
+# ---------------------------------------------------------------------------
 # Meta tools
 # ---------------------------------------------------------------------------
 

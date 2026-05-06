@@ -39,11 +39,21 @@ class NodeRegistry:
         from app.pipeline.nodes.web_crawl import WebCrawlNode
         from app.pipeline.nodes.intelligent_search import IntelligentSearchNode
         from app.pipeline.nodes.summarizer import SummarizerNode
+        from app.pipeline.nodes.clutch_goodfirms import ClutchGoodfirmsNode
+        from app.pipeline.nodes.linkedin_profile import LinkedInProfileNode
+        from app.pipeline.nodes.apify_mcp import ApifyMcpNode
+        from app.pipeline.nodes.web_search_fetch import WebSearchFetchNode
+        from app.pipeline.nodes.wikipedia_api import WikipediaApiNode
+        from app.pipeline.nodes.apollo_zoominfo import ApolloZoominfoNode
+        from app.pipeline.nodes.ph_sec_dti import PhSecDtiNode
+        from app.pipeline.nodes.linkedin_navigator import LinkedinNavigatorNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
             ApifyActorNode(), AiScoringNode(), AiProviderNode(), ManualScoringNode(),
             AggregatorNode(), ObsidianVaultNode(), LocalFilesNode(), WebCrawlNode(),
             IntelligentSearchNode(), SummarizerNode(),
+            ClutchGoodfirmsNode(), LinkedInProfileNode(), ApifyMcpNode(), WebSearchFetchNode(),
+            WikipediaApiNode(), ApolloZoominfoNode(), PhSecDtiNode(), LinkedinNavigatorNode(),
         ]:
             cls.register(node)

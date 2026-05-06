@@ -26,13 +26,21 @@ QUERY: {query}
 ## AVAILABLE MCP TOOLS (use these!)
 - run_ddg_search(query, max_results) — web search via DuckDuckGo. USE THIS FIRST for every branch.
 - run_web_crawl(urls, max_pages, scrape_depth) — crawl web pages for detailed content
+- run_web_search_fetch(query, max_results, fetch_content) — web search + optional page content fetch
+- run_wikipedia_api(title, language) — structured Wikipedia article fetch (summary + content)
 - run_qdrant_search(query, collection, limit) — semantic search over stored data
 - search_obsidian(query) — search Obsidian vault notes
-- run_apify_actor(actor_id, search_url) — run Apify scrapers
+- run_apify_actor(actor_id, search_url) — run Apify LinkedIn scraper
+- run_apify_actor_generic(actor_id, input_json) — run ANY Apify actor with arbitrary input
+- run_linkedin_profile_search(search_url, max_results) — LinkedIn profile search (PH/SME defaults)
+- run_linkedin_lookup(linkedin_url, lookup_type) — Proxycurl person/company enrichment
+- run_apollo_search(query, search_type, filters) — Apollo.io people/company enrichment (tech stack, intent)
+- run_ph_sec_dti(company_name) — Philippine SEC/DTI business registry lookup
+- run_clutch_goodfirms(location, service_type) — IT services review scraper (Clutch/GoodFirms)
 - get_past_research(query) — find related prior research
 - run_ai_scoring(items, criteria) — score results by relevance
 - run_summarizer(items, instructions) — condense findings
-- suggest_plugin(name, description, reason) — request a new tool
+- suggest_plugin(name, description, reason) — request a new tool you don't have yet
 
 ## YOUR WORKFLOW
 
