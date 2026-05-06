@@ -49,13 +49,67 @@ class LinkedInProfileNode:
         "required": [],
     }
 
+    async def health_check(self) -> "HealthStatus":
+        from app.pipeline.nodes.base import HealthStatus
+        from app.pipeline.nodes.apify_actor import _resolve_api_key
+        import httpx
+
+        try:
+            key = _resolve_api_key()
+        except RuntimeError:
+            return HealthStatus(
+                healthy=False,
+                error="Apify API key not configured",
+                requires_key="APIFY_API_TOKEN",
+                setup_url="https://console.apify.com/account#/integrations",
+                setup_instructions="Add your Apify API token in Settings → Integrations.",
+            )
+        # Verify the actor is accessible (permissions approved)
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                slug = _DEFAULT_ACTOR.replace("/", "~")
+                resp = await client.get(
+                    f"https://api.apify.com/v2/acts/{slug}",
+                    params={"token": key},
+                )
+                if resp.status_code == 403:
+                    return HealthStatus(
+                        healthy=False,
+                        error="Actor permissions not approved. Visit the actor page to grant access.",
+                        requires_key="APIFY_API_TOKEN",
+                        setup_url=f"https://console.apify.com/actors/{slug}",
+                        setup_instructions=(
+                            "1. Visit the actor page link above\n"
+                            "2. Click 'Try for free' or 'Start'\n"
+                            "3. Approve the permissions prompt\n"
+                            "4. Return here and re-check health"
+                        ),
+                    )
+                if resp.status_code != 200:
+                    return HealthStatus(
+                        healthy=False,
+                        error=f"Apify actor check failed: HTTP {resp.status_code}",
+                        requires_key="APIFY_API_TOKEN",
+                        setup_url="https://console.apify.com/account#/integrations",
+                        setup_instructions="Check your Apify API token and actor ID.",
+                    )
+        except Exception as exc:
+            return HealthStatus(
+                healthy=False, error=f"Apify connectivity error: {exc}",
+                requires_key=None, setup_url=None, setup_instructions=None,
+            )
+        return HealthStatus(
+            healthy=True, error=None, requires_key="APIFY_API_TOKEN",
+            setup_url=None, setup_instructions=None,
+        )
+
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         from app.pipeline.nodes.apify_actor import _resolve_api_key
 
         try:
             api_key = _resolve_api_key()
         except RuntimeError as exc:
-            return [{"error": str(exc), "source": "linkedin_profile"}]
+            return [{"title": f"LinkedIn error: {exc}", "content": str(exc), "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
         max_results = min(int(config.get("max_results", 10)), 50)
 
         search_url = config.get("search_url", "").strip()
@@ -87,14 +141,14 @@ class LinkedInProfileNode:
             run = client.actor(slug).call(run_input=actor_input)
         except Exception as exc:
             log.error("LinkedInProfileNode: actor call failed: %s", exc)
-            return [{"error": str(exc), "source": "linkedin_profile"}]
+            return [{"title": f"LinkedIn error: {exc}", "content": str(exc), "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
 
         if not run:
-            return [{"error": "Apify actor returned no run result", "source": "linkedin_profile"}]
+            return [{"title": "LinkedIn error: no run result", "content": "Apify actor returned no run result", "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
 
         dataset_id = run.get("defaultDatasetId")
         if not dataset_id:
-            return [{"error": "Apify run has no dataset", "source": "linkedin_profile"}]
+            return [{"title": "LinkedIn error: no dataset", "content": "Apify run has no dataset", "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
 
         items = list(client.dataset(dataset_id).iterate_items())
         log.info("LinkedInProfileNode: actor returned %d items", len(items))
