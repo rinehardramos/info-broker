@@ -101,11 +101,13 @@ def create_plugin_request(body: dict, _key: str = Depends(require_api_key)) -> d
         "description": body.get("description", ""),
         "reason": body.get("reason", ""),
     }
+    # user_id is optional — MCP calls don't have a user context
+    user_id = body.get("user_id")
     execute(
         """
         INSERT INTO plugin_requests (id, user_id, spec, status)
         VALUES (%s, %s, %s, 'pending')
         """,
-        (str(uuid.uuid4()), body.get("user_id", "mcp-system"), json.dumps(spec)),
+        (str(uuid.uuid4()), user_id, json.dumps(spec)),
     )
     return {"status": "ok"}

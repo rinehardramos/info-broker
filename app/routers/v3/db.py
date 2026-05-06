@@ -190,7 +190,7 @@ ALTER TABLE ui_preferences ADD COLUMN IF NOT EXISTS agent_pipeline_id UUID REFER
 
 CREATE TABLE IF NOT EXISTS plugin_requests (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id       UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    user_id       UUID REFERENCES ui_users(id) ON DELETE CASCADE,
     spec          JSONB NOT NULL,
     status        VARCHAR(20) NOT NULL DEFAULT 'pending',
     created_at    TIMESTAMPTZ DEFAULT now(),

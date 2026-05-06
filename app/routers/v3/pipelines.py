@@ -253,6 +253,29 @@ def _enrich_node_category(node_row: dict) -> dict:
     return d
 
 
+# Plugin requests — MUST be before /{pipeline_id} to avoid route shadowing
+@router.get("/plugin-requests", response_model=list[PluginRequestOut])
+def list_plugin_requests(user: dict = Depends(get_current_user)):
+    rows = fetch_all(
+        "SELECT * FROM plugin_requests WHERE user_id = %s ORDER BY created_at DESC",
+        (str(user["id"]),),
+    )
+    return [PluginRequestOut(**dict(r)) for r in rows]
+
+
+@router.put("/plugin-requests/{request_id}/status")
+def update_plugin_request_status(
+    request_id: str,
+    body: PluginRequestStatusIn,
+    user: dict = Depends(get_current_user),
+):
+    execute(
+        "UPDATE plugin_requests SET status = %s, reviewed_at = now() WHERE id = %s AND user_id = %s",
+        (body.status, request_id, str(user["id"])),
+    )
+    return {"status": "updated"}
+
+
 @router.get("/{pipeline_id}", response_model=PipelineDetailOut)
 def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(
@@ -454,29 +477,7 @@ def list_pipeline_runs(pipeline_id: str, user: dict = Depends(get_current_user))
     return [PipelineRunOut(**dict(r)) for r in rows]
 
 
-# ---------------------------------------------------------------------------
-# Plugin requests
-# ---------------------------------------------------------------------------
-
-@router.get("/plugin-requests", response_model=list[PluginRequestOut])
-def list_plugin_requests(user: dict = Depends(get_current_user)):
-    rows = fetch_all(
-        "SELECT * FROM plugin_requests WHERE user_id = %s ORDER BY created_at DESC",
-        (str(user["id"]),),
-    )
-    return [PluginRequestOut(**dict(r)) for r in rows]
-
-
-@router.put("/plugin-requests/{request_id}/status")
-def update_plugin_request_status(
-    request_id: str,
-    body: PluginRequestStatusIn,
-    user: dict = Depends(get_current_user),
-):
-    execute(
-        "UPDATE plugin_requests SET status = %s, reviewed_at = now() WHERE id = %s AND user_id = %s",
-        (body.status, request_id, str(user["id"])),
-    )
+# Plugin requests routes moved above /{pipeline_id} to avoid route shadowing
     return {"status": "updated"}
 
 
