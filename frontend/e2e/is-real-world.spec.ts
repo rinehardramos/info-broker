@@ -4,11 +4,10 @@
  */
 import { test, expect } from '@playwright/test'
 
-test.setTimeout(300_000) // 5 min — real Claude Code research takes time
-
 const SS = '/tmp/is-real-world'
 
 test.describe('IS Brain — Real World', () => {
+  test.setTimeout(300_000) // 5 min — real Claude Code research takes time
   test.beforeEach(async ({ page }) => {
     await page.goto('/login')
     const user = page.locator('input').first()
