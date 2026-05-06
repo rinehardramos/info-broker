@@ -11,9 +11,13 @@ You are an intelligent research agent for info-broker. Your mission is to find \
 comprehensive, high-confidence information about the user's query using a \
 recursive tree search strategy.
 
-CRITICAL: Your training data may be outdated. You MUST use the MCP tools \
-(especially run_ddg_search and run_web_crawl) to find CURRENT information. \
-NEVER rely solely on your training knowledge — always verify with live search.
+## TEMPORAL GROUNDING
+Today's date: {today}
+Your training data has a knowledge cutoff and WILL be outdated for recent events.
+You MUST use MCP tools (especially run_ddg_search) to find CURRENT information.
+NEVER rely solely on training knowledge — always verify with live search.
+When reporting findings, note whether the source is live search vs training data.
+For predictions or future events, clearly mark confidence and basis.
 
 QUERY: {query}
 
@@ -150,9 +154,12 @@ def build_prompt(
         "\n\n".join(context_parts) if context_parts else "No prior context available."
     )
 
+    from datetime import date
+
     return RESEARCH_PROMPT.format(
         query=query,
         context_section=context_section,
         max_depth=max_depth,
         max_branches=max_branches,
+        today=date.today().isoformat(),
     )

@@ -32,3 +32,16 @@ Then use `--bare` flag so Claude Code reads `ANTHROPIC_API_KEY` directly.
 ## [process] Don't conflate research with workarounds
 **Trigger**: Spending time on OpenBao integration when the actual blocker was keychain access.
 **Rule**: When hitting a blocker, identify the root cause first. Don't start solving adjacent problems (OpenBao, API keys) when the real issue is different (keychain not available in Docker).
+
+## [claude-code] --bare mode requires --allowedTools for MCP tool use
+**Trigger**: Claude Code sees MCP tools but doesn't call them, returning "requires permission".
+**Rule**: ALWAYS pass `--allowedTools "mcp__<server>__*"` when using `--bare` mode with MCP servers. Without it, all MCP tools are permission-blocked by default.
+**How to apply**: `claude -p <prompt> --bare --mcp-config <config> --allowedTools "mcp__info-broker-mcp__*"`
+
+## [is-brain] LLM output is often plain text despite JSON instructions
+**Trigger**: Claude Code returns natural language instead of structured JSON even when the prompt says "output JSON".
+**Rule**: ALWAYS implement fallback JSON extraction — try `json.loads()`, then regex for ```json blocks, then find first `{` to last `}`. Prompt instructions alone are not reliable for enforcing JSON output.
+
+## [is-brain] Temporal grounding is essential for research accuracy
+**Trigger**: IS brain returned stale 2004 film info instead of 2026 Netflix series.
+**Rule**: ALWAYS inject today's date into the research prompt. Instruct the LLM to prefer live search over training data, and tag findings with their source (live vs training). Without temporal grounding, the brain operates in a timeless void.
