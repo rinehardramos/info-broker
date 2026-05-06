@@ -89,6 +89,18 @@ export const getAgentPipeline = (): Promise<AgentPipelineOut> =>
 export const setAgentPipeline = (pipeline_id: string): Promise<AgentPipelineOut> =>
   api.put<AgentPipelineOut>('/v3/agent/pipeline', { pipeline_id }).then(r => r.data)
 
+export interface BrainStatus {
+  ready: boolean
+  auth_method: string
+  logged_in: boolean
+  has_api_key: boolean
+  email?: string
+  error?: string
+}
+
+export const getBrainStatus = (): Promise<BrainStatus> =>
+  api.get<BrainStatus>('/v3/agent/brain/status').then(r => r.data)
+
 // --- Jobs ---
 
 export const listJobs = () => api.get<JobOut[]>('/v3/jobs').then(r => r.data)

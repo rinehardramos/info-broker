@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
-import { sendMessage, getAgentPipeline } from '../../api/v3'
+import { sendMessage, getAgentPipeline, getBrainStatus } from '../../api/v3'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
 
@@ -25,6 +25,12 @@ export default function AgentChat() {
   const { data: activePipeline } = useQuery({
     queryKey: ['agentPipeline'],
     queryFn: getAgentPipeline,
+  })
+
+  const { data: brainStatus } = useQuery({
+    queryKey: ['brainStatus'],
+    queryFn: getBrainStatus,
+    refetchInterval: 60000,
   })
 
   useEffect(() => {
@@ -110,7 +116,11 @@ export default function AgentChat() {
           )}
           <button
             onClick={() => setUseIntelligentSearch(prev => !prev)}
-            title={useIntelligentSearch ? 'Intelligent Search ON — click to disable' : 'Enable Intelligent Search'}
+            title={
+              !brainStatus?.ready
+                ? 'IS unavailable — Claude Code not authenticated'
+                : useIntelligentSearch ? 'Intelligent Search ON — click to disable' : 'Enable Intelligent Search'
+            }
             style={{
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '2px 8px', borderRadius: 12, fontSize: 9, fontWeight: 600,
@@ -118,10 +128,20 @@ export default function AgentChat() {
               background: useIntelligentSearch ? '#a78bfa22' : 'transparent',
               color: useIntelligentSearch ? '#a78bfa' : '#64748b',
               cursor: 'pointer', transition: 'all 0.2s',
+              position: 'relative',
             }}
           >
             <span style={{ fontSize: 11 }}>{'\uD83D\uDD0D'}</span>
             IS
+            {/* Brain status indicator */}
+            <span style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: brainStatus?.ready ? '#4ade80' : '#f87171',
+              flexShrink: 0,
+            }} title={brainStatus?.ready
+              ? `Brain ready (${brainStatus.auth_method}${brainStatus.email ? ` — ${brainStatus.email}` : ''})`
+              : brainStatus?.error ?? 'Not authenticated'
+            } />
           </button>
         </div>
       </div>

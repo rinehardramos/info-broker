@@ -28,6 +28,22 @@ _MCP_CONFIG = Path(os.getenv(
 _CLAUDE_BIN = os.getenv("CLAUDE_CODE_BIN", "claude")
 
 
+async def check_auth() -> dict[str, Any]:
+    """Check Claude Code authentication status."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            _CLAUDE_BIN, "auth", "status",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        return json.loads(stdout.decode(errors="replace"))
+    except FileNotFoundError:
+        return {"loggedIn": False, "error": f"Claude Code not found at {_CLAUDE_BIN}"}
+    except Exception as exc:
+        return {"loggedIn": False, "error": str(exc)}
+
+
 async def run_research(
     query: str,
     user_id: str,
@@ -50,15 +66,16 @@ async def run_research(
         user_preferences=user_preferences,
     )
 
-    cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "json", "--bare"]
+    cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "json"]
+
+    # Use --bare only when API key auth is available (Docker/CI).
+    # Without --bare, Claude Code uses OAuth/keychain (subscription mode).
+    if os.getenv("ANTHROPIC_API_KEY"):
+        cmd.append("--bare")
 
     # Add MCP config if it exists
     if _MCP_CONFIG.exists():
         cmd.extend(["--mcp-config", str(_MCP_CONFIG)])
-
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        log.error("IS Brain: ANTHROPIC_API_KEY not set")
-        return _error_result("ANTHROPIC_API_KEY not configured. Set it in .env or OpenBao.")
 
     log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
 
@@ -75,12 +92,28 @@ async def run_research(
             timeout=int(os.getenv("IS_BRAIN_TIMEOUT", "300")),
         )
 
+        raw_out = stdout.decode(errors="replace")
+
         if proc.returncode != 0:
             err_msg = stderr.decode(errors="replace").strip()
+            # Check for auth failure — Claude Code returns this in stdout JSON
+            if "Not logged in" in raw_out or "Not logged in" in err_msg:
+                log.error("IS Brain: Claude Code not authenticated")
+                return _error_result(
+                    "Claude Code not authenticated. "
+                    "Run 'claude auth login' on the server, or set ANTHROPIC_API_KEY."
+                )
             log.error("IS Brain: Claude Code exited %d: %s", proc.returncode, err_msg)
             return _error_result(f"Claude Code error (exit {proc.returncode}): {err_msg}")
 
-        return _parse_output(stdout.decode(errors="replace"))
+        # Also check successful exit but with auth error in response
+        if "Not logged in" in raw_out:
+            return _error_result(
+                "Claude Code not authenticated. "
+                "Run 'claude auth login' on the server, or set ANTHROPIC_API_KEY."
+            )
+
+        return _parse_output(raw_out)
 
     except asyncio.TimeoutError:
         log.error("IS Brain: timed out after %ss", os.getenv("IS_BRAIN_TIMEOUT", "300"))

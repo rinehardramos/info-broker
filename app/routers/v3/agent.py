@@ -110,6 +110,23 @@ def set_agent_pipeline(body: AgentPipelineIn, user: dict = Depends(get_current_u
 # ---------------------------------------------------------------------------
 
 
+@router.get("/brain/status")
+async def get_brain_status(user: dict = Depends(get_current_user)):
+    """Check if the IS brain (Claude Code) is authenticated and ready."""
+    from app.is_brain import check_auth
+
+    auth = await check_auth()
+    has_api_key = bool(os.getenv("ANTHROPIC_API_KEY"))
+    return {
+        "ready": auth.get("loggedIn", False) or has_api_key,
+        "auth_method": "api_key" if has_api_key else auth.get("authMethod", "none"),
+        "logged_in": auth.get("loggedIn", False),
+        "has_api_key": has_api_key,
+        "email": auth.get("email"),
+        "error": auth.get("error"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Agent message — triggers pipeline run via Temporal
 # ---------------------------------------------------------------------------
