@@ -7,6 +7,7 @@ import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback } from 
 import { ResearchFlow } from './ResearchFlow'
 import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
+import { Sparkles, ArrowDownToLine, Save, ThumbsUp, ThumbsDown, RefreshCw, RotateCcw, Layers, Loader2 } from 'lucide-react'
 
 // Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | `run:${string}`
@@ -197,10 +198,15 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
                   if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
                 } catch {}
               }}
-              className="px-3 py-1 rounded text-xs hover:opacity-80"
-              style={{ background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: 'var(--accent)', color: '#fff', border: 'none',
+                fontSize: 11, fontWeight: 600, padding: '8px 14px', borderRadius: 8,
+                cursor: 'pointer',
+              }}
             >
-              Retry Research{run.query ? `: "${run.query.slice(0, 40)}${run.query.length > 40 ? '...' : ''}"` : ''}
+              <RotateCcw size={13} />
+              Retry{run.query ? `: "${run.query.slice(0, 35)}${run.query.length > 35 ? '...' : ''}"` : ''}
             </button>
           </div>
         </div>
@@ -556,7 +562,7 @@ function ResearchResults({
                     fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
                   }}
                 >
-                  👍
+                  <ThumbsUp size={11} />
                 </button>
                 <button
                   onClick={() => handleFeedback(i, -1, f.title ?? '')}
@@ -567,7 +573,7 @@ function ResearchResults({
                     fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
                   }}
                 >
-                  👎
+                  <ThumbsDown size={11} />
                 </button>
                 {feedback[i] === -1 && (
                   <span style={{ fontSize: 9, color: '#f87171', alignSelf: 'center' }}>Marked irrelevant</span>
@@ -613,7 +619,7 @@ function ResearchResults({
         <div className="mt-3">
           <ActionDrawer
             label="Analyze"
-            icon="◈"
+            icon={<Sparkles size={13} />}
             color="#f59e0b"
             disabled={analyzing}
             loading={analyzing}
@@ -653,7 +659,7 @@ function ResearchResults({
             {/* Go Deeper — fed by analysis research gaps + enrichment targets */}
             <ActionDrawer
               label="Go Deeper"
-              icon="⬇"
+              icon={<ArrowDownToLine size={13} />}
               color="#a78bfa"
               disabled={goingDeeper}
               loading={goingDeeper}
@@ -697,7 +703,7 @@ function ResearchResults({
             {/* Re-Analyze */}
             <ActionDrawer
               label="Re-Analyze"
-              icon="◈"
+              icon={<RefreshCw size={13} />}
               color="#f59e0b"
               disabled={analyzing}
               loading={analyzing}
@@ -734,7 +740,11 @@ function ResearchResults({
                   opacity: savingPipeline ? 0.5 : 1,
                 }}
               >
-                {pipelineSaved ? '✓ Saved' : savingPipeline ? '⟳ Saving...' : '⬆ Save Pipeline'}
+                {pipelineSaved
+                  ? <><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Save size={12} /> Saved</span></>
+                  : savingPipeline
+                    ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</>
+                    : <><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Save size={12} /> Save Pipeline</span></>}
               </button>
             )}
           </div>
@@ -749,12 +759,15 @@ function ResearchResults({
               onClick={() => onGoDeeper(trail.deeper_leads!)}
               disabled={goingDeeper}
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
                 background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
-                fontSize: 10, padding: '4px 10px', borderRadius: 6,
+                fontSize: 10, padding: '5px 12px', borderRadius: 8,
                 cursor: goingDeeper ? 'not-allowed' : 'pointer',
               }}
             >
-              {goingDeeper ? '⟳ ...' : '⬇ Go Deeper (skip analysis)'}
+              {goingDeeper
+                ? <><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Going deeper...</>
+                : <><ArrowDownToLine size={11} /> Go Deeper (skip analysis)</>}
             </button>
           )}
           {hasPipeline && (
@@ -762,12 +775,15 @@ function ResearchResults({
               onClick={handleSavePipeline}
               disabled={savingPipeline || pipelineSaved}
               style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
                 background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
-                fontSize: 10, padding: '4px 10px', borderRadius: 6,
+                fontSize: 10, padding: '5px 12px', borderRadius: 8,
                 cursor: savingPipeline || pipelineSaved ? 'not-allowed' : 'pointer',
               }}
             >
-              {pipelineSaved ? '✓ Saved' : '⬆ Save Pipeline'}
+              {pipelineSaved
+                ? <><Save size={11} /> Saved</>
+                : <><Save size={11} /> Save Pipeline</>}
             </button>
           )}
         </div>
