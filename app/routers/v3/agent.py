@@ -131,7 +131,10 @@ async def get_brain_status(user: dict = Depends(get_current_user)):
 # Agent message — triggers pipeline run via Temporal
 # ---------------------------------------------------------------------------
 
-async def _run_is_research(run_id: str, uid: str, pipeline_id: str, query: str) -> None:
+async def _run_is_research(
+    run_id: str, uid: str, pipeline_id: str, query: str,
+    past_research: list[dict] | None = None,
+) -> None:
     """Background task: run IS brain and push WS events."""
     from app.routers.v3.stream import push_event
 
@@ -143,7 +146,7 @@ async def _run_is_research(run_id: str, uid: str, pipeline_id: str, query: str) 
     try:
         from app.is_brain import run_research
 
-        result = await run_research(query=query, user_id=uid)
+        result = await run_research(query=query, user_id=uid, past_research=past_research)
 
         suggested_pipeline = result.get("pipeline")
         execute(
@@ -223,8 +226,27 @@ async def send_message(
             (run_id, pipeline_id, uid, workflow_id),
         )
 
+        # Fetch parent research trail for "Go Deeper" context
+        past_research = None
+        if body.parent_run_id:
+            parent_trail = fetch_one(
+                "SELECT query, entity_type, findings, trail FROM research_trails WHERE run_id = %s",
+                (body.parent_run_id,),
+            )
+            if parent_trail:
+                trail_data = parent_trail["trail"] if isinstance(parent_trail["trail"], dict) else {}
+                past_research = [{
+                    "query": parent_trail["query"],
+                    "entity_type": parent_trail["entity_type"],
+                    "findings": parent_trail["findings"] if isinstance(parent_trail["findings"], list) else [],
+                    "summary": "",
+                    "deeper_leads": trail_data.get("deeper_leads", []),
+                }]
+
         # Fire and forget — research runs async, pushes WS events when done.
-        task = asyncio.create_task(_run_is_research(run_id, uid, pipeline_id, body.message))
+        task = asyncio.create_task(
+            _run_is_research(run_id, uid, pipeline_id, body.message, past_research=past_research)
+        )
         task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
 
         return AgentMessageOut(job_id=run_id)

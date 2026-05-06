@@ -73,9 +73,11 @@ async def run_research(
     if os.getenv("ANTHROPIC_API_KEY"):
         cmd.append("--bare")
 
-    # Add MCP config if it exists
+    # Add MCP config and allow all MCP tools
     if _MCP_CONFIG.exists():
         cmd.extend(["--mcp-config", str(_MCP_CONFIG)])
+        # In --bare mode, MCP tools need explicit permission
+        cmd.extend(["--allowedTools", "mcp__info-broker-mcp__*"])
 
     log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
 

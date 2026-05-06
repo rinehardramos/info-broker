@@ -80,6 +80,7 @@ class AgentMessageIn(BaseModel):
     message: str
     context_job_id: str | None = None
     use_intelligent_search: bool = False
+    parent_run_id: str | None = None  # For "Go Deeper" — links to prior IS run
 
 
 class AgentMessageOut(BaseModel):

@@ -142,7 +142,7 @@ function PipelineRunResults({ runId }: { runId: string }) {
           setGoingDeeper(true)
           try {
             const deeper = leads.join('; ')
-            await sendMessage(`Go deeper: ${deeper}`, undefined, true)
+            await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
           } finally {
             setGoingDeeper(false)
           }

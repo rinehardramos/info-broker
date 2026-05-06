@@ -80,8 +80,8 @@ export const updatePreferences = (body: Partial<PreferencesOut>) =>
 
 // --- Agent ---
 
-export const sendMessage = (message: string, context_job_id?: string, use_intelligent_search?: boolean) =>
-  api.post<AgentMessageOut>('/v3/agent/message', { message, context_job_id, use_intelligent_search }).then(r => r.data)
+export const sendMessage = (message: string, context_job_id?: string, use_intelligent_search?: boolean, parent_run_id?: string) =>
+  api.post<AgentMessageOut>('/v3/agent/message', { message, context_job_id, use_intelligent_search, parent_run_id }).then(r => r.data)
 
 export const getAgentPipeline = (): Promise<AgentPipelineOut> =>
   api.get<AgentPipelineOut>('/v3/agent/pipeline').then(r => r.data)
