@@ -189,9 +189,13 @@ function PipelineRunResults({ runId }: { runId: string }) {
           )}
           <div className="mt-3 flex gap-2">
             <button
-              onClick={() => {/* TODO: retry */}}
-              className="px-3 py-1 rounded text-xs"
-              style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
+              onClick={async () => {
+                try {
+                  await sendMessage('Retry the last research query', undefined, true)
+                } catch {}
+              }}
+              className="px-3 py-1 rounded text-xs hover:opacity-80"
+              style={{ background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
             >
               Retry Research
             </button>
