@@ -61,8 +61,15 @@ async def execute_node(
 
     # --- observability: record call start (non-fatal) ---
     try:
+        # Ensure session exists (auto-create if header provided)
+        effective_session = session_id or call_id
+        await tracker.start_session(
+            caller_identity=caller_identity,
+            session_type="mcp_tool_call",
+            session_id=effective_session,
+        )
         await tracker.log_call_start(
-            session_id=session_id or call_id,
+            session_id=effective_session,
             tool_name=node_type,
             node_type=node_type,
             call_id=call_id,

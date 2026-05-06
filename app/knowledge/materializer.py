@@ -163,10 +163,27 @@ class GraphMaterializer:
 
         latest_created_at: Optional[datetime] = None
 
+        # Build slug→canonical_ref lookup from entity_observations
+        # so "unknown::julie-sweet" resolves to "person::julie-sweet"
+        all_entities = fetch_all(
+            "SELECT DISTINCT entity_ref FROM entity_observations"
+        )
+        slug_to_ref: dict[str, str] = {}
+        for ent in all_entities:
+            ref = ent["entity_ref"]
+            slug = ref.split("::", 1)[-1] if "::" in ref else ref
+            slug_to_ref[slug] = ref
+
+        def _resolve_ref(raw_ref: str) -> str:
+            if raw_ref.startswith("unknown::"):
+                slug = raw_ref.split("::", 1)[-1]
+                return slug_to_ref.get(slug, raw_ref)
+            return slug_to_ref.get(raw_ref.split("::", 1)[-1], raw_ref) if "::" in raw_ref else raw_ref
+
         for row in rows:
             self._neo4j.upsert_relationship(
-                from_ref=row["from_entity_ref"],
-                to_ref=row["to_entity_ref"],
+                from_ref=_resolve_ref(row["from_entity_ref"]),
+                to_ref=_resolve_ref(row["to_entity_ref"]),
                 rel_type=row["relationship_type"],
                 confidence=row["confidence"],
                 evidence=row.get("evidence"),

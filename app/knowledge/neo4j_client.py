@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 from typing import Any, Optional
@@ -128,22 +129,17 @@ ON MATCH SET
         THEN $last_seen ELSE n.last_seen END,
     n.observation_count = n.observation_count + $observation_count,
     n.aliases = apoc.coll.toSet(n.aliases + $aliases),
-    n.attributes = apoc.map.merge(COALESCE(n.attributes, {{}}), $attributes)
+    n.attributes = $attributes
 RETURN n
 """
+        params = dict(
+            ref=ref, name=name, entity_type=entity_type,
+            confidence=confidence, first_seen=_first_seen,
+            last_seen=_last_seen, observation_count=observation_count,
+            aliases=_aliases, attributes=json.dumps(attrs) if attrs else "{}",
+        )
         with self._driver.session() as session:
-            session.run(
-                cypher,
-                ref=ref,
-                name=name,
-                entity_type=entity_type,
-                confidence=confidence,
-                first_seen=_first_seen,
-                last_seen=_last_seen,
-                observation_count=observation_count,
-                aliases=_aliases,
-                attributes=attrs,
-            )
+            session.execute_write(lambda tx: tx.run(cypher, **params).consume())
 
     def upsert_relationship(
         self,
@@ -181,16 +177,12 @@ ON MATCH SET
     r.observation_count = r.observation_count + 1
 RETURN r
 """
+        params = dict(
+            from_ref=from_ref, to_ref=to_ref, confidence=confidence,
+            evidence=evidence, first_seen=_first_seen, last_seen=_last_seen,
+        )
         with self._driver.session() as session:
-            session.run(
-                cypher,
-                from_ref=from_ref,
-                to_ref=to_ref,
-                confidence=confidence,
-                evidence=evidence,
-                first_seen=_first_seen,
-                last_seen=_last_seen,
-            )
+            session.execute_write(lambda tx: tx.run(cypher, **params).consume())
 
     def get_subgraph(self, ref: str, hops: int = 2) -> list[dict[str, Any]]:
         max_hops = min(hops, 5)
@@ -214,19 +206,19 @@ RETURN nds, rels
             label = _LABEL_MAP.get(entity_type, "Entity")
             cypher = f"""
 MATCH (n:{label})
-WHERE toLower(n.name) CONTAINS toLower($query)
+WHERE toLower(n.name) CONTAINS toLower($search_term)
 RETURN n
-LIMIT $limit
+LIMIT $max_results
 """
         else:
             cypher = """
 MATCH (n)
-WHERE toLower(n.name) CONTAINS toLower($query)
+WHERE toLower(n.name) CONTAINS toLower($search_term)
 RETURN n
-LIMIT $limit
+LIMIT $max_results
 """
         with self._driver.session() as session:
-            result = session.run(cypher, query=query, limit=limit)
+            result = session.run(cypher, search_term=query, max_results=limit)
             return [dict(record) for record in result]
 
     def get_entity(self, ref: str) -> Optional[dict[str, Any]]:
