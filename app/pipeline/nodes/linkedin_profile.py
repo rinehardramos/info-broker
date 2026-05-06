@@ -12,6 +12,10 @@ log = logging.getLogger(__name__)
 _DEFAULT_ACTOR = "harvestapi~linkedin-profile-search"
 _FALLBACK_ACTOR = "dev_fusion~Linkedin-Profile-Scraper"
 
+# Known limitations:
+# - harvestapi actor: accepts input but returns 0 results (appears broken as of May 2026)
+# - dev_fusion actor: requires paid Apify plan (free plan = UI only, no API access)
+
 
 class LinkedInProfileNode:
     node_type = "linkedin_profile"
