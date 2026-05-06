@@ -210,6 +210,125 @@ CREATE TABLE IF NOT EXISTS research_trails (
     suggested_pipeline JSONB,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS finding_feedback (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID REFERENCES ui_users(id),
+    run_id        UUID NOT NULL,
+    finding_index INTEGER NOT NULL,
+    finding_title TEXT,
+    user_score    INTEGER CHECK (user_score BETWEEN -1 AND 1),
+    reason        TEXT,
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (user_id, run_id, finding_index)
+);
+
+CREATE TABLE IF NOT EXISTS entity_types (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name              VARCHAR(64) UNIQUE NOT NULL,
+    display_name      VARCHAR(128) NOT NULL,
+    icon              VARCHAR(32),
+    default_attributes JSONB DEFAULT '{}',
+    created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS relationship_types (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name         VARCHAR(64) UNIQUE NOT NULL,
+    display_name VARCHAR(128) NOT NULL,
+    from_types   TEXT[] DEFAULT '{}',
+    to_types     TEXT[] DEFAULT '{}',
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS entity_observations (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_ref   VARCHAR(512) NOT NULL,
+    entity_type  VARCHAR(64) NOT NULL,
+    attribute    VARCHAR(128) NOT NULL,
+    value        TEXT NOT NULL,
+    confidence   INT NOT NULL DEFAULT 50,
+    source_run_id UUID,
+    source_tool  VARCHAR(128),
+    source_url   TEXT,
+    observed_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_entity_observations_entity_ref ON entity_observations(entity_ref);
+CREATE INDEX IF NOT EXISTS idx_entity_observations_entity_type ON entity_observations(entity_type);
+CREATE INDEX IF NOT EXISTS idx_entity_observations_created_at ON entity_observations(created_at);
+
+CREATE TABLE IF NOT EXISTS relationship_observations (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_entity_ref   VARCHAR(512) NOT NULL,
+    to_entity_ref     VARCHAR(512) NOT NULL,
+    relationship_type VARCHAR(64) NOT NULL,
+    confidence        INT NOT NULL DEFAULT 50,
+    evidence          TEXT,
+    source_run_id     UUID,
+    source_tool       VARCHAR(128),
+    observed_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_relationship_obs_from_entity ON relationship_observations(from_entity_ref);
+CREATE INDEX IF NOT EXISTS idx_relationship_obs_to_entity ON relationship_observations(to_entity_ref);
+CREATE INDEX IF NOT EXISTS idx_relationship_obs_created_at ON relationship_observations(created_at);
+
+CREATE TABLE IF NOT EXISTS entity_aliases (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    canonical_ref VARCHAR(512) NOT NULL,
+    alias         VARCHAR(512) NOT NULL,
+    alias_type    VARCHAR(32) DEFAULT 'name',
+    created_by    VARCHAR(64) DEFAULT 'system',
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(canonical_ref, alias)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_alias ON entity_aliases(alias);
+
+CREATE TABLE IF NOT EXISTS graph_materializer_state (
+    id                      INT PRIMARY KEY DEFAULT 1,
+    last_entity_obs_at      TIMESTAMPTZ,
+    last_rel_obs_at         TIMESTAMPTZ,
+    last_run_at             TIMESTAMPTZ,
+    entities_processed      INT DEFAULT 0,
+    relationships_processed INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS mcp_sessions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    caller_identity VARCHAR(256) NOT NULL,
+    user_id         UUID,
+    session_type    VARCHAR(32) NOT NULL,
+    context         JSONB DEFAULT '{}',
+    status          VARCHAR(20) DEFAULT 'active',
+    tool_call_count INT DEFAULT 0,
+    started_at      TIMESTAMPTZ,
+    finished_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_sessions_status ON mcp_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_mcp_sessions_started_at ON mcp_sessions(started_at DESC);
+
+CREATE TABLE IF NOT EXISTS mcp_tool_calls (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id      UUID REFERENCES mcp_sessions(id),
+    caller_identity VARCHAR(256),
+    user_id         UUID,
+    tool_name       VARCHAR(128) NOT NULL,
+    node_type       VARCHAR(64),
+    call_id         UUID NOT NULL,
+    parent_call_id  UUID,
+    status          VARCHAR(20) DEFAULT 'pending',
+    input_params    JSONB,
+    result_preview  TEXT,
+    result_count    INT,
+    error_message   TEXT,
+    duration_ms     INT,
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    updated_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_session_id ON mcp_tool_calls(session_id);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_status ON mcp_tool_calls(status);
+CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_created_at ON mcp_tool_calls(created_at DESC);
 """
 
 
@@ -269,6 +388,60 @@ VALUES
     ('00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000012', 'results'),
     ('00000000-0000-4000-8000-000000000022', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000013', 'results')
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('person', 'Person', 'user', '{"full_name": "", "date_of_birth": "", "nationality": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('organization', 'Organization', 'building-2', '{"legal_name": "", "industry": "", "founded_year": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('location', 'Location', 'map-pin', '{"address": "", "country": "", "coordinates": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('document', 'Document', 'file-text', '{"title": "", "author": "", "published_at": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('technology', 'Technology', 'cpu', '{"vendor": "", "version": "", "category": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('service', 'Service', 'server', '{"provider": "", "endpoint": "", "protocol": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('event', 'Event', 'calendar', '{"start_date": "", "end_date": "", "location": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('asset', 'Asset', 'package', '{"asset_type": "", "value": "", "owner": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('financial_entity', 'Financial Entity', 'landmark', '{"institution_type": "", "country": "", "regulatory_id": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('transaction', 'Transaction', 'arrow-left-right', '{"amount": "", "currency": "", "timestamp": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('contract', 'Contract', 'scroll-text', '{"parties": "", "effective_date": "", "value": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('market_signal', 'Market Signal', 'trending-up', '{"signal_type": "", "asset": "", "timestamp": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('threat_actor', 'Threat Actor', 'skull', '{"aliases": "", "motivation": "", "origin_country": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('vulnerability', 'Vulnerability', 'shield-alert', '{"cve_id": "", "cvss_score": "", "affected_product": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('campaign', 'Campaign', 'crosshair', '{"campaign_name": "", "start_date": "", "objectives": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('indicator', 'Indicator', 'radar', '{"indicator_type": "", "value": "", "tlp": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('malware', 'Malware', 'bug', '{"malware_family": "", "capabilities": "", "first_seen": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('political_entity', 'Political Entity', 'flag', '{"entity_type": "", "country": "", "affiliation": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('policy', 'Policy', 'file-check', '{"jurisdiction": "", "effective_date": "", "status": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('geopolitical_event', 'Geopolitical Event', 'globe', '{"region": "", "event_type": "", "date": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('sanction', 'Sanction', 'ban', '{"issuing_body": "", "target": "", "effective_date": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('infrastructure', 'Infrastructure', 'network', '{"infra_type": "", "provider": "", "region": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('social_account', 'Social Account', 'at-sign', '{"platform": "", "handle": "", "follower_count": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('credential', 'Credential', 'key', '{"credential_type": "", "scope": "", "expiry": ""}') ON CONFLICT (name) DO NOTHING;
+INSERT INTO entity_types (name, display_name, icon, default_attributes) VALUES ('communication', 'Communication', 'message-square', '{"channel": "", "timestamp": "", "participants": ""}') ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('works_at', 'Works At', ARRAY['person'], ARRAY['organization']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('founded', 'Founded', ARRAY['person'], ARRAY['organization']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('subsidiary_of', 'Subsidiary Of', ARRAY['organization'], ARRAY['organization']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('competes_with', 'Competes With', ARRAY['organization'], ARRAY['organization']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('partners_with', 'Partners With', ARRAY['organization', 'person'], ARRAY['organization', 'person']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('supplies_to', 'Supplies To', ARRAY['organization'], ARRAY['organization']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('client_of', 'Client Of', ARRAY['organization', 'person'], ARRAY['organization']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('invested_in', 'Invested In', ARRAY['organization', 'person'], ARRAY['organization', 'asset']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('acquired', 'Acquired', ARRAY['organization'], ARRAY['organization', 'asset']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('transacted_with', 'Transacted With', ARRAY['organization', 'person'], ARRAY['organization', 'person']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('funds', 'Funds', ARRAY['organization', 'person'], ARRAY['organization', 'campaign']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('located_in', 'Located In', ARRAY['organization', 'person', 'infrastructure'], ARRAY['location']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('uses_technology', 'Uses Technology', ARRAY['organization', 'person', 'threat_actor'], ARRAY['technology']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('provides_service', 'Provides Service', ARRAY['organization'], ARRAY['service']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('owns_domain', 'Owns Domain', ARRAY['organization', 'person'], ARRAY['infrastructure']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('operates_infrastructure', 'Operates Infrastructure', ARRAY['organization', 'threat_actor'], ARRAY['infrastructure']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('attributed_to', 'Attributed To', ARRAY['campaign', 'malware', 'indicator'], ARRAY['threat_actor']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('exploits', 'Exploits', ARRAY['threat_actor', 'malware', 'campaign'], ARRAY['vulnerability']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('targets', 'Targets', ARRAY['threat_actor', 'campaign'], ARRAY['organization', 'person', 'infrastructure']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('sanctioned_by', 'Sanctioned By', ARRAY['organization', 'person'], ARRAY['political_entity']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('governed_by', 'Governed By', ARRAY['organization', 'infrastructure'], ARRAY['policy', 'political_entity']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('linked_to_breach', 'Linked To Breach', ARRAY['organization', 'person', 'credential'], ARRAY['event', 'campaign']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('controls', 'Controls', ARRAY['organization', 'person', 'threat_actor'], ARRAY['organization', 'infrastructure', 'asset']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('mentioned_in', 'Mentioned In', ARRAY['person', 'organization', 'event'], ARRAY['document', 'communication']) ON CONFLICT (name) DO NOTHING;
+INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('participated_in', 'Participated In', ARRAY['person', 'organization'], ARRAY['event', 'campaign', 'geopolitical_event']) ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO graph_materializer_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 """
 # Default credentials: admin / admin
 # Change the password via the DB after first login.

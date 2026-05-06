@@ -4,7 +4,11 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
--
+- [2026-05-06] - [Claude/software-developer] - [Create Intelligence Analyzer pipeline node: multi-stage entity extraction, relationship mapping, and synthesis with map-reduce for large datasets] - [app/pipeline/nodes/analyzer.py, app/pipeline/nodes/__init__.py, tests/pipeline/nodes/test_analyzer.py]
+- [2026-05-06] - [Claude/software-developer] - [Frontend plugin health dashboard + streaming tool results UI: NodeHealth settings section, is.tool_result streaming counter in AgentChat, grey out unhealthy nodes in PipelineBuilder] - [frontend/src/api/v3.ts, frontend/src/pages/Settings.tsx, frontend/src/components/agent/AgentChat.tsx, frontend/src/components/pipeline/StepList.tsx, frontend/src/components/pipeline/PipelineBuilder.tsx]
+- [2026-05-06] - [Claude/software-developer] - [Create 4 pipeline node plugins: clutch_goodfirms, linkedin_profile, apify_mcp, web_search_fetch] - [app/pipeline/nodes/clutch_goodfirms.py, app/pipeline/nodes/linkedin_profile.py, app/pipeline/nodes/apify_mcp.py, app/pipeline/nodes/web_search_fetch.py, app/pipeline/nodes/__init__.py]
+- [2026-05-06] - [Claude/software-developer] - [Plugin health check system: HealthStatus TypedDict, health_check() on Apify nodes, GET /v3/pipelines/nodes/types/health endpoint, get_healthy_nodes() helper] - [app/pipeline/nodes/base.py, app/pipeline/nodes/apify_actor.py, app/pipeline/nodes/apify_mcp.py, app/pipeline/nodes/linkedin_profile.py, app/routers/v3/pipelines.py]
+- [2026-05-06] - [Claude/software-developer] - [Create 8 OSINT pipeline node plugins: facebook_pages, twitter_search, opencorporates, instagram_profile, hunter_io, whois_lookup, google_news, shodan_search] - [app/pipeline/nodes/facebook_pages.py, app/pipeline/nodes/twitter_search.py, app/pipeline/nodes/opencorporates.py, app/pipeline/nodes/instagram_profile.py, app/pipeline/nodes/hunter_io.py, app/pipeline/nodes/whois_lookup.py, app/pipeline/nodes/google_news.py, app/pipeline/nodes/shodan_search.py, app/pipeline/nodes/__init__.py]
 
 ## ✅ Recently Completed
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [PR/Commit if applicable]`)*
