@@ -50,8 +50,19 @@ From the search results, analyze:
      viewership, awards, related works, source material, adaptations
    - For person: background, career, notable works, relationships, timeline, social presence
    - For company: founding, leadership, products, financials, news, competitors
+   - For lead generation / executive lookup: LinkedIn profiles, company directories, SEC/DTI \
+     filings, trade associations, industry reports, business news, conference speakers
 3. Create BRANCH LIST — one branch per information category. Be exhaustive.
 4. Prioritize: start with the most specific branches, then broaden
+5. PROACTIVE TOOL GAPS: Before starting research, assess what IDEAL tools you would need \
+   vs what you have. For EACH missing tool, call suggest_plugin IMMEDIATELY — don't wait \
+   for failed searches. Common gaps:
+   - Executive/people lookup → suggest LinkedIn/Proxycurl plugin
+   - Company financials → suggest SEC/EDGAR/business registry plugin
+   - Social media profiles → suggest platform-specific scraper
+   - Geographically specific data → suggest local directory/registry plugin
+   - Real-time data → suggest API-specific plugin
+   Call suggest_plugin NOW for each gap, then proceed with available tools.
 
 ### RECURSE
 For each branch, explore recursively up to depth {max_depth}:
