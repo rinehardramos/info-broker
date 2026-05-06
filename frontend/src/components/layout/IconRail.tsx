@@ -13,6 +13,7 @@ const NAV = [
   { icon: '❖', path: '/plugins',   label: 'Plugins' },
   { icon: '⚙', path: '/settings',  label: 'Settings' },
   { icon: '◎', path: '/admin/processes', label: 'Live Processes' },
+  { icon: '⬢', path: '/knowledge',       label: 'Knowledge Graph' },
 ]
 
 export default function IconRail() {
