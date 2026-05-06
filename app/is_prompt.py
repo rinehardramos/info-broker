@@ -44,20 +44,32 @@ QUERY: {query}
 ### PLAN
 From the search results, analyze:
 1. Determine the ENTITY TYPE (person, company, product, event, concept)
-2. Map the INFORMATION LANDSCAPE — what categories of data exist
-3. Create BRANCH LIST — each branch is an avenue of investigation
-4. Prioritize branches by likely yield
+2. Map the INFORMATION LANDSCAPE — what categories of data exist for this entity type:
+   - For TV/film: cast bios, production history, development timeline, scripts, directors, \
+     writers, producers, studios, filming locations, budget, release strategy, reviews, ratings, \
+     viewership, awards, related works, source material, adaptations
+   - For person: background, career, notable works, relationships, timeline, social presence
+   - For company: founding, leadership, products, financials, news, competitors
+3. Create BRANCH LIST — one branch per information category. Be exhaustive.
+4. Prioritize: start with the most specific branches, then broaden
 
 ### RECURSE
 For each branch, explore recursively up to depth {max_depth}:
-1. ALWAYS call run_ddg_search first with a branch-specific query
-2. For promising results, call run_web_crawl to get full content
-3. Assess each result:
-   - FRUIT: high-confidence finding — store it
-   - DEAD END: no data available — mark and stop
+1. ALWAYS call run_ddg_search first with a SPECIFIC query for this branch
+   - Bad: "man on fire" (too broad)
+   - Good: "man on fire netflix 2026 cast list actors"
+   - Good: "Yahya Abdul-Mateen II man on fire netflix character"
+2. For promising results, call run_web_crawl to get FULL article content
+3. When you find entities (people, companies), CREATE SUB-BRANCHES for each:
+   - Found a cast member? Search for their bio, filmography, role details
+   - Found a producer? Search for their other projects, background
+   - Found a review? Search for more reviews, aggregate scores
+4. Assess each result:
+   - FRUIT: specific, verifiable finding — store it with source URL
+   - DEAD END: no data after 2+ searches — mark and stop
    - NEEDS DEEPER: promising leads — branch again (increase depth)
    - NEEDS TOOL: data behind inaccessible API — call suggest_plugin
-4. Findings from one branch can spawn new branches
+5. Each branch should produce MULTIPLE findings, not just one
 
 ### DELIVER
 When all branches are resolved (fruit, dead end, or budget exhausted):
@@ -104,12 +116,17 @@ CRITICAL: Your ENTIRE response must be a single valid JSON object. No markdown, 
   }},
   "pipeline": {{
     "name": "Research: query_short",
+    "description": "Generated pipeline for this research",
     "nodes": [
+      {{"node_type": "agent_input", "label": "Query Input", "config": {{}}}},
       {{"node_type": "ddg_search", "label": "DDG Search", "config": {{}}}},
-      {{"node_type": "ai_scoring", "label": "Relevance Filter", "config": {{}}}}
+      {{"node_type": "ai_scoring", "label": "Relevance Filter", "config": {{}}}},
+      {{"node_type": "summarizer", "label": "Summary", "config": {{}}}}
     ],
     "edges": [
-      {{"source_index": 0, "target_index": 1}}
+      {{"source_index": 0, "target_index": 1}},
+      {{"source_index": 1, "target_index": 2}},
+      {{"source_index": 2, "target_index": 3}}
     ]
   }},
   "suggested_plugins": [

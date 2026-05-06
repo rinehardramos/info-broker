@@ -243,6 +243,16 @@ def list_pipelines(user: dict = Depends(get_current_user)):
     return [PipelineOut(**dict(r)) for r in rows]
 
 
+def _enrich_node_category(node_row: dict) -> dict:
+    """Add category from NodeRegistry to a pipeline node row."""
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+    category_map = {n.node_type: n.category for n in NodeRegistry.all()}
+    d = dict(node_row)
+    d["category"] = category_map.get(d.get("node_type", ""), "source")
+    return d
+
+
 @router.get("/{pipeline_id}", response_model=PipelineDetailOut)
 def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(
@@ -261,7 +271,7 @@ def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
     )
     return PipelineDetailOut(
         **dict(row),
-        nodes=[PipelineNodeOut(**dict(n)) for n in nodes],
+        nodes=[PipelineNodeOut(**_enrich_node_category(n)) for n in nodes],
         edges=[PipelineEdgeOut(**dict(e)) for e in edges],
     )
 
