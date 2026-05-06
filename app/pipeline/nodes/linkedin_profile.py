@@ -1,4 +1,4 @@
-"""LinkedIn Profile Search node — dedicated LinkedIn profile search via Apify."""
+"""LinkedIn Profile Search node — search LinkedIn profiles via Apify harvestapi actor."""
 
 from __future__ import annotations
 
@@ -10,11 +10,6 @@ from app.pipeline.nodes.base import RunContext
 log = logging.getLogger(__name__)
 
 _DEFAULT_ACTOR = "harvestapi~linkedin-profile-search"
-_FALLBACK_ACTOR = "dev_fusion~Linkedin-Profile-Scraper"
-
-# Known limitations:
-# - harvestapi actor: accepts input but returns 0 results (appears broken as of May 2026)
-# - dev_fusion actor: requires paid Apify plan (free plan = UI only, no API access)
 
 
 class LinkedInProfileNode:
@@ -25,30 +20,40 @@ class LinkedInProfileNode:
     config_schema = {
         "type": "object",
         "properties": {
-            "search_url": {
+            "job_titles": {
                 "type": "string",
-                "title": "LinkedIn Search URL",
-                "description": (
-                    "Full LinkedIn people-search URL. "
-                    "If omitted, one is built from location + title_filter."
-                ),
+                "title": "Job Titles (comma-separated)",
+                "description": "e.g. 'CEO, CTO, Founder, Managing Director'",
+                "default": "CEO, CTO, Founder",
+            },
+            "locations": {
+                "type": "string",
+                "title": "Locations (comma-separated)",
+                "description": "e.g. 'Philippines, United States'",
+                "default": "Philippines",
             },
             "max_results": {
                 "type": "integer",
                 "title": "Max Results",
                 "default": 10,
                 "minimum": 1,
-                "maximum": 50,
+                "maximum": 300,
             },
-            "location": {
+            "scraper_mode": {
                 "type": "string",
-                "title": "Location",
-                "default": "Philippines",
+                "title": "Scraper Mode",
+                "enum": ["Fast", "Full", "Full + email search"],
+                "default": "Full",
             },
-            "title_filter": {
-                "type": "string",
-                "title": "Job Title Filter",
-                "description": "e.g. 'CEO', 'CTO', 'Owner'",
+            "recently_changed_jobs": {
+                "type": "boolean",
+                "title": "Recently Changed Jobs",
+                "default": False,
+            },
+            "recently_posted": {
+                "type": "boolean",
+                "title": "Recently Posted on LinkedIn",
+                "default": False,
             },
         },
         "required": [],
@@ -67,44 +72,31 @@ class LinkedInProfileNode:
                 error="Apify API key not configured",
                 requires_key="APIFY_API_TOKEN",
                 setup_url="https://console.apify.com/account#/integrations",
-                setup_instructions="Add your Apify API token in Settings → Integrations.",
+                setup_instructions="Add your Apify API token in Settings > Integrations.",
             )
-        # Verify at least one actor has approved permissions
+        # Verify actor is accessible
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                approval_urls = []
-                any_ok = False
-                for actor in [_DEFAULT_ACTOR, _FALLBACK_ACTOR]:
-                    slug = actor.replace("/", "~")
-                    resp = await client.post(
-                        f"https://api.apify.com/v2/acts/{slug}/runs",
-                        params={"token": key, "timeout": 1, "memory": 128},
-                        json={"searchUrl": "https://www.linkedin.com/search/results/people/?keywords=test", "maxResults": 0},
-                        timeout=10,
-                    )
-                    if resp.status_code == 403:
-                        url = resp.json().get("error", {}).get("data", {}).get("approvalUrl", "")
-                        if url:
-                            approval_urls.append(f"{actor}: {url}")
-                    elif resp.status_code in (200, 201):
-                        any_ok = True
-                        # Abort the test run
-                        run_id = resp.json().get("data", {}).get("id")
-                        if run_id:
-                            await client.post(f"https://api.apify.com/v2/actor-runs/{run_id}/abort", params={"token": key})
-                        break
-                if any_ok:
-                    pass  # at least one actor works
-                elif approval_urls:
+                slug = _DEFAULT_ACTOR.replace("/", "~")
+                resp = await client.get(
+                    f"https://api.apify.com/v2/acts/{slug}",
+                    params={"token": key},
+                )
+                if resp.status_code == 403:
+                    approval_url = resp.json().get("error", {}).get("data", {}).get("approvalUrl", "")
                     return HealthStatus(
                         healthy=False,
-                        error="LinkedIn actor permissions not approved.",
+                        error="Actor permissions not approved.",
                         requires_key="APIFY_API_TOKEN",
-                        setup_url=approval_urls[0].split(": ", 1)[-1],
-                        setup_instructions=(
-                            "Approve permissions for the LinkedIn actor:\n"
-                            + "\n".join(approval_urls)
-                        ),
+                        setup_url=approval_url or f"https://console.apify.com/actors/{slug}",
+                        setup_instructions="Visit the link above and approve the actor's permissions.",
+                    )
+                if resp.status_code != 200:
+                    return HealthStatus(
+                        healthy=False,
+                        error=f"Apify actor check failed: HTTP {resp.status_code}",
+                        requires_key="APIFY_API_TOKEN",
+                        setup_url=None, setup_instructions=None,
                     )
         except Exception as exc:
             return HealthStatus(
@@ -122,20 +114,30 @@ class LinkedInProfileNode:
         try:
             api_key = _resolve_api_key()
         except RuntimeError as exc:
-            return [{"title": f"LinkedIn error: {exc}", "content": str(exc), "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
-        max_results = min(int(config.get("max_results", 10)), 50)
+            return [_error_item(str(exc))]
 
-        search_url = config.get("search_url", "").strip()
-        if not search_url:
-            search_url = _build_linkedin_search_url(
-                location=config.get("location", "Philippines"),
-                title_filter=config.get("title_filter", ""),
-            )
+        # Parse comma-separated lists
+        raw_titles = config.get("job_titles") or config.get("title_filter") or ""
+        raw_locations = config.get("locations") or config.get("location") or "Philippines"
+        job_titles = [t.strip() for t in raw_titles.split(",") if t.strip()]
+        locations = [l.strip() for l in raw_locations.split(",") if l.strip()]
+        max_results = min(int(config.get("max_results", 10)), 300)
+        scraper_mode = config.get("scraper_mode", "Full")
 
+        # Build harvestapi actor input
         actor_input = {
-            "searchUrl": search_url,
-            "maxResults": max_results,
+            "currentJobTitles": job_titles,
+            "locations": locations,
+            "maxItems": max_results,
+            "profileScraperMode": scraper_mode,
+            "recentlyChangedJobs": bool(config.get("recently_changed_jobs", False)),
+            "recentlyPostedOnLinkedIn": bool(config.get("recently_posted", False)),
         }
+
+        # Also support raw query from IS brain (backwards compat)
+        query = config.get("query", "")
+        if query and not job_titles:
+            actor_input["currentJobTitles"] = [query]
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
@@ -147,64 +149,58 @@ class LinkedInProfileNode:
         from app.pipeline.nodes.apify_actor import _actor_slug
 
         client = ApifyClient(api_key)
+        slug = _actor_slug(_DEFAULT_ACTOR)
+        log.info("LinkedInProfileNode: starting %s with titles=%s locations=%s max=%s",
+                 slug, actor_input.get("currentJobTitles"), actor_input.get("locations"),
+                 actor_input.get("maxItems"))
 
-        # Try primary actor, fall back to secondary
-        for actor in [_DEFAULT_ACTOR, _FALLBACK_ACTOR]:
-            slug = _actor_slug(actor)
-            log.info("LinkedInProfileNode: trying actor %s input=%s", slug, actor_input)
-            try:
-                # dev_fusion uses 'searchUrls' (list) instead of 'searchUrl' (string)
-                if "dev_fusion" in actor and "searchUrl" in actor_input:
-                    run_input = {**actor_input, "searchUrls": [actor_input["searchUrl"]]}
-                    run_input.pop("searchUrl", None)
-                else:
-                    run_input = actor_input
-                run = client.actor(slug).call(run_input=run_input)
-            except Exception as exc:
-                err = str(exc)
-                log.warning("LinkedInProfileNode: actor %s failed: %s", slug, err)
-                if "permission" in err.lower() or "approved" in err.lower():
-                    continue  # try fallback
-                return [{"title": f"LinkedIn error: {exc}", "content": err, "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
+        try:
+            run = client.actor(slug).call(run_input=actor_input)
+        except Exception as exc:
+            err = str(exc)
+            log.error("LinkedInProfileNode: actor failed: %s", err)
+            return [_error_item(err)]
 
-            if not run:
-                continue
+        if not run:
+            return [_error_item("Apify actor returned no run result")]
 
-            dataset_id = run.get("defaultDatasetId")
-            if not dataset_id:
-                continue
+        dataset_id = run.get("defaultDatasetId")
+        if not dataset_id:
+            return [_error_item("Apify run has no dataset")]
 
-            items = list(client.dataset(dataset_id).iterate_items())
-            log.info("LinkedInProfileNode: actor %s returned %d items", slug, len(items))
-            return [_map_item(item) for item in items]
+        items = list(client.dataset(dataset_id).iterate_items())
+        log.info("LinkedInProfileNode: got %d profiles", len(items))
 
-        return [{"title": "LinkedIn error: all actors require permission approval", "content": "Visit Apify console to approve actor permissions. Check Settings > Node Health for the approval URL.", "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
+        if not items:
+            return [{"title": "No LinkedIn profiles found", "content": f"Search returned 0 results for titles={actor_input.get('currentJobTitles')}, locations={actor_input.get('locations')}", "source": "linkedin_profile", "confidence": 30}]
+
+        return [_map_item(item) for item in items]
 
 
-def _build_linkedin_search_url(location: str, title_filter: str) -> str:
-    """Construct a LinkedIn people-search URL from human-readable filters."""
-    from urllib.parse import urlencode
-
-    params: dict[str, str] = {
-        "keywords": title_filter or "",
-        "origin": "GLOBAL_SEARCH_HEADER",
-        "geoUrn": "",  # LinkedIn geo URNs require a separate lookup; leave as keyword
+def _error_item(msg: str) -> dict:
+    return {
+        "title": f"LinkedIn error: {msg[:100]}",
+        "content": msg,
+        "source": "linkedin_profile",
+        "confidence": 0,
+        "error_flagged": True,
     }
-    if location:
-        params["keywords"] = f"{title_filter} {location}".strip() if title_filter else location
-
-    # Build a basic LinkedIn search URL — the Apify actor accepts the full URL
-    base = "https://www.linkedin.com/search/results/people/?"
-    return base + urlencode({k: v for k, v in params.items() if v})
 
 
 def _map_item(item: dict) -> dict:
     """Normalise a harvestapi~linkedin-profile-search response item."""
+    # Handle nested currentPosition
     current = (
         (item.get("currentPosition") or [{}])[0]
         if item.get("currentPosition")
         else {}
     )
+    # Handle email from various fields
+    email = item.get("email") or item.get("emailAddress") or ""
+    if not email and item.get("emails"):
+        emails = item["emails"]
+        email = emails[0] if isinstance(emails, list) and emails else ""
+
     return {
         "id": item.get("profileUrl") or item.get("linkedinUrl") or "",
         "full_name": item.get("fullName") or item.get("name", ""),
@@ -215,6 +211,8 @@ def _map_item(item: dict) -> dict:
         "linkedin_url": item.get("profileUrl") or item.get("linkedinUrl", ""),
         "headline": item.get("headline", ""),
         "location": item.get("location", ""),
+        "email": email,
         "source": "linkedin_profile",
+        "confidence": 85,
         "_raw": item,
     }

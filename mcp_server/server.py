@@ -281,19 +281,26 @@ async def run_clutch_goodfirms(
 
 @mcp.tool()
 async def run_linkedin_profile_search(
-    search_url: str = "",
+    job_titles: str = "CEO, CTO, Founder",
+    locations: str = "Philippines",
     max_results: int = 10,
-    location: str = "Philippines",
-    title_filter: str = "",
+    scraper_mode: str = "Full",
 ) -> str:
-    """Search LinkedIn profiles via Apify with location and title filters.
+    """Search LinkedIn profiles by job title and location via Apify.
 
-    Provide a LinkedIn search URL, or use location/title_filter to auto-build one.
+    job_titles: comma-separated list of job titles (e.g. "CEO, CTO, Founder, Managing Director")
+    locations: comma-separated list of locations (e.g. "Philippines, United States")
+    scraper_mode: "Fast", "Full", or "Full + email search"
     """
     result = await api_call(
         "POST",
         "/v3/nodes/linkedin_profile/execute",
-        json={"searchUrl": search_url, "maxResults": max_results, "location": location, "title_filter": title_filter},
+        json={
+            "job_titles": job_titles,
+            "locations": locations,
+            "max_results": max_results,
+            "scraper_mode": scraper_mode,
+        },
     )
     return json.dumps(result)
 
