@@ -12,6 +12,7 @@ const NAV = [
   { icon: '▤', path: '/history',   label: 'History' },
   { icon: '❖', path: '/plugins',   label: 'Plugins' },
   { icon: '⚙', path: '/settings',  label: 'Settings' },
+  { icon: '◎', path: '/admin/processes', label: 'Live Processes' },
 ]
 
 export default function IconRail() {
