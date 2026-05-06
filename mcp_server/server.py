@@ -336,6 +336,204 @@ async def run_web_search_fetch(
 
 
 # ---------------------------------------------------------------------------
+# OSINT source tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def run_facebook_pages(
+    query: str = "",
+    page_urls: str = "[]",
+    max_results: int = 20,
+) -> str:
+    """Search Facebook pages for company info, executives, and contact details.
+
+    query: search term for FB pages. page_urls: JSON array of FB page URLs.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/facebook_pages/execute",
+        json={"query": query, "page_urls": json.loads(page_urls), "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_twitter_search(query: str, max_results: int = 20) -> str:
+    """Search Twitter/X for tweets and user profiles matching a query."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/twitter_search/execute",
+        json={"query": query, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_opencorporates(company_name: str, jurisdiction: str = "") -> str:
+    """Search OpenCorporates global business registry for company data."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/opencorporates/execute",
+        json={"query": company_name, "jurisdiction": jurisdiction},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_instagram_profile(username: str = "", query: str = "", max_results: int = 10) -> str:
+    """Look up Instagram profiles or search for users. Good for executive social presence."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/instagram_profile/execute",
+        json={"username": username, "query": query, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_hunter_io(domain: str = "", company: str = "", max_results: int = 10) -> str:
+    """Find email addresses for a company domain via Hunter.io."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/hunter_io/execute",
+        json={"domain": domain, "company": company, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_whois_lookup(domain: str) -> str:
+    """WHOIS lookup for domain registration info — registrant, dates, nameservers."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/whois_lookup/execute",
+        json={"domain": domain},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_google_news(query: str, max_results: int = 10) -> str:
+    """Search Google News for recent articles about a topic, company, or person."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/google_news/execute",
+        json={"query": query, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_shodan_search(query: str = "", target: str = "", max_results: int = 10) -> str:
+    """Search Shodan for internet-connected devices and services. Useful for tech infrastructure recon."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/shodan_search/execute",
+        json={"query": query, "target": target, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_clutch_buyer(
+    company_url: str = "",
+    location: str = "Philippines",
+    max_results: int = 20,
+) -> str:
+    """Scrape buyer-side reviews from a Clutch company profile.
+
+    Extracts reviewer (client/buyer) info: name, title, company, industry, and project summary.
+    Provide company_url for a specific profile, or leave blank to scrape top companies by location.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/clutch_buyer/execute",
+        json={"company_url": company_url, "location": location, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_headless_crawler(
+    urls: str,
+    max_pages: int = 5,
+) -> str:
+    """Crawl JavaScript-rendered pages via Apify's web-scraper actor.
+
+    Use this instead of run_web_crawl for SPAs and dynamic sites where httpx returns empty pages.
+    urls: JSON array of URL strings, or a single URL string.
+    """
+    # Accept both a JSON array and a plain URL string
+    try:
+        parsed_urls = json.loads(urls)
+        if isinstance(parsed_urls, str):
+            parsed_urls = [parsed_urls]
+    except (json.JSONDecodeError, TypeError):
+        parsed_urls = [urls] if urls else []
+
+    result = await api_call(
+        "POST",
+        "/v3/nodes/headless_crawler/execute",
+        json={"urls": parsed_urls, "max_pages": max_pages},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_ph_bir(
+    business_name: str = "",
+    tin: str = "",
+) -> str:
+    """Look up Philippine BIR MSME registry for a company or TIN.
+
+    Returns registration status, RDO code, business type, and address.
+    BIR's public portal is limited — the node falls back to DDG search when direct scrape fails.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ph_bir/execute",
+        json={"business_name": business_name, "tin": tin},
+    )
+    return json.dumps(result)
+
+
+# ---------------------------------------------------------------------------
+# Financial / marketplace tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def run_stripe_marketplace(metric_type: str = "balance", date_range_days: int = 30) -> str:
+    """Fetch Stripe marketplace metrics (balance, charges, customers, disputes, payouts)."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/stripe_marketplace/execute",
+        json={"metric_type": metric_type, "date_range_days": date_range_days},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_financial_projections(
+    projection_type: str = "revenue_forecast",
+    time_horizon: str = "12 months",
+    items: list[dict] | None = None,
+) -> str:
+    """Build financial projections from research findings using LLM analysis."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/financial_projections/execute",
+        json={
+            "projection_type": projection_type,
+            "time_horizon": time_horizon,
+            "inputs": items or [],
+        },
+    )
+    return json.dumps(result, default=str)
+
+
+# ---------------------------------------------------------------------------
 # Meta tools
 # ---------------------------------------------------------------------------
 
@@ -400,11 +598,69 @@ async def get_past_research(query: str, limit: int = 5) -> str:
 async def suggest_plugin(name: str, description: str, reason: str) -> str:
     """Suggest a new plugin or tool that should be built into info-broker.
 
-    Use this when you encounter a research task that is not supported by any existing tool.
+    IMPORTANT: Before calling this, verify the capability doesn't already exist.
+    This tool will check for duplicates automatically and return guidance.
+    - If an exact match exists: returns the existing tool name to use instead.
+    - If a partial match exists: flags it as an enhancement request.
+    - Only truly unique capabilities create a new plugin request.
     """
+    # Pre-check: fetch existing node types and check for overlap
+    try:
+        health_data = await api_call("GET", "/v3/pipelines/nodes/types/health")
+        existing_nodes = {n["node_type"]: n["display_name"] for n in health_data}
+    except Exception:
+        existing_nodes = {}
+
+    normalized = name.lower().replace("-", "_").replace(" ", "_")
+
+    # Exact match — tell brain to use existing tool
+    if normalized in existing_nodes:
+        return json.dumps({
+            "status": "duplicate",
+            "message": f"Tool '{normalized}' already exists as '{existing_nodes[normalized]}'. Use run_{normalized}() instead.",
+            "existing_tool": f"run_{normalized}",
+        })
+
+    # Partial match — auto-flag as enhancement
+    for et, display in existing_nodes.items():
+        if normalized in et or et in normalized:
+            # Auto-prefix reason with ENHANCE
+            enhanced_reason = reason if reason.startswith("ENHANCE:") else f"ENHANCE ({et}): {reason}"
+            result = await api_call(
+                "POST",
+                "/v3/plugin-requests",
+                json={"name": et, "description": description, "reason": enhanced_reason},
+            )
+            return json.dumps({
+                "status": "enhancement",
+                "message": f"Existing tool '{et}' ({display}) partially covers this. Flagged as enhancement request.",
+                "existing_tool": f"run_{et}",
+                **result,
+            })
+
+    # Keyword overlap check — compare description words against existing display names
+    desc_words = set(description.lower().split())
+    for et, display in existing_nodes.items():
+        display_words = set(display.lower().split())
+        overlap = desc_words & display_words - {"the", "and", "for", "a", "an", "of", "in", "to"}
+        if len(overlap) >= 2:
+            enhanced_reason = f"ENHANCE ({et}): {reason}" if not reason.startswith("ENHANCE:") else reason
+            result = await api_call(
+                "POST",
+                "/v3/plugin-requests",
+                json={"name": et, "description": description, "reason": enhanced_reason},
+            )
+            return json.dumps({
+                "status": "enhancement",
+                "message": f"Existing tool '{et}' ({display}) may cover this (overlap: {overlap}). Flagged as enhancement.",
+                "existing_tool": f"run_{et}",
+                **result,
+            })
+
+    # Truly unique — create new request
     result = await api_call(
         "POST",
         "/v3/plugin-requests",
         json={"name": name, "description": description, "reason": reason},
     )
-    return json.dumps(result)
+    return json.dumps({"status": "new", "message": "New plugin request created.", **result})

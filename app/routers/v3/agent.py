@@ -147,19 +147,43 @@ async def _run_is_research(
         from app.is_brain import run_research
 
         async def _on_tool_event(ev: dict) -> None:
-            await push_event(uid, {
-                "type": "is.tool_call",
-                "job_id": run_id,
-                "run_id": run_id,
-                "tool": ev.get("tool", ""),
-                "status": ev.get("status", ""),
-                "call_id": ev.get("id", ""),
-            })
+            # Strip MCP prefix: mcp__info-broker-mcp__run_ddg_search -> run_ddg_search
+            raw_tool = ev.get("tool", "") or ""
+            clean_tool = raw_tool.split("__")[-1] if "__" in raw_tool else raw_tool
+
+            if ev.get("type") == "tool_result":
+                await push_event(uid, {
+                    "type": "is.tool_result",
+                    "job_id": run_id, "run_id": run_id,
+                    "call_id": ev.get("tool_use_id", ""),
+                    "preview": ev.get("preview", ""),
+                })
+            else:
+                await push_event(uid, {
+                    "type": "is.tool_call",
+                    "job_id": run_id, "run_id": run_id,
+                    "tool": clean_tool,
+                    "status": ev.get("status", ""),
+                    "call_id": ev.get("id", ""),
+                })
+
+        # Only advertise healthy+enabled tools to the brain
+        from app.routers.v3.pipelines import get_healthy_nodes
+        healthy_nodes = await get_healthy_nodes()
 
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
             on_event=_on_tool_event,
+            available_nodes=healthy_nodes,
         )
+
+        # Check if IS brain returned an error result (no findings, error summary)
+        is_error = (
+            not result.get("findings")
+            and result.get("summary", "").startswith("Research failed:")
+        )
+        if is_error:
+            raise RuntimeError(result["summary"])
 
         suggested_pipeline = result.get("pipeline")
         execute(
@@ -174,10 +198,26 @@ async def _run_is_research(
              json.dumps(suggested_pipeline) if suggested_pipeline else None),
         )
 
+        # Deduplicate plugin suggestions against existing nodes
+        from app.pipeline.nodes import NodeRegistry
+        NodeRegistry.auto_discover()
+        existing_types = {n.node_type for n in NodeRegistry.all()}
+
         for plugin in result.get("suggested_plugins", []):
+            pname = (plugin.get("name") or "").lower().replace("-", "_").replace(" ", "_")
+            reason = plugin.get("reason", "")
+            is_enhancement = reason.startswith("ENHANCE:") or pname in existing_types
+            if not is_enhancement:
+                for et in existing_types:
+                    if pname in et or et in pname:
+                        is_enhancement = True
+                        plugin["reason"] = f"ENHANCE ({et}): {reason}"
+                        break
+            plugin["is_enhancement"] = is_enhancement
+            status = "enhancement" if is_enhancement else "pending"
             execute(
-                "INSERT INTO plugin_requests (id, user_id, spec, status) VALUES (%s, %s, %s, 'pending')",
-                (str(uuid.uuid4()), uid, json.dumps(plugin)),
+                "INSERT INTO plugin_requests (id, user_id, spec, status) VALUES (%s, %s, %s, %s)",
+                (str(uuid.uuid4()), uid, json.dumps(plugin), status),
             )
 
         execute(

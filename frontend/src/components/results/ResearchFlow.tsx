@@ -45,14 +45,40 @@ const ROOT_W = 100
 const ROOT_H = 40
 
 const TOOL_COLORS: Record<string, string> = {
-  web_search:       '#60a5fa',
-  follow_url:       '#a78bfa',
-  search_obsidian:  '#f472b6',
-  search_files:     '#f472b6',
-  web_crawl:        '#f472b6',
-  mark_for_review:  '#fb923c',
-  request_plugin:   '#f87171',
-  finish_research:  '#4ade80',
+  // Search tools (blue)
+  run_ddg_search:         '#60a5fa',
+  run_web_search_fetch:   '#60a5fa',
+  run_google_news:        '#60a5fa',
+  get_past_research:      '#60a5fa',
+  search_obsidian:        '#60a5fa',
+  run_qdrant_search:      '#60a5fa',
+  // Crawl/fetch tools (purple)
+  run_web_crawl:          '#a78bfa',
+  run_headless_crawler:   '#a78bfa',
+  run_wikipedia_api:      '#a78bfa',
+  // People/B2B tools (pink)
+  run_linkedin_profile_search: '#f472b6',
+  run_linkedin_lookup:    '#f472b6',
+  run_apollo_search:      '#f472b6',
+  run_hunter_io:          '#f472b6',
+  // Registry/OSINT tools (cyan)
+  run_ph_sec_dti:         '#22d3ee',
+  run_opencorporates:     '#22d3ee',
+  run_ph_bir:             '#22d3ee',
+  run_whois_lookup:       '#22d3ee',
+  run_shodan_search:      '#22d3ee',
+  // Social tools (orange)
+  run_facebook_pages:     '#fb923c',
+  run_twitter_search:     '#fb923c',
+  run_instagram_profile:  '#fb923c',
+  // Analysis tools (green)
+  run_ai_scoring:         '#4ade80',
+  run_summarizer:         '#4ade80',
+  run_analyzer:           '#4ade80',
+  // Meta tools (red)
+  suggest_plugin:         '#f87171',
+  run_clutch_goodfirms:   '#fb923c',
+  run_clutch_buyer:       '#fb923c',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -134,6 +160,81 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
                 }
               : n
           ),
+        })
+        return next
+      })
+    }
+
+    // IS brain events (from Claude Code subprocess — is.tool_call / is.tool_result)
+    if (event.type === 'is.tool_call' && event.run_id && event.call_id) {
+      setFlows(prev => {
+        const next = new Map(prev)
+        const flow = next.get(event.run_id!) ?? {
+          runId: event.run_id!, query: '', nodes: [],
+          callCount: 0, maxCalls: 50, status: 'running' as const,
+        }
+        if (flow.nodes.some(n => n.id === event.call_id)) return prev
+
+        // Infer depth from tool type and call sequence
+        const tool = event.tool ?? 'unknown'
+        const searchTools = ['run_ddg_search', 'run_web_search_fetch', 'run_google_news', 'get_past_research', 'search_obsidian', 'run_qdrant_search']
+        const enrichTools = ['run_web_crawl', 'run_headless_crawler', 'run_wikipedia_api', 'run_ph_sec_dti', 'run_opencorporates', 'run_whois_lookup', 'run_facebook_pages', 'run_twitter_search', 'run_instagram_profile']
+        const personTools = ['run_linkedin_profile_search', 'run_linkedin_lookup', 'run_apollo_search', 'run_hunter_io', 'run_clutch_goodfirms', 'run_clutch_buyer']
+        const analysisTools = ['run_ai_scoring', 'run_summarizer', 'run_analyzer', 'suggest_plugin']
+
+        let depth = 1
+        if (enrichTools.includes(tool)) depth = 2
+        else if (personTools.includes(tool)) depth = 3
+        else if (analysisTools.includes(tool)) depth = 4
+
+        // Chain to the most recent node at the previous depth as parent
+        const prevDepthNodes = flow.nodes.filter(n => n.depth === depth - 1)
+        const parentId = prevDepthNodes.length > 0 ? prevDepthNodes[prevDepthNodes.length - 1].id : null
+
+        const node: FlowNode = {
+          id: event.call_id!,
+          tool,
+          params: {},
+          status: event.status === 'calling' ? 'running' : (event.status as FlowNode['status'] ?? 'running'),
+          parentId,
+          depth,
+          timestamp: Date.now(),
+        }
+        next.set(event.run_id!, {
+          ...flow,
+          nodes: [...flow.nodes, node],
+          callCount: flow.callCount + 1,
+        })
+        return next
+      })
+    }
+
+    if (event.type === 'is.tool_result' && event.run_id && event.call_id) {
+      setFlows(prev => {
+        const next = new Map(prev)
+        const flow = next.get(event.run_id!)
+        if (!flow) return prev
+        next.set(event.run_id!, {
+          ...flow,
+          nodes: flow.nodes.map(n =>
+            n.id === event.call_id
+              ? { ...n, status: 'succeeded' as const, resultPreview: event.preview ?? event.result_preview }
+              : n
+          ),
+        })
+        return next
+      })
+    }
+
+    // Mark IS run complete
+    if ((event.type === 'job.completed' || event.type === 'job.failed') && event.run_id) {
+      setFlows(prev => {
+        const next = new Map(prev)
+        const flow = next.get(event.run_id!)
+        if (!flow) return prev
+        next.set(event.run_id!, {
+          ...flow,
+          status: event.type === 'job.completed' ? 'succeeded' : 'failed',
         })
         return next
       })
@@ -322,7 +423,7 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
             />
             {/* Tool name */}
             <text x={pos.x + 8} y={pos.y + 14} fill={color} fontSize={9} fontWeight={700}>
-              {node.tool}
+              {node.tool.replace(/^run_/, '').replace(/_/g, ' ')}
             </text>
             {/* Params preview */}
             <text x={pos.x + 8} y={pos.y + 26} fill="#94a3b8" fontSize={8}>

@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
 import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail } from '../../api/pipelines'
-import { sendMessage } from '../../api/v3'
+import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback } from '../../api/v3'
 import { ResearchFlow } from './ResearchFlow'
+import { AnalysisPanel } from './AnalysisPanel'
+import { ActionDrawer } from './ActionDrawer'
 
 // Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | `run:${string}`
@@ -131,12 +133,13 @@ function PipelineRunResults({ runId }: { runId: string }) {
     return <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>Run not found.</p>
   }
 
-  // IS research run
+  // IS research run — completed with findings
   if (run.trigger_type === 'agent_is' && run.research) {
     return (
       <ResearchResults
         research={run.research}
         status={run.status}
+        runId={runId}
         goingDeeper={goingDeeper}
         onGoDeeper={async (leads) => {
           setGoingDeeper(true)
@@ -148,6 +151,29 @@ function PipelineRunResults({ runId }: { runId: string }) {
           }
         }}
       />
+    )
+  }
+
+  // IS research run — still running, show live streaming view
+  if (run.trigger_type === 'agent_is' && (run.status === 'queued' || run.status === 'running')) {
+    return (
+      <div className="p-3 flex flex-col h-full">
+        <div
+          className="rounded p-3 mb-3 text-xs"
+          style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 8, color: '#a78bfa' }}>◆</span>
+            <span style={{ color: '#a78bfa', fontWeight: 600 }}>IS Research — {run.status}</span>
+          </div>
+          <p style={{ color: 'var(--muted)', fontSize: 10, marginTop: 4 }}>
+            Brain is actively researching. Tool calls stream below in real-time.
+          </p>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <ResearchFlow runId={runId ?? undefined} />
+        </div>
+      </div>
     )
   }
 
@@ -254,11 +280,13 @@ function confidenceLevel(score: number): 'high' | 'medium' | 'low' {
 function ResearchResults({
   research,
   status,
+  runId,
   goingDeeper,
   onGoDeeper,
 }: {
   research: ResearchTrail
   status: string
+  runId: string | null
   goingDeeper: boolean
   onGoDeeper: (leads: string[]) => void
 }) {
@@ -266,6 +294,40 @@ function ResearchResults({
   const navigate = useNavigate()
   const [pipelineSaved, setPipelineSaved] = useState(false)
   const [savingPipeline, setSavingPipeline] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysis, setAnalysis] = useState<any>(null)
+  const [feedback, setFeedback] = useState<Record<number, number>>({})
+
+  useEffect(() => {
+    if (runId) {
+      getRunFeedback(runId).then(fb => {
+        const mapped: Record<number, number> = {}
+        Object.entries(fb).forEach(([idx, val]) => { mapped[Number(idx)] = val.score })
+        setFeedback(mapped)
+      }).catch(() => {})
+    }
+  }, [runId])
+
+  const handleAnalyze = async (context?: string) => {
+    setAnalyzing(true)
+    try {
+      const result = await runAnalyzer(research.findings, undefined, context || undefined)
+      // API returns {status, items: [...], count} — extract the analysis from items[0]
+      const analysis = result?.items?.[0] ?? (Array.isArray(result) ? result[0] : result)
+      setAnalysis(analysis)
+    } catch (err) {
+      console.error('Analysis failed:', err)
+    } finally {
+      setAnalyzing(false)
+    }
+  }
+
+  const handleFeedback = async (index: number, score: number, title: string) => {
+    setFeedback(prev => ({ ...prev, [index]: score }))
+    if (runId) {
+      await submitFindingFeedback(runId, index, score, undefined, title)
+    }
+  }
   const { findings, trail } = research
   const canGoDeeper = trail.can_go_deeper && (trail.deeper_leads?.length ?? 0) > 0
   const hasPipeline = research.suggested_pipeline != null && (research.suggested_pipeline.nodes?.length ?? 0) > 0
@@ -356,20 +418,43 @@ function ResearchResults({
         {findings.map((f, i) => {
           const conf = f.confidence ?? 0
           const level = confidenceLevel(conf)
+          const isError = (f as any).error_flagged === true || (f as any).finding_type === 'error'
           return (
             <div
               key={i}
               className="rounded p-3 text-xs"
-              style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}
+              style={{
+                background: 'var(--panel2)',
+                border: '1px solid var(--border)',
+                borderLeft: isError ? '3px solid #f87171' : undefined,
+              }}
             >
               <div className="flex items-center gap-2 mb-1">
-                <span style={{
-                  fontSize: 9, fontWeight: 700,
-                  color: CONFIDENCE_COLORS[level],
-                }}>
-                  {conf}%
+                <span
+                  title={
+                    isError
+                      ? `Error: ${(f as any).title || 'Tool call failed'}`
+                      : (f as any).confidence_reason || (f as any).ai_score_reason || (f as any).score_reason || (f as any).reason || `Confidence: ${conf}%`
+                  }
+                  style={{
+                    fontSize: 9, fontWeight: 700,
+                    color: isError ? '#f87171' : CONFIDENCE_COLORS[level],
+                    cursor: 'help',
+                  }}
+                >
+                  {isError ? '0% (error)' : `${conf}%`}
                 </span>
-                <span style={{ color: 'var(--subtext)', fontWeight: 600 }}>
+                {isError && (
+                  <span
+                    style={{
+                      fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+                      background: '#f8717122', color: '#f87171', border: '1px solid #f8717144',
+                    }}
+                  >
+                    Error
+                  </span>
+                )}
+                <span style={{ color: 'var(--subtext)', fontWeight: 600, opacity: isError ? 0.6 : 1 }}>
                   {f.title ?? 'Finding'}
                 </span>
                 {f.branch && (
@@ -379,11 +464,11 @@ function ResearchResults({
                 )}
               </div>
               {f.content && (
-                <p style={{ color: 'var(--muted)', fontSize: 10, lineHeight: 1.4, marginTop: 4 }}>
+                <p style={{ color: 'var(--muted)', fontSize: 10, lineHeight: 1.4, marginTop: 4, opacity: isError ? 0.6 : 1 }}>
                   {f.content.slice(0, 300)}{f.content.length > 300 ? '...' : ''}
                 </p>
               )}
-              <div className="flex items-center gap-2 mt-2" style={{ fontSize: 9, color: 'var(--muted)' }}>
+              <div className="flex items-center gap-2 mt-2" style={{ fontSize: 9, color: 'var(--muted)', opacity: isError ? 0.6 : 1 }}>
                 {f.source && <span>{f.source}</span>}
                 {f.url && (
                   <a
@@ -394,6 +479,33 @@ function ResearchResults({
                   >
                     link
                   </a>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                <button
+                  onClick={() => handleFeedback(i, 1, f.title ?? '')}
+                  style={{
+                    background: feedback[i] === 1 ? '#4ade8033' : 'transparent',
+                    border: `1px solid ${feedback[i] === 1 ? '#4ade80' : 'var(--border)'}`,
+                    color: feedback[i] === 1 ? '#4ade80' : 'var(--muted)',
+                    fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                  }}
+                >
+                  👍
+                </button>
+                <button
+                  onClick={() => handleFeedback(i, -1, f.title ?? '')}
+                  style={{
+                    background: feedback[i] === -1 ? '#f8717133' : 'transparent',
+                    border: `1px solid ${feedback[i] === -1 ? '#f87171' : 'var(--border)'}`,
+                    color: feedback[i] === -1 ? '#f87171' : 'var(--muted)',
+                    fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                  }}
+                >
+                  👎
+                </button>
+                {feedback[i] === -1 && (
+                  <span style={{ fontSize: 9, color: '#f87171', alignSelf: 'center' }}>Marked irrelevant</span>
                 )}
               </div>
             </div>
@@ -431,47 +543,166 @@ function ResearchResults({
         </>
       )}
 
-      {/* Action buttons */}
-      {status === 'succeeded' && (canGoDeeper || hasPipeline) && (
-        <div className="mt-3 flex gap-2 flex-wrap">
-          {/* Go Deeper */}
-          {canGoDeeper && (
-            <div>
-              <button
-                onClick={() => onGoDeeper(trail.deeper_leads!)}
-                disabled={goingDeeper}
-                style={{
-                  background: '#a78bfa22', border: '1px solid #a78bfa55', color: '#a78bfa',
-                  fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
-                  cursor: goingDeeper ? 'not-allowed' : 'pointer', opacity: goingDeeper ? 0.5 : 1,
-                }}
-              >
-                {goingDeeper ? '⟳ Going deeper...' : '⬇ Go Deeper'}
-              </button>
-              <div className="mt-1 flex flex-col gap-1">
-                {trail.deeper_leads!.map((lead, i) => (
-                  <span key={i} style={{ fontSize: 9, color: 'var(--muted)' }}>• {lead}</span>
+      {/* Analyze button — shown before analysis is done */}
+      {status === 'succeeded' && findings.length > 0 && !analysis && (
+        <div className="mt-3">
+          <ActionDrawer
+            label="Analyze"
+            icon="◈"
+            color="#f59e0b"
+            disabled={analyzing}
+            loading={analyzing}
+            loadingLabel="Analyzing..."
+            placeholder="Focus analysis on... (e.g., 'IT outsourcing needs in manufacturing')"
+            onRun={(context) => handleAnalyze(context)}
+          >
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+              {['comprehensive', 'entity_extraction', 'competitive', 'risk_assessment'].map(t => (
+                <button key={t}
+                  style={{
+                    fontSize: 9, padding: '2px 8px', borderRadius: 10,
+                    background: 'var(--panel)', border: '1px solid var(--border)',
+                    color: 'var(--muted)', cursor: 'pointer',
+                  }}
+                >
+                  {t.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+          </ActionDrawer>
+        </div>
+      )}
+
+      {/* Analysis output */}
+      {analysis && <AnalysisPanel analysis={analysis} />}
+
+      {/* Action buttons — shown AFTER analysis */}
+      {status === 'succeeded' && analysis && (
+        <div className="mt-3 flex flex-col gap-2"
+          style={{ background: 'var(--panel2)', border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}
+        >
+          <div className="text-[10px] font-semibold tracking-widest" style={{ color: 'var(--muted)' }}>
+            NEXT STEPS
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {/* Go Deeper — fed by analysis research gaps + enrichment targets */}
+            <ActionDrawer
+              label="Go Deeper"
+              icon="⬇"
+              color="#a78bfa"
+              disabled={goingDeeper}
+              loading={goingDeeper}
+              loadingLabel="Going deeper..."
+              placeholder="What to investigate deeper... (e.g., 'Focus on CEO contacts only')"
+              onRun={(context) => {
+                const leads: string[] = []
+                for (const gap of (analysis?.research_gaps ?? [])) {
+                  leads.push(`${gap.entity}: ${gap.missing}`)
+                }
+                for (const target of (analysis?.enrichment_targets ?? [])) {
+                  leads.push(`Enrich ${target.entity}: ${target.reason}`)
+                }
+                if (leads.length === 0 && trail.deeper_leads) {
+                  leads.push(...trail.deeper_leads)
+                }
+                if (context) {
+                  leads.unshift(`USER FOCUS: ${context}`)
+                }
+                if (leads.length === 0) {
+                  leads.push('Expand research based on analysis')
+                }
+                onGoDeeper(leads)
+              }}
+            >
+              {(analysis?.research_gaps?.length > 0 || analysis?.enrichment_targets?.length > 0) && (
+                <div style={{ marginTop: 6 }}>
+                  <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600 }}>Will investigate:</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 4 }}>
+                    {(analysis.research_gaps ?? []).slice(0, 3).map((gap: any, i: number) => (
+                      <span key={i} style={{ fontSize: 9, color: '#a78bfa' }}>• {gap.entity}: {gap.missing}</span>
+                    ))}
+                    {(analysis.enrichment_targets ?? []).slice(0, 3).map((t: any, i: number) => (
+                      <span key={i} style={{ fontSize: 9, color: '#60a5fa' }}>• {t.entity}: {t.reason}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </ActionDrawer>
+
+            {/* Re-Analyze */}
+            <ActionDrawer
+              label="Re-Analyze"
+              icon="◈"
+              color="#f59e0b"
+              disabled={analyzing}
+              loading={analyzing}
+              loadingLabel="Analyzing..."
+              placeholder="Focus analysis on... (e.g., 'IT outsourcing needs in manufacturing')"
+              onRun={(context) => handleAnalyze(context)}
+            >
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {['comprehensive', 'entity_extraction', 'competitive', 'risk_assessment'].map(t => (
+                  <button key={t}
+                    style={{
+                      fontSize: 9, padding: '2px 8px', borderRadius: 10,
+                      background: 'var(--panel)', border: '1px solid var(--border)',
+                      color: 'var(--muted)', cursor: 'pointer',
+                    }}
+                  >
+                    {t.replace('_', ' ')}
+                  </button>
                 ))}
               </div>
-            </div>
-          )}
+            </ActionDrawer>
 
-          {/* Save Pipeline */}
+            {/* Save Pipeline */}
+            {hasPipeline && (
+              <button
+                onClick={handleSavePipeline}
+                disabled={savingPipeline || pipelineSaved}
+                style={{
+                  background: pipelineSaved ? '#4ade8022' : '#60a5fa22',
+                  border: `1px solid ${pipelineSaved ? '#4ade8055' : '#60a5fa55'}`,
+                  color: pipelineSaved ? '#4ade80' : '#60a5fa',
+                  fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
+                  cursor: savingPipeline || pipelineSaved ? 'not-allowed' : 'pointer',
+                  opacity: savingPipeline ? 0.5 : 1,
+                }}
+              >
+                {pipelineSaved ? '✓ Saved' : savingPipeline ? '⟳ Saving...' : '⬆ Save Pipeline'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pre-analysis: show original Go Deeper (skip) + Save Pipeline if no analysis yet */}
+      {status === 'succeeded' && !analysis && (canGoDeeper || hasPipeline) && (
+        <div className="mt-2 flex gap-2">
+          {canGoDeeper && (
+            <button
+              onClick={() => onGoDeeper(trail.deeper_leads!)}
+              disabled={goingDeeper}
+              style={{
+                background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
+                fontSize: 10, padding: '4px 10px', borderRadius: 6,
+                cursor: goingDeeper ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {goingDeeper ? '⟳ ...' : '⬇ Go Deeper (skip analysis)'}
+            </button>
+          )}
           {hasPipeline && (
             <button
               onClick={handleSavePipeline}
               disabled={savingPipeline || pipelineSaved}
               style={{
-                background: pipelineSaved ? '#4ade8022' : '#60a5fa22',
-                border: `1px solid ${pipelineSaved ? '#4ade8055' : '#60a5fa55'}`,
-                color: pipelineSaved ? '#4ade80' : '#60a5fa',
-                fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
+                background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
+                fontSize: 10, padding: '4px 10px', borderRadius: 6,
                 cursor: savingPipeline || pipelineSaved ? 'not-allowed' : 'pointer',
-                opacity: savingPipeline ? 0.5 : 1,
-                alignSelf: 'flex-start',
               }}
             >
-              {pipelineSaved ? '✓ Pipeline Saved' : savingPipeline ? '⟳ Saving...' : '⬆ Save Pipeline'}
+              {pipelineSaved ? '✓ Saved' : '⬆ Save Pipeline'}
             </button>
           )}
         </div>
@@ -868,15 +1099,8 @@ export default function ResultsPanel() {
         {activeTab === 'Pipeline' && <PipelineTabContent />}
 
         {activeRunId && (
-          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-            {/* Run results */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
-              <PipelineRunResults runId={activeRunId} />
-            </div>
-            {/* Research flow visualization (collapsed by default, expands when events arrive) */}
-            <div style={{ borderTop: '1px solid var(--border)', maxHeight: '50%', overflowY: 'auto' }}>
-              <ResearchFlow runId={activeRunId} />
-            </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <PipelineRunResults runId={activeRunId} />
           </div>
         )}
       </div>
