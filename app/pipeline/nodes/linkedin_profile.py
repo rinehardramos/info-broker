@@ -10,6 +10,7 @@ from app.pipeline.nodes.base import RunContext
 log = logging.getLogger(__name__)
 
 _DEFAULT_ACTOR = "harvestapi~linkedin-profile-search"
+_FALLBACK_ACTOR = "dev_fusion~Linkedin-Profile-Scraper"
 
 
 class LinkedInProfileNode:
@@ -64,34 +65,42 @@ class LinkedInProfileNode:
                 setup_url="https://console.apify.com/account#/integrations",
                 setup_instructions="Add your Apify API token in Settings → Integrations.",
             )
-        # Verify the actor is accessible (permissions approved)
+        # Verify at least one actor has approved permissions
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                slug = _DEFAULT_ACTOR.replace("/", "~")
-                resp = await client.get(
-                    f"https://api.apify.com/v2/acts/{slug}",
-                    params={"token": key},
-                )
-                if resp.status_code == 403:
-                    return HealthStatus(
-                        healthy=False,
-                        error="Actor permissions not approved. Visit the actor page to grant access.",
-                        requires_key="APIFY_API_TOKEN",
-                        setup_url=f"https://console.apify.com/actors/{slug}",
-                        setup_instructions=(
-                            "1. Visit the actor page link above\n"
-                            "2. Click 'Try for free' or 'Start'\n"
-                            "3. Approve the permissions prompt\n"
-                            "4. Return here and re-check health"
-                        ),
+                approval_urls = []
+                any_ok = False
+                for actor in [_DEFAULT_ACTOR, _FALLBACK_ACTOR]:
+                    slug = actor.replace("/", "~")
+                    resp = await client.post(
+                        f"https://api.apify.com/v2/acts/{slug}/runs",
+                        params={"token": key, "timeout": 1, "memory": 128},
+                        json={"searchUrl": "https://www.linkedin.com/search/results/people/?keywords=test", "maxResults": 0},
+                        timeout=10,
                     )
-                if resp.status_code != 200:
+                    if resp.status_code == 403:
+                        url = resp.json().get("error", {}).get("data", {}).get("approvalUrl", "")
+                        if url:
+                            approval_urls.append(f"{actor}: {url}")
+                    elif resp.status_code in (200, 201):
+                        any_ok = True
+                        # Abort the test run
+                        run_id = resp.json().get("data", {}).get("id")
+                        if run_id:
+                            await client.post(f"https://api.apify.com/v2/actor-runs/{run_id}/abort", params={"token": key})
+                        break
+                if any_ok:
+                    pass  # at least one actor works
+                elif approval_urls:
                     return HealthStatus(
                         healthy=False,
-                        error=f"Apify actor check failed: HTTP {resp.status_code}",
+                        error="LinkedIn actor permissions not approved.",
                         requires_key="APIFY_API_TOKEN",
-                        setup_url="https://console.apify.com/account#/integrations",
-                        setup_instructions="Check your Apify API token and actor ID.",
+                        setup_url=approval_urls[0].split(": ", 1)[-1],
+                        setup_instructions=(
+                            "Approve permissions for the LinkedIn actor:\n"
+                            + "\n".join(approval_urls)
+                        ),
                     )
         except Exception as exc:
             return HealthStatus(
@@ -134,25 +143,38 @@ class LinkedInProfileNode:
         from app.pipeline.nodes.apify_actor import _actor_slug
 
         client = ApifyClient(api_key)
-        slug = _actor_slug(_DEFAULT_ACTOR)
-        log.info("LinkedInProfileNode: starting actor %s input=%s", slug, actor_input)
 
-        try:
-            run = client.actor(slug).call(run_input=actor_input)
-        except Exception as exc:
-            log.error("LinkedInProfileNode: actor call failed: %s", exc)
-            return [{"title": f"LinkedIn error: {exc}", "content": str(exc), "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
+        # Try primary actor, fall back to secondary
+        for actor in [_DEFAULT_ACTOR, _FALLBACK_ACTOR]:
+            slug = _actor_slug(actor)
+            log.info("LinkedInProfileNode: trying actor %s input=%s", slug, actor_input)
+            try:
+                # dev_fusion uses 'searchUrls' (list) instead of 'searchUrl' (string)
+                if "dev_fusion" in actor and "searchUrl" in actor_input:
+                    run_input = {**actor_input, "searchUrls": [actor_input["searchUrl"]]}
+                    run_input.pop("searchUrl", None)
+                else:
+                    run_input = actor_input
+                run = client.actor(slug).call(run_input=run_input)
+            except Exception as exc:
+                err = str(exc)
+                log.warning("LinkedInProfileNode: actor %s failed: %s", slug, err)
+                if "permission" in err.lower() or "approved" in err.lower():
+                    continue  # try fallback
+                return [{"title": f"LinkedIn error: {exc}", "content": err, "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
 
-        if not run:
-            return [{"title": "LinkedIn error: no run result", "content": "Apify actor returned no run result", "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
+            if not run:
+                continue
 
-        dataset_id = run.get("defaultDatasetId")
-        if not dataset_id:
-            return [{"title": "LinkedIn error: no dataset", "content": "Apify run has no dataset", "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
+            dataset_id = run.get("defaultDatasetId")
+            if not dataset_id:
+                continue
 
-        items = list(client.dataset(dataset_id).iterate_items())
-        log.info("LinkedInProfileNode: actor returned %d items", len(items))
-        return [_map_item(item) for item in items]
+            items = list(client.dataset(dataset_id).iterate_items())
+            log.info("LinkedInProfileNode: actor %s returned %d items", slug, len(items))
+            return [_map_item(item) for item in items]
+
+        return [{"title": "LinkedIn error: all actors require permission approval", "content": "Visit Apify console to approve actor permissions. Check Settings > Node Health for the approval URL.", "source": "linkedin_profile", "confidence": 0, "error_flagged": True}]
 
 
 def _build_linkedin_search_url(location: str, title_filter: str) -> str:
