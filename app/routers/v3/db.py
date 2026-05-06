@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     finished_at          TIMESTAMPTZ
 );
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS error_message TEXT;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS query TEXT;
 
 CREATE TABLE IF NOT EXISTS pipeline_step_runs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

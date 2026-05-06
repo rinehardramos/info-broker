@@ -114,7 +114,7 @@ const STEP_STATUS_COLOR: Record<string, string> = {
   failed:    '#ef4444',
 }
 
-function PipelineRunResults({ runId }: { runId: string }) {
+function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigateRun?: (newRunId: string) => void }) {
   const { data: run, isLoading } = useQuery({
     queryKey: ['pipeline-run', runId],
     queryFn: () => getPipelineRun(runId),
@@ -145,7 +145,8 @@ function PipelineRunResults({ runId }: { runId: string }) {
           setGoingDeeper(true)
           try {
             const deeper = leads.join('; ')
-            await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
+            const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
+            if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
           } finally {
             setGoingDeeper(false)
           }
@@ -191,13 +192,15 @@ function PipelineRunResults({ runId }: { runId: string }) {
             <button
               onClick={async () => {
                 try {
-                  await sendMessage('Retry the last research query', undefined, true)
+                  const query = run.query || 'Retry research'
+                  const resp = await sendMessage(query, undefined, true)
+                  if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
                 } catch {}
               }}
               className="px-3 py-1 rounded text-xs hover:opacity-80"
               style={{ background: 'var(--accent)', color: '#fff', border: 'none', cursor: 'pointer' }}
             >
-              Retry Research
+              Retry Research{run.query ? `: "${run.query.slice(0, 40)}${run.query.length > 40 ? '...' : ''}"` : ''}
             </button>
           </div>
         </div>
@@ -1162,7 +1165,10 @@ export default function ResultsPanel() {
 
         {activeRunId && (
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            <PipelineRunResults runId={activeRunId} />
+            <PipelineRunResults
+              runId={activeRunId}
+              onNavigateRun={(newRunId) => setActiveTab(`run:${newRunId}`)}
+            />
           </div>
         )}
       </div>

@@ -67,6 +67,7 @@ export interface PipelineRun {
   started_at: string
   finished_at: string | null
   error_message?: string | null
+  query?: string | null
 }
 
 export interface ResearchFinding {
@@ -162,6 +163,7 @@ export interface PipelineRunSummary {
   step_count: number
   steps_done: number
   error_message: string | null
+  query: string | null
 }
 
 export const listAllPipelineRuns = (): Promise<PipelineRunSummary[]> =>

@@ -267,6 +267,7 @@ def list_all_pipeline_runs(user: dict = Depends(get_current_user)):
             pr.started_at,
             pr.finished_at,
             pr.error_message,
+            pr.query,
             COUNT(psr.id)                                          AS step_count,
             COUNT(CASE WHEN psr.status IN ('succeeded','failed') THEN 1 END) AS steps_done
         FROM pipeline_runs pr

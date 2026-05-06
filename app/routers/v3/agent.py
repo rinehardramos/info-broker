@@ -275,11 +275,11 @@ async def send_message(
         # A pipeline_run record is created for UI tracking; research runs in background.
         fetch_one(
             """
-            INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
-            VALUES (%s, %s, %s, %s, 'queued', 'agent_is')
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type, query)
+            VALUES (%s, %s, %s, %s, 'queued', 'agent_is', %s)
             RETURNING *
             """,
-            (run_id, pipeline_id, uid, workflow_id),
+            (run_id, pipeline_id, uid, workflow_id, body.message),
         )
 
         # Fetch parent research trail for "Go Deeper" context

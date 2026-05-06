@@ -253,6 +253,7 @@ class PipelineRunOut(BaseModel):
     started_at: datetime
     finished_at: datetime | None
     error_message: str | None = None
+    query: str | None = None
 
 
 class ResearchTrailOut(BaseModel):
@@ -280,6 +281,7 @@ class PipelineRunSummaryOut(BaseModel):
     step_count: int
     steps_done: int
     error_message: str | None = None
+    query: str | None = None
 
 
 class NodeTypeOut(BaseModel):
