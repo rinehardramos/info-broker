@@ -37,6 +37,7 @@ dependencies = [
     "temporalio>=1.9.0",
     "hvac>=2.3.0",
     "mcp[cli]>=1.0",
+    "neo4j>=6.2.0",
 ]
 
 [project.optional-dependencies]

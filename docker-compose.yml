@@ -72,6 +72,9 @@ services:
       OPENBAO_SECRET_ID: ${OPENBAO_SECRET_ID:-}
       IS_MCP_CONFIG: /app/config/is-mcp-config.docker.json
       HOME: /root
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
     volumes:
       - claude_auth:/root/.claude
     ports:
@@ -87,6 +90,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
+      neo4j:
+        condition: service_healthy
 
   temporal:
     image: temporalio/auto-setup:1.24
@@ -110,6 +115,22 @@ services:
       - "8233:8080"
     depends_on:
       - temporal
+
+  neo4j:
+    image: neo4j:5-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-changeme}
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   temporal-worker:
     build: .
@@ -139,6 +160,9 @@ services:
       OPENBAO_ADDR: ${OPENBAO_ADDR:-}
       OPENBAO_ROLE_ID: ${OPENBAO_ROLE_ID:-}
       OPENBAO_SECRET_ID: ${OPENBAO_SECRET_ID:-}
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
     depends_on:
       - temporal
       - postgres
@@ -148,3 +172,4 @@ volumes:
   qdrant_data:
   postgres_data:
   claude_auth:
+  neo4j_data:
