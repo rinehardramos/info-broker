@@ -61,6 +61,13 @@ class NodeRegistry:
         from app.pipeline.nodes.analyzer import AnalyzerNode
         from app.pipeline.nodes.stripe_marketplace import StripeMarketplaceNode
         from app.pipeline.nodes.financial_projections import FinancialProjectionsNode
+        from app.pipeline.nodes.wayback_machine import WaybackMachineNode
+        from app.pipeline.nodes.ftc_foia import FtcFoiaNode
+        from app.pipeline.nodes.ibpap import IbpapNode
+        from app.pipeline.nodes.polish_krs import PolishKrsNode
+        from app.pipeline.nodes.sec_edgar import SecEdgarNode
+        from app.pipeline.nodes.glassdoor_reviews import GlassdoorReviewsNode
+        from app.pipeline.nodes.maven_gumroad import MavenGumroadNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -75,5 +82,7 @@ class NodeRegistry:
             ClutchBuyerNode(), HeadlessCrawlerNode(), PhBirNode(),
             AnalyzerNode(),
             StripeMarketplaceNode(), FinancialProjectionsNode(),
+            WaybackMachineNode(), FtcFoiaNode(), IbpapNode(), PolishKrsNode(),
+            SecEdgarNode(), GlassdoorReviewsNode(), MavenGumroadNode(),
         ]:
             cls.register(node)

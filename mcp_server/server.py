@@ -534,6 +534,103 @@ async def run_financial_projections(
 
 
 # ---------------------------------------------------------------------------
+# New pipeline node tools (wayback, ftc_foia, ibpap, polish_krs, sec_edgar,
+# glassdoor_reviews, maven_gumroad)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def run_wayback_machine(url: str, mode: str = "snapshots", limit: int = 10) -> str:
+    """Look up Wayback Machine snapshots or availability for a URL.
+
+    mode: 'snapshots' returns a list of archived snapshots; 'diff' returns the closest snapshot.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/wayback_machine/execute",
+        json={"url": url, "mode": mode, "limit": limit},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_ftc_foia(query: str, max_results: int = 10) -> str:
+    """Search FTC enforcement actions and regulatory records for a company or individual."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ftc_foia/execute",
+        json={"query": query, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_ibpap(query: str, max_results: int = 10) -> str:
+    """Search the IBPAP Philippine IT-BPM industry member directory."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ibpap/execute",
+        json={"query": query, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_polish_krs(query: str, max_results: int = 10) -> str:
+    """Look up a company in the Polish National Court Register (KRS).
+
+    query: company name or 10-digit KRS number.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/polish_krs/execute",
+        json={"query": query, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_sec_edgar(query: str, form_type: str = "all", max_results: int = 10) -> str:
+    """Search SEC EDGAR for US public company filings.
+
+    form_type: 10-K, 10-Q, 8-K, DEF 14A, or 'all'.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/sec_edgar/execute",
+        json={"query": query, "form_type": form_type, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_glassdoor_reviews(company: str, max_results: int = 10) -> str:
+    """Search Glassdoor for company reviews, ratings, and employee sentiment."""
+    result = await api_call(
+        "POST",
+        "/v3/nodes/glassdoor_reviews/execute",
+        json={"company": company, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_maven_gumroad(
+    query: str, platform: str = "both", max_results: int = 10
+) -> str:
+    """Search Maven and/or Gumroad for courses and digital products.
+
+    platform: 'maven', 'gumroad', or 'both'.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/maven_gumroad/execute",
+        json={"query": query, "platform": platform, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+# ---------------------------------------------------------------------------
 # Meta tools
 # ---------------------------------------------------------------------------
 
