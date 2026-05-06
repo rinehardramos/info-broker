@@ -81,9 +81,16 @@ async def execute_node(inp: ActivityInput) -> list[dict]:
     except Exception:
         pass
 
+    async def _push(event: dict) -> None:
+        try:
+            from app.routers.v3.stream import push_event
+            await push_event(inp.user_id, event)
+        except Exception:
+            pass
+
     try:
         node = NodeRegistry.get(inp.node.node_type)
-        ctx = RunContext(user_id=inp.user_id, run_id=inp.run_id, node_id=inp.node.node_id)
+        ctx = RunContext(user_id=inp.user_id, run_id=inp.run_id, node_id=inp.node.node_id, push_event=_push)
         timeout = int(inp.node.config.get("timeout_seconds", 60))
         try:
             result = await asyncio.wait_for(
@@ -140,9 +147,11 @@ async def execute_node(inp: ActivityInput) -> list[dict]:
 
 def _topo_sort(nodes: list[NodeSpec], edges: list[EdgeSpec]) -> list[list[NodeSpec]]:
     """Return layers of nodes in topological order (parallel nodes in same layer)."""
+    # Only "results" edges drive execution order; "tool" edges are config-only
+    result_edges = [e for e in edges if e.edge_type != "tool"]
     node_map = {n.node_id: n for n in nodes}
     deps: dict[str, set[str]] = {n.node_id: set() for n in nodes}
-    for edge in edges:
+    for edge in result_edges:
         if edge.target_node_id in deps:
             deps[edge.target_node_id].add(edge.source_node_id)
 
@@ -183,11 +192,35 @@ class PipelineWorkflow:
             (inp.run_id,),
         )
 
-        layers = _topo_sort(inp.nodes, inp.edges)
+        # Separate tool edges from execution edges
+        tool_edges = [e for e in inp.edges if e.edge_type == "tool"]
+        result_edges = [e for e in inp.edges if e.edge_type != "tool"]
+        tool_target_ids = {e.target_node_id for e in tool_edges}
 
-        # Build edge lookup: target_node_id → list of source_node_ids
+        # Build tool lookup: source_node_id → [{node_type, node_id, config}]
+        node_map = {n.node_id: n for n in inp.nodes}
+        tool_lookup: dict[str, list[dict]] = {}
+        for te in tool_edges:
+            target = node_map.get(te.target_node_id)
+            if target:
+                tool_lookup.setdefault(te.source_node_id, []).append({
+                    "node_type": target.node_type,
+                    "node_id": target.node_id,
+                    "config": target.config,
+                })
+
+        # Inject _tool_nodes into config of nodes that have outgoing tool edges
+        for node in inp.nodes:
+            if node.node_id in tool_lookup:
+                node.config["_tool_nodes"] = tool_lookup[node.node_id]
+
+        # Exclude tool-target nodes (datastores) from execution
+        executable_nodes = [n for n in inp.nodes if n.node_id not in tool_target_ids]
+        layers = _topo_sort(executable_nodes, result_edges)
+
+        # Build edge lookup: target_node_id → list of source_node_ids (results only)
         edge_lookup: dict[str, list[str]] = {}
-        for edge in inp.edges:
+        for edge in result_edges:
             edge_lookup.setdefault(edge.target_node_id, []).append(edge.source_node_id)
 
         # node_id → output items

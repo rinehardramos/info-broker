@@ -34,6 +34,16 @@ class NodeRegistry:
         from app.pipeline.nodes.ai_provider import AiProviderNode
         from app.pipeline.nodes.manual_scoring import ManualScoringNode
         from app.pipeline.nodes.aggregator import AggregatorNode
+        from app.pipeline.nodes.obsidian_vault import ObsidianVaultNode
+        from app.pipeline.nodes.local_files import LocalFilesNode
+        from app.pipeline.nodes.web_crawl import WebCrawlNode
+        from app.pipeline.nodes.intelligent_search import IntelligentSearchNode
+        from app.pipeline.nodes.summarizer import SummarizerNode
 
-        for node in [AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(), ApifyActorNode(), AiScoringNode(), AiProviderNode(), ManualScoringNode(), AggregatorNode()]:
+        for node in [
+            AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
+            ApifyActorNode(), AiScoringNode(), AiProviderNode(), ManualScoringNode(),
+            AggregatorNode(), ObsidianVaultNode(), LocalFilesNode(), WebCrawlNode(),
+            IntelligentSearchNode(), SummarizerNode(),
+        ]:
             cls.register(node)

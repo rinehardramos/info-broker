@@ -10,6 +10,17 @@ export type WsEvent = {
   status?: string
   result_count?: number
   message?: string
+  // intelligent_search events
+  call_id?: string
+  parent_call_id?: string | null
+  tool?: string
+  params?: Record<string, unknown>
+  call_count?: number
+  max_calls?: number
+  depth?: number
+  query?: string
+  result_preview?: string
+  spec?: Record<string, unknown>
 }
 
 type Handler = (event: WsEvent) => void

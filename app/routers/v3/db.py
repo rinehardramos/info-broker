@@ -187,6 +187,28 @@ ALTER TABLE pipelines DROP CONSTRAINT IF EXISTS ck_pipeline_owner;
 ALTER TABLE pipelines ADD CONSTRAINT ck_pipeline_owner CHECK ((user_id IS NOT NULL) OR (is_system = true));
 
 ALTER TABLE ui_preferences ADD COLUMN IF NOT EXISTS agent_pipeline_id UUID REFERENCES pipelines(id) ON DELETE SET NULL;
+
+CREATE TABLE IF NOT EXISTS plugin_requests (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    spec          JSONB NOT NULL,
+    status        VARCHAR(20) NOT NULL DEFAULT 'pending',
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    reviewed_at   TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS research_trails (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    run_id        UUID REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+    node_id       UUID REFERENCES pipeline_nodes(id) ON DELETE SET NULL,
+    query         TEXT NOT NULL,
+    entity_type   VARCHAR(64),
+    trail         JSONB NOT NULL DEFAULT '[]',
+    findings      JSONB NOT NULL DEFAULT '[]',
+    tool_calls    INT NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ DEFAULT now()
+);
 """
 
 

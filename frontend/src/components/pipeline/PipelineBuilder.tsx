@@ -1,12 +1,11 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   listPipelines, getPipeline, listNodeTypes, createPipeline, updatePipeline,
-  deletePipeline, startPipelineRun, cancelPipelineRun, listPipelineRuns, getPipelineRun,
+  deletePipeline,
   PipelineNodeOut, PipelineEdgeOut,
 } from '../../api/pipelines'
-import { useSessionStore } from '../../stores/sessionStore'
 import { ResizableSplit } from './ResizableSplit'
 import { StepList } from './StepList'
 import { DagPreview } from './DagPreview'
@@ -15,15 +14,22 @@ import { NodeConfigForm } from './NodeConfigForm'
 export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: string } = {}) {
   const qc = useQueryClient()
   const navigate = useNavigate()
-  const agentInput = useSessionStore(s => s.agentInput)
 
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(initialPipelineId ?? null)
   const [localNodes, setLocalNodes] = useState<PipelineNodeOut[]>([])
   const [localEdges, setLocalEdges] = useState<PipelineEdgeOut[]>([])
   const [localName, setLocalName] = useState('')
   const [localDesc, setLocalDesc] = useState('')
+  // Refs to hold latest state — handleSave may be called before React applies queued updates
+  const nodesRef = useRef(localNodes)
+  const edgesRef = useRef(localEdges)
+  const nameRef = useRef(localName)
+  const descRef = useRef(localDesc)
+  nodesRef.current = localNodes
+  edgesRef.current = localEdges
+  nameRef.current = localName
+  descRef.current = localDesc
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
-  const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
   const [creatingNew, setCreatingNew] = useState(false)
   const [newName, setNewName] = useState('')
@@ -38,19 +44,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     queryFn: () => getPipeline(selectedPipelineId!),
     enabled: !!selectedPipelineId,
   })
-  const { data: runs = [] } = useQuery({
-    queryKey: ['pipelineRuns', selectedPipelineId],
-    queryFn: () => listPipelineRuns(selectedPipelineId!),
-    enabled: !!selectedPipelineId,
-    refetchInterval: 5000,
-  })
-  const { data: activeRun } = useQuery({
-    queryKey: ['pipelineRun', activeRunId],
-    queryFn: () => getPipelineRun(activeRunId!),
-    enabled: !!activeRunId,
-    refetchInterval: activeRunId ? 3000 : false,
-  })
-
   const createMutation = useMutation({
     mutationFn: createPipeline,
     onSuccess: p => {
@@ -85,30 +78,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
       setConfirmDelete(false)
     },
   })
-  const [runError, setRunError] = useState<string | null>(null)
-  const runMutation = useMutation({
-    mutationFn: ({ id, variables }: { id: string; variables?: Record<string, string> }) =>
-      startPipelineRun(id, variables),
-    onSuccess: run => {
-      setRunError(null)
-      setActiveRunId(run.id)
-      qc.invalidateQueries({ queryKey: ['pipelineRuns', selectedPipelineId] })
-    },
-    onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { detail?: string } }; message?: string })
-        ?.response?.data?.detail ?? (err as { message?: string })?.message ?? 'Failed to start run'
-      setRunError(msg)
-    },
-  })
-  const cancelMutation = useMutation({
-    mutationFn: cancelPipelineRun,
-    onSuccess: () => {
-      setActiveRunId(null)
-      qc.invalidateQueries({ queryKey: ['pipelineRuns', selectedPipelineId] })
-      qc.invalidateQueries({ queryKey: ['pipelineRun', activeRunId] })
-    },
-  })
-
   // Load pipeline into local state when selected (useEffect avoids race with user interactions)
   const prevPipelineId = useRef<string | null>(null)
   useEffect(() => {
@@ -135,10 +104,50 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     : new Set<string>()
   const hiddenCategories = isAgentPipeline ? new Set(['source']) : new Set<string>()
 
+  // Sort nodes by topological order derived from edges so the step list numbers
+  // match the DAG execution order. Nodes at the same topological depth retain
+  // their relative insertion order (allowing move-up/down for unconnected nodes).
+  const topoSortedNodes = useMemo(() => {
+    // Only results edges affect execution order; tool edges are config-only
+    const resultEdges = localEdges.filter(e => e.edge_type !== 'tool')
+    if (resultEdges.length === 0) return localNodes
+    const inDegree = new Map(localNodes.map(n => [n.id, 0]))
+    const adj = new Map(localNodes.map(n => [n.id, [] as string[]]))
+    for (const e of resultEdges) {
+      inDegree.set(e.target_node_id, (inDegree.get(e.target_node_id) ?? 0) + 1)
+      adj.get(e.source_node_id)?.push(e.target_node_id)
+    }
+    const nodeMap = new Map(localNodes.map(n => [n.id, n]))
+    const queue = localNodes.filter(n => (inDegree.get(n.id) ?? 0) === 0)
+    const sorted: PipelineNodeOut[] = []
+    while (queue.length > 0) {
+      const node = queue.shift()!
+      sorted.push(node)
+      for (const tid of adj.get(node.id) ?? []) {
+        const deg = (inDegree.get(tid) ?? 1) - 1
+        inDegree.set(tid, deg)
+        if (deg === 0) { const t = nodeMap.get(tid); if (t) queue.push(t) }
+      }
+    }
+    const sortedIds = new Set(sorted.map(n => n.id))
+    return [...sorted, ...localNodes.filter(n => !sortedIds.has(n.id))]
+  }, [localNodes, localEdges])
+
   const handleAddNode = (nodeType: string) => {
     const nt = nodeTypes.find(t => t.node_type === nodeType)
     if (!nt) return
     setAddStepError(null)
+
+    // Datastore nodes are tool-only — add without auto-chaining edges
+    if (nt.category === 'datastore') {
+      const newNode: PipelineNodeOut = {
+        id: crypto.randomUUID(), node_type: nt.node_type, label: nt.display_name,
+        config: {}, category: nt.category, position_x: 0, position_y: 0,
+      }
+      setLocalNodes(prev => [...prev, newNode])
+      setDirty(true)
+      return
+    }
 
     // Read current state directly — event handlers always see the latest snapshot.
     // Avoids calling setLocalEdges as a side-effect inside a setLocalNodes updater,
@@ -210,18 +219,40 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   }
 
   const handleConfigChange = (nodeId: string, config: Record<string, unknown>) => {
-    setLocalNodes(prev => prev.map(n => n.id === nodeId ? { ...n, config } : n))
+    setLocalNodes(prev => {
+      const next = prev.map(n => n.id === nodeId ? { ...n, config } : n)
+      nodesRef.current = next  // Update ref immediately for handleSave
+      return next
+    })
     setDirty(true)
   }
 
   const handleMoveNode = (nodeId: string, direction: 'up' | 'down') => {
-    const idx = localNodes.findIndex(n => n.id === nodeId)
-    if (idx === -1) return
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (swapIdx < 0 || swapIdx >= localNodes.length) return
+    // Operate on the displayed (topo-sorted) order so the user sees consistent behaviour
+    const dispIdx = topoSortedNodes.findIndex(n => n.id === nodeId)
+    if (dispIdx === -1) return
+    const swapDispIdx = direction === 'up' ? dispIdx - 1 : dispIdx + 1
+    if (swapDispIdx < 0 || swapDispIdx >= topoSortedNodes.length) return
+
+    const displaced = topoSortedNodes[swapDispIdx]
+    const moved     = topoSortedNodes[dispIdx]
+
+    // Swap insertion order to match the new display order
     const next = [...localNodes]
-    ;[next[idx], next[swapIdx]] = [next[swapIdx], next[idx]]
+    const la = next.findIndex(n => n.id === displaced.id)
+    const lb = next.findIndex(n => n.id === moved.id)
+    ;[next[la], next[lb]] = [next[lb], next[la]]
     setLocalNodes(next)
+
+    // Reverse any direct edge between the two swapped nodes so topo sort
+    // reflects the user's intended order after the move
+    setLocalEdges(prev => prev.map(e => {
+      if (e.source_node_id === displaced.id && e.target_node_id === moved.id)
+        return { ...e, source_node_id: moved.id, target_node_id: displaced.id }
+      if (e.source_node_id === moved.id && e.target_node_id === displaced.id)
+        return { ...e, source_node_id: displaced.id, target_node_id: moved.id }
+      return e
+    }))
     setDirty(true)
   }
 
@@ -241,14 +272,34 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     setDirty(true)
   }
 
-  const handleSave = () => {
+  const handleToolEdgeChange = (sourceId: string, targetId: string, connected: boolean) => {
+    if (connected) {
+      const newEdge: PipelineEdgeOut = {
+        id: crypto.randomUUID(),
+        pipeline_id: selectedPipelineId ?? '',
+        source_node_id: sourceId,
+        target_node_id: targetId,
+        edge_type: 'tool',
+      }
+      setLocalEdges(prev => [...prev, newEdge])
+    } else {
+      setLocalEdges(prev => prev.filter(
+        e => !(e.source_node_id === sourceId && e.target_node_id === targetId && e.edge_type === 'tool')
+      ))
+    }
+    setDirty(true)
+  }
+
+  const handleSave = useCallback(() => {
     if (!selectedPipelineId) return
+    // Read from refs to avoid stale closure — onChange may have called
+    // setLocalNodes but React hasn't applied the update yet.
     updateMutation.mutate({
       id: selectedPipelineId,
       body: {
-        name: localName,
-        description: localDesc || null,
-        nodes: localNodes.map(n => ({
+        name: nameRef.current,
+        description: descRef.current || null,
+        nodes: nodesRef.current.map(n => ({
           id: n.id,
           node_type: n.node_type,
           label: n.label,
@@ -256,14 +307,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
           position_x: n.position_x,
           position_y: n.position_y,
         })),
-        edges: localEdges.map(e => ({
+        edges: edgesRef.current.map(e => ({
           source_node_id: e.source_node_id,
           target_node_id: e.target_node_id,
           edge_type: e.edge_type,
         })),
       },
     })
-  }
+  }, [selectedPipelineId, updateMutation])
 
   const handleCreateSubmit = () => {
     const name = newName.trim()
@@ -276,23 +327,14 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     })
   }
 
-  const handleRun = () => {
-    if (!selectedPipelineId) return
-    runMutation.mutate({ id: selectedPipelineId, variables: agentInput ? { agent_input: agentInput } : undefined })
-  }
-
   const handleDelete = () => {
     if (!selectedPipelineId) return
     deleteMutation.mutate(selectedPipelineId)
   }
 
-  const isRunning = activeRun?.status === 'running'
-  const stepRuns = activeRun?.steps ?? []
   const sourceCount = localNodes.filter(n => n.category === 'source' && n.node_type !== 'aggregator').length
   const hasAggregator = localNodes.some(n => n.node_type === 'aggregator')
-  const hasSource = sourceCount > 0
   const needsAggregator = sourceCount > 1 && !hasAggregator
-  const noSourceHint = selectedPipelineId && localNodes.length > 0 && !hasSource
   const editingNode = editingNodeId ? localNodes.find(n => n.id === editingNodeId) ?? null : null
   const editingNodeType = editingNode ? nodeTypes.find(t => t.node_type === editingNode.node_type) : null
 
@@ -318,7 +360,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   )
   const invalidCount = invalidNodeIds.size
   const canSave = !!selectedPipelineId && invalidCount === 0
-  const canRun = !!selectedPipelineId && !isRunning && hasSource && !needsAggregator && invalidCount === 0
 
 
   return (
@@ -330,7 +371,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
           {pipelines.map(p => (
             <div
               key={p.id}
-              onClick={() => { setSelectedPipelineId(p.id); setActiveRunId(null); setCreatingNew(false); navigate(`/pipelines/${p.id}`, { replace: true }) }}
+              onClick={() => { setSelectedPipelineId(p.id); setCreatingNew(false); navigate(`/pipelines/${p.id}`, { replace: true }) }}
               style={{
                 padding: '8px 10px',
                 cursor: 'pointer',
@@ -421,26 +462,21 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
             left={
               <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
                 <StepList
-                  nodes={localNodes}
-                  stepRuns={stepRuns}
+                  nodes={topoSortedNodes}
                   nodeTypes={nodeTypes}
                   selectedNodeId={editingNodeId}
                   invalidNodeIds={invalidNodeIds}
                   lockedNodeIds={lockedNodeIds}
+                  toolNodeIds={new Set(localEdges.filter(e => e.edge_type === 'tool').map(e => e.target_node_id))}
                   hiddenCategories={hiddenCategories}
                   onSelect={setEditingNodeId}
                   onRemove={handleRemoveNode}
                   onMoveUp={id => handleMoveNode(id, 'up')}
                   onMoveDown={id => handleMoveNode(id, 'down')}
                   onAdd={handleAddNode}
-                  readOnly={isRunning || isSystemPipeline}
+                  readOnly={isSystemPipeline}
                 />
                 {/* Action buttons pinned below the step list */}
-                {noSourceHint && (
-                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#facc15', background: '#facc1511', borderTop: '1px solid #facc1533' }}>
-                    Add a source step before running
-                  </div>
-                )}
                 {needsAggregator && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
                     Multiple sources require an Aggregator step
@@ -454,11 +490,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                 {invalidCount > 0 && dirty && (
                   <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
                     {invalidCount} step{invalidCount > 1 ? 's' : ''} have required fields missing
-                  </div>
-                )}
-                {runError && (
-                  <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411', borderTop: '1px solid #ef444433' }}>
-                    {runError}
                   </div>
                 )}
                 {confirmDelete && !isSystemPipeline ? (
@@ -498,23 +529,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                     >
                       Save{dirty ? ' *' : ''}
                     </button>
-                    {isRunning ? (
-                      <button
-                        onClick={() => activeRunId && cancelMutation.mutate(activeRunId)}
-                        disabled={cancelMutation.isPending}
-                        style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#ef4444', border: 'none', borderRadius: 4, color: '#fff', fontWeight: 700, cursor: 'pointer', opacity: cancelMutation.isPending ? 0.6 : 1 }}
-                      >
-                        {cancelMutation.isPending ? 'Stopping...' : 'Stop'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => { setRunError(null); handleRun() }}
-                        disabled={!canRun}
-                        style={{ flex: 1, padding: '5px 0', fontSize: 11, background: '#60a5fa', border: 'none', borderRadius: 4, color: '#0d1117', fontWeight: 700, cursor: canRun ? 'pointer' : 'default', opacity: canRun ? 1 : 0.4 }}
-                      >
-                        Run
-                      </button>
-                    )}
                     {selectedPipelineId && !isSystemPipeline && (
                       <button
                         onClick={() => setConfirmDelete(true)}
@@ -528,7 +542,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
               </div>
             }
             right={
-              <DagPreview nodes={localNodes} edges={localEdges} stepRuns={stepRuns} />
+              <DagPreview nodes={localNodes} edges={localEdges} />
             }
           />
           {editingNode && editingNodeType && (
@@ -541,6 +555,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
               nodes={localNodes}
               edges={localEdges}
               onEdgeChange={handleEdgeChange}
+              onToolEdgeChange={handleToolEdgeChange}
             />
           )}
         </div>

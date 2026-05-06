@@ -38,7 +38,8 @@ services:
       VITE_API_TARGET: http://info-broker-api:8000
       VITE_WS_URL: ws://localhost:8000/v3/stream
     depends_on:
-      - info-broker-api
+      info-broker-api:
+        condition: service_healthy
 
   info-broker-api:
     build: .
@@ -55,6 +56,9 @@ services:
       QDRANT_PORT: 6333
       LLM_PROVIDER: ${LLM_PROVIDER:-google}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_REGION: ${S3_REGION:-auto}
@@ -62,8 +66,18 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       TEMPORAL_HOST: ${TEMPORAL_HOST:-temporal}
       TEMPORAL_PORT: ${TEMPORAL_PORT:-7233}
+      OPENBAO_ADDR: ${OPENBAO_ADDR:-}
+      OPENBAO_ROLE_ID: ${OPENBAO_ROLE_ID:-}
+      OPENBAO_SECRET_ID: ${OPENBAO_SECRET_ID:-}
+      IS_MCP_CONFIG: /app/config/is-mcp-config.docker.json
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
@@ -108,6 +122,9 @@ services:
       QDRANT_PORT: 6333
       LLM_PROVIDER: ${LLM_PROVIDER:-google}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_REGION: ${S3_REGION:-auto}
@@ -115,6 +132,9 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       TEMPORAL_HOST: temporal
       TEMPORAL_PORT: 7233
+      OPENBAO_ADDR: ${OPENBAO_ADDR:-}
+      OPENBAO_ROLE_ID: ${OPENBAO_ROLE_ID:-}
+      OPENBAO_SECRET_ID: ${OPENBAO_SECRET_ID:-}
     depends_on:
       - temporal
       - postgres

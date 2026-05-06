@@ -6,6 +6,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   enrich: '#a78bfa',
   score: '#4ade80',
   filter: '#fb923c',
+  datastore: '#f472b6',
 }
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
   nodes?: PipelineNodeOut[]
   edges?: PipelineEdgeOut[]
   onEdgeChange?: (sourceId: string, targetId: string, connected: boolean) => void
+  onToolEdgeChange?: (sourceId: string, targetId: string, connected: boolean) => void
 }
 
 type FieldSchema = {
@@ -30,7 +32,7 @@ type FieldSchema = {
   items?: { type?: string }
 }
 
-export function NodeConfigForm({ node, schema, onChange, onClose, onDone, nodes, edges, onEdgeChange }: Props) {
+export function NodeConfigForm({ node, schema, onChange, onClose, onDone, nodes, edges, onEdgeChange, onToolEdgeChange }: Props) {
   const properties = (schema.properties ?? {}) as Record<string, FieldSchema>
   const required = (schema.required ?? []) as string[]
   const [config, setConfig] = useState<Record<string, unknown>>({ ...node.config })
@@ -170,13 +172,13 @@ export function NodeConfigForm({ node, schema, onChange, onClose, onDone, nodes,
           )
         })}
 
-        {/* Outputs — connect this node to downstream steps */}
-        {nodes && nodes.filter(n => n.id !== node.id).length > 0 && (
+        {/* Outputs — connect this node to downstream steps (source nodes are never valid targets) */}
+        {nodes && nodes.filter(n => n.id !== node.id && n.category !== 'source').length > 0 && (
           <div style={{ marginTop: 16, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', letterSpacing: '0.08em', marginBottom: 10 }}>
               OUTPUTS
             </div>
-            {nodes.filter(n => n.id !== node.id).map(other => {
+            {nodes.filter(n => n.id !== node.id && n.category !== 'source').map(other => {
               const connected = edges?.some(e => e.source_node_id === node.id && e.target_node_id === other.id) ?? false
               const color = CATEGORY_COLORS[other.category] ?? '#60a5fa'
               return (
@@ -196,6 +198,44 @@ export function NodeConfigForm({ node, schema, onChange, onClose, onDone, nodes,
                       border: `1px solid ${connected ? '#4ade80' : '#334155'}`,
                       background: connected ? '#14532d33' : 'transparent',
                       color: connected ? '#4ade80' : '#64748b',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {connected ? 'Connected' : 'Connect'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* TOOLS — connect datastore nodes as tools for intelligent search */}
+        {node.node_type === 'intelligent_search' && nodes && nodes.filter(n => n.category === 'datastore').length > 0 && (
+          <div style={{ marginTop: 16, borderTop: '1px solid #1e293b', paddingTop: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', letterSpacing: '0.08em', marginBottom: 10 }}>
+              TOOLS
+            </div>
+            {nodes.filter(n => n.category === 'datastore').map(other => {
+              const connected = edges?.some(
+                e => e.source_node_id === node.id && e.target_node_id === other.id && (e as any).edge_type === 'tool'
+              ) ?? false
+              return (
+                <div key={other.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 8, color: '#f472b6', flexShrink: 0 }}>●</span>
+                    <span style={{ fontSize: 11, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {other.label}
+                    </span>
+                    <span style={{ fontSize: 9, color: '#f472b6', flexShrink: 0 }}>DATASTORE</span>
+                  </div>
+                  <button
+                    data-testid={`tool-connect-${other.node_type}`}
+                    onClick={() => onToolEdgeChange?.(node.id, other.id, !connected)}
+                    style={{
+                      fontSize: 10, padding: '2px 10px', borderRadius: 20, flexShrink: 0, marginLeft: 6,
+                      border: `1px solid ${connected ? '#f472b6' : '#334155'}`,
+                      background: connected ? '#f472b622' : 'transparent',
+                      color: connected ? '#f472b6' : '#64748b',
                       cursor: 'pointer',
                     }}
                   >

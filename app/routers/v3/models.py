@@ -79,6 +79,7 @@ class MonitorOut(BaseModel):
 class AgentMessageIn(BaseModel):
     message: str
     context_job_id: str | None = None
+    use_intelligent_search: bool = False
 
 
 class AgentMessageOut(BaseModel):
@@ -252,8 +253,17 @@ class PipelineRunOut(BaseModel):
     finished_at: datetime | None
 
 
+class ResearchTrailOut(BaseModel):
+    query: str
+    entity_type: str | None
+    findings: list[dict]
+    trail: dict
+    tool_calls: int
+
+
 class PipelineRunDetailOut(PipelineRunOut):
     steps: list[PipelineStepRunOut]
+    research: ResearchTrailOut | None = None
 
 
 class PipelineRunSummaryOut(BaseModel):
@@ -273,3 +283,15 @@ class NodeTypeOut(BaseModel):
     display_name: str
     category: str
     config_schema: dict
+
+
+class PluginRequestOut(BaseModel):
+    id: UUID
+    spec: dict
+    status: str
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
+class PluginRequestStatusIn(BaseModel):
+    status: str  # "approved" | "rejected" | "implemented"

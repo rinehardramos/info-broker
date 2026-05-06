@@ -68,8 +68,43 @@ export interface PipelineRun {
   finished_at: string | null
 }
 
+export interface ResearchFinding {
+  source?: string
+  title?: string
+  content?: string
+  url?: string
+  confidence?: number
+  branch?: string
+  depth?: number
+}
+
+export interface ResearchTrail {
+  query: string
+  entity_type: string | null
+  findings: ResearchFinding[]
+  trail: {
+    total_branches?: number
+    resolved?: number
+    dead_ends?: number
+    needs_tool?: number
+    max_depth_reached?: number
+    can_go_deeper?: boolean
+    deeper_leads?: string[]
+    branches?: Array<{
+      name: string
+      status: string
+      depth: number
+      findings_count: number
+      tools_used: string[]
+      reason?: string
+    }>
+  }
+  tool_calls: number
+}
+
 export interface PipelineRunDetail extends PipelineRun {
   steps: PipelineStepRun[]
+  research?: ResearchTrail | null
 }
 
 export interface NodeType {

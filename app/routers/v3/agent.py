@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
@@ -103,8 +106,75 @@ def set_agent_pipeline(body: AgentPipelineIn, user: dict = Depends(get_current_u
 
 
 # ---------------------------------------------------------------------------
+# Intelligent search — Claude Code brain (no Temporal, no pipeline nodes)
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
 # Agent message — triggers pipeline run via Temporal
 # ---------------------------------------------------------------------------
+
+async def _run_is_research(run_id: str, uid: str, pipeline_id: str, query: str) -> None:
+    """Background task: run IS brain and push WS events."""
+    from app.routers.v3.stream import push_event
+
+    await push_event(uid, {
+        "type": "job.update", "job_id": run_id, "status": "running",
+        "run_id": run_id, "message": query,
+    })
+
+    try:
+        from app.is_brain import run_research
+
+        result = await run_research(query=query, user_id=uid)
+
+        execute(
+            """INSERT INTO research_trails (id, user_id, run_id, query, entity_type, trail, findings, tool_calls)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (str(uuid.uuid4()), uid, run_id, query,
+             result.get("entity_type", "unknown"),
+             json.dumps(result.get("tree", {})),
+             json.dumps(result.get("findings", [])),
+             result.get("tree", {}).get("total_branches", 0)),
+        )
+
+        for plugin in result.get("suggested_plugins", []):
+            execute(
+                "INSERT INTO plugin_requests (id, user_id, spec, status) VALUES (%s, %s, %s, 'pending')",
+                (str(uuid.uuid4()), uid, json.dumps(plugin)),
+            )
+
+        execute(
+            "UPDATE pipeline_runs SET status = 'succeeded', finished_at = now() WHERE id = %s",
+            (run_id,),
+        )
+
+        summary = result.get("summary", "Research complete.")
+        findings_count = len(result.get("findings", []))
+        await push_event(uid, {
+            "type": "job.completed", "job_id": run_id, "status": "succeeded",
+            "run_id": run_id,
+            "message": f"{summary[:200]}{'...' if len(summary) > 200 else ''} ({findings_count} findings)",
+        })
+        # Also notify Live panel's pipeline section
+        await push_event(uid, {
+            "type": "pipeline.run.complete", "run_id": run_id, "status": "succeeded",
+        })
+    except Exception as exc:
+        log.error("IS Brain failed: %s", exc)
+        execute(
+            "UPDATE pipeline_runs SET status = 'failed', finished_at = now() WHERE id = %s",
+            (run_id,),
+        )
+        await push_event(uid, {
+            "type": "job.failed", "job_id": run_id, "status": "failed",
+            "run_id": run_id,
+            "message": f"Research failed: {str(exc)[:200]}",
+        })
+        await push_event(uid, {
+            "type": "pipeline.run.complete", "run_id": run_id, "status": "failed",
+        })
+
 
 @router.post("/message", response_model=AgentMessageOut, status_code=202)
 async def send_message(
@@ -118,37 +188,73 @@ async def send_message(
     pipeline_row = _get_active_pipeline(uid)
     pipeline_id = str(pipeline_row["id"])
 
-    nodes_rows = fetch_all(
-        "SELECT * FROM pipeline_nodes WHERE pipeline_id = %s ORDER BY position_y, position_x",
-        (pipeline_id,),
-    )
-    edges_rows = fetch_all(
-        "SELECT * FROM pipeline_edges WHERE pipeline_id = %s",
-        (pipeline_id,),
-    )
-
     run_id = str(uuid.uuid4())
     workflow_id = f"pipeline-{run_id}"
 
-    fetch_one(
-        """
-        INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
-        VALUES (%s, %s, %s, %s, 'queued', 'agent')
-        RETURNING *
-        """,
-        (run_id, pipeline_id, uid, workflow_id),
-    )
-    for node in nodes_rows:
-        execute(
-            "INSERT INTO pipeline_step_runs (id, run_id, node_id, status) VALUES (%s, %s, %s, 'pending')",
-            (str(uuid.uuid4()), run_id, str(node["id"])),
+    if body.use_intelligent_search:
+        # IS bypasses the pipeline entirely — runs Claude Code as a subprocess brain.
+        # A pipeline_run record is created for UI tracking; research runs in background.
+        fetch_one(
+            """
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
+            VALUES (%s, %s, %s, %s, 'queued', 'agent_is')
+            RETURNING *
+            """,
+            (run_id, pipeline_id, uid, workflow_id),
         )
 
-    def _node_config(node: dict) -> dict:
-        cfg = dict(node["config"] or {})
-        if node["node_type"] == "agent_input":
-            cfg["message"] = body.message
-        return cfg
+        # Fire and forget — research runs async, pushes WS events when done.
+        asyncio.create_task(_run_is_research(run_id, uid, pipeline_id, body.message))
+
+        return AgentMessageOut(job_id=run_id)
+
+    else:
+        nodes_rows = fetch_all(
+            "SELECT * FROM pipeline_nodes WHERE pipeline_id = %s ORDER BY position_y, position_x",
+            (pipeline_id,),
+        )
+        edges_rows = fetch_all(
+            "SELECT * FROM pipeline_edges WHERE pipeline_id = %s",
+            (pipeline_id,),
+        )
+
+        fetch_one(
+            """
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
+            VALUES (%s, %s, %s, %s, 'queued', 'agent')
+            RETURNING *
+            """,
+            (run_id, pipeline_id, uid, workflow_id),
+        )
+        for node in nodes_rows:
+            execute(
+                "INSERT INTO pipeline_step_runs (id, run_id, node_id, status) VALUES (%s, %s, %s, 'pending')",
+                (str(uuid.uuid4()), run_id, str(node["id"])),
+            )
+
+        def _node_config(node: dict) -> dict:
+            cfg = dict(node["config"] or {})
+            if node["node_type"] == "agent_input":
+                cfg["message"] = body.message
+            return cfg
+
+        nodes = [
+            NodeSpec(
+                node_id=str(n["id"]),
+                node_type=n["node_type"],
+                label=n["label"],
+                config=_node_config(n),
+            )
+            for n in nodes_rows
+        ]
+        edges = [
+            EdgeSpec(
+                source_node_id=str(e["source_node_id"]),
+                target_node_id=str(e["target_node_id"]),
+                edge_type=e["edge_type"],
+            )
+            for e in edges_rows
+        ]
 
     host = os.getenv("TEMPORAL_HOST", "localhost")
     port = int(os.getenv("TEMPORAL_PORT", "7233"))
@@ -158,23 +264,8 @@ async def send_message(
             run_id=run_id,
             user_id=uid,
             pipeline_id=pipeline_id,
-            nodes=[
-                NodeSpec(
-                    node_id=str(n["id"]),
-                    node_type=n["node_type"],
-                    label=n["label"],
-                    config=_node_config(n),
-                )
-                for n in nodes_rows
-            ],
-            edges=[
-                EdgeSpec(
-                    source_node_id=str(e["source_node_id"]),
-                    target_node_id=str(e["target_node_id"]),
-                    edge_type=e["edge_type"],
-                )
-                for e in edges_rows
-            ],
+            nodes=nodes,
+            edges=edges,
             temporal_host=host,
             temporal_port=port,
         )

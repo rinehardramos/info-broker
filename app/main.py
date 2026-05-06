@@ -61,6 +61,11 @@ async def lifespan(app: FastAPI):
     import os
     import psycopg2
 
+    # Load secrets from OpenBao before any os.getenv() calls.
+    # No-op if OPENBAO_ADDR is not set (falls back to .env).
+    from app.secrets import load_secrets
+    load_secrets("info-broker")
+
     _log = logging.getLogger(__name__)
 
     # Build connection kwargs — prefer DATABASE_URL, fall back to individual vars.
@@ -147,6 +152,8 @@ from app.routers.v3.jobs import router as v3_jobs_router  # noqa: E402
 from app.routers.v3.stream import router as v3_stream_router  # noqa: E402
 from app.routers.v3.apify import router as v3_apify_router  # noqa: E402
 from app.routers.v3.pipelines import router as v3_pipelines_router  # noqa: E402
+from app.routers.v3.nodes_api import router as v3_nodes_router  # noqa: E402
+from app.routers.v3.research_api import router as v3_research_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -157,3 +164,5 @@ app.include_router(v3_jobs_router)
 app.include_router(v3_stream_router)
 app.include_router(v3_apify_router)
 app.include_router(v3_pipelines_router)
+app.include_router(v3_nodes_router)
+app.include_router(v3_research_router)

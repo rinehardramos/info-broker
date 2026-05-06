@@ -1,14 +1,109 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
-import { getJob, getJobResults, gradeResult } from '../../api/v3'
-import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun } from '../../api/pipelines'
-import NewsCard from './NewsCard'
-import GradeBar from './GradeBar'
+import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, type ResearchTrail } from '../../api/pipelines'
+import { sendMessage } from '../../api/v3'
+import { ResearchFlow } from './ResearchFlow'
 
-type Tab = 'Pipeline' | 'News' | 'Summary' | 'Profiles' | 'Social'
-const TABS: Tab[] = ['Pipeline', 'News', 'Summary', 'Profiles', 'Social']
+// Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
+type Tab = 'Pipeline' | `run:${string}`
+
+// ---------------------------------------------------------------------------
+// SwipeToDelete — swipe left to reveal delete action
+// ---------------------------------------------------------------------------
+
+const SWIPE_THRESHOLD = 80
+const SWIPE_DEAD_ZONE = 10
+
+function SwipeToDelete({ children, onDelete }: { children: React.ReactNode; onDelete: () => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+
+    let startX = 0
+    let currentX = 0
+    let swiped = false
+
+    function begin(x: number) {
+      startX = x; currentX = 0; swiped = false
+      el.style.transition = ''
+    }
+    function move(x: number) {
+      const dx = x - startX
+      currentX = Math.min(0, dx)
+      if (currentX < -SWIPE_DEAD_ZONE) swiped = true
+      if (swiped) el.style.transform = `translateX(${currentX}px)`
+    }
+    function end() {
+      if (swiped && currentX < -SWIPE_THRESHOLD) {
+        el.style.transition = 'transform 0.2s ease, opacity 0.2s ease'
+        el.style.transform = 'translateX(-100%)'
+        el.style.opacity = '0'
+        setTimeout(onDelete, 200)
+      } else if (swiped) {
+        el.style.transition = 'transform 0.2s ease'
+        el.style.transform = 'translateX(0)'
+      }
+      const wasSwiped = swiped
+      swiped = false
+      setTimeout(() => { el.style.transition = '' }, 250)
+      return wasSwiped
+    }
+
+    // --- Touch events (mobile) ---
+    const onTouchStart = (e: TouchEvent) => begin(e.touches[0].clientX)
+    const onTouchMove = (e: TouchEvent) => move(e.touches[0].clientX)
+    const onTouchEnd = () => end()
+
+    // --- Mouse events (desktop) — mousedown/move/up don't block click synthesis ---
+    let mouseDown = false
+    const onMouseDown = (e: MouseEvent) => { mouseDown = true; begin(e.clientX) }
+    const onMouseMove = (e: MouseEvent) => { if (mouseDown) move(e.clientX) }
+    const onMouseUp = () => { mouseDown = false; end() }
+    // Block click only if a swipe happened (capture phase, before React handlers)
+    const onClickCapture = (e: MouseEvent) => {
+      if (swiped) { e.stopPropagation(); e.preventDefault() }
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: true })
+    el.addEventListener('touchend', onTouchEnd)
+    el.addEventListener('mousedown', onMouseDown)
+    el.addEventListener('mousemove', onMouseMove)
+    el.addEventListener('mouseup', onMouseUp)
+    el.addEventListener('click', onClickCapture, true)
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('mousedown', onMouseDown)
+      el.removeEventListener('mousemove', onMouseMove)
+      el.removeEventListener('mouseup', onMouseUp)
+      el.removeEventListener('click', onClickCapture, true)
+    }
+  }, [onDelete])
+
+  return (
+    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 6 }}>
+      {/* Delete label behind the card */}
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+        justifyContent: 'flex-end', paddingRight: 16,
+        background: '#7f1d1d', color: '#fca5a5', fontSize: 11, fontWeight: 700,
+        borderRadius: 6,
+      }}>
+        DELETE
+      </div>
+      <div ref={ref} style={{ position: 'relative' }}>
+        {children}
+      </div>
+    </div>
+  )
+}
 
 const STEP_STATUS_COLOR: Record<string, string> = {
   pending:   'var(--muted)',
@@ -26,6 +121,7 @@ function PipelineRunResults({ runId }: { runId: string }) {
       return status === 'running' || status === 'queued' ? 3000 : false
     },
   })
+  const [goingDeeper, setGoingDeeper] = useState(false)
 
   if (isLoading) {
     return <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>Loading…</p>
@@ -33,6 +129,26 @@ function PipelineRunResults({ runId }: { runId: string }) {
 
   if (!run) {
     return <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>Run not found.</p>
+  }
+
+  // IS research run
+  if (run.trigger_type === 'agent_is' && run.research) {
+    return (
+      <ResearchResults
+        research={run.research}
+        status={run.status}
+        goingDeeper={goingDeeper}
+        onGoDeeper={async (leads) => {
+          setGoingDeeper(true)
+          try {
+            const deeper = leads.join('; ')
+            await sendMessage(`Go deeper: ${deeper}`, undefined, true)
+          } finally {
+            setGoingDeeper(false)
+          }
+        }}
+      />
+    )
   }
 
   const totalItems = run.steps.reduce((sum, s) => sum + s.item_count, 0)
@@ -119,12 +235,214 @@ function PipelineRunResults({ runId }: { runId: string }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// IS Research Results
+// ---------------------------------------------------------------------------
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  high: '#4ade80',
+  medium: '#facc15',
+  low: '#f87171',
+}
+
+function confidenceLevel(score: number): 'high' | 'medium' | 'low' {
+  if (score >= 75) return 'high'
+  if (score >= 50) return 'medium'
+  return 'low'
+}
+
+function ResearchResults({
+  research,
+  status,
+  goingDeeper,
+  onGoDeeper,
+}: {
+  research: ResearchTrail
+  status: string
+  goingDeeper: boolean
+  onGoDeeper: (leads: string[]) => void
+}) {
+  const { findings, trail } = research
+  const canGoDeeper = trail.can_go_deeper && (trail.deeper_leads?.length ?? 0) > 0
+
+  return (
+    <div className="p-3">
+      {/* Header */}
+      <div
+        className="rounded p-3 mb-3 text-xs"
+        style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <span style={{ fontSize: 8, color: STEP_STATUS_COLOR[status] ?? 'var(--muted)' }}>◆</span>
+          <span style={{ color: '#a78bfa', fontWeight: 700, fontSize: 10 }}>Intelligent Search</span>
+          <span style={{ color: STEP_STATUS_COLOR[status] ?? 'var(--muted)', fontSize: 10 }}>
+            {status}
+          </span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--subtext)', marginTop: 4 }}>
+          {research.query}
+        </div>
+        {research.entity_type && research.entity_type !== 'unknown' && (
+          <span
+            style={{
+              display: 'inline-block', marginTop: 4, fontSize: 9, fontWeight: 600,
+              background: '#a78bfa22', color: '#a78bfa', padding: '1px 6px', borderRadius: 4,
+            }}
+          >
+            {research.entity_type}
+          </span>
+        )}
+      </div>
+
+      {/* Tree stats */}
+      {trail.total_branches != null && trail.total_branches > 0 && (
+        <div className="flex gap-3 mb-3 text-[9px]" style={{ color: 'var(--muted)' }}>
+          <span>{trail.total_branches} branches</span>
+          <span style={{ color: '#4ade80' }}>{trail.resolved} resolved</span>
+          {(trail.dead_ends ?? 0) > 0 && <span style={{ color: '#f87171' }}>{trail.dead_ends} dead ends</span>}
+          {(trail.needs_tool ?? 0) > 0 && <span style={{ color: '#fb923c' }}>{trail.needs_tool} needs tool</span>}
+          <span>depth {trail.max_depth_reached}</span>
+        </div>
+      )}
+
+      {/* Findings */}
+      <div className="text-[10px] font-semibold mb-2 tracking-widest" style={{ color: 'var(--muted)' }}>
+        FINDINGS ({findings.length})
+      </div>
+      <div className="flex flex-col gap-2 mb-3">
+        {findings.length === 0 && (
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>
+            {status === 'running' ? 'Searching...' : 'No findings.'}
+          </p>
+        )}
+        {findings.map((f, i) => {
+          const conf = f.confidence ?? 0
+          const level = confidenceLevel(conf)
+          return (
+            <div
+              key={i}
+              className="rounded p-3 text-xs"
+              style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  color: CONFIDENCE_COLORS[level],
+                }}>
+                  {conf}%
+                </span>
+                <span style={{ color: 'var(--subtext)', fontWeight: 600 }}>
+                  {f.title ?? 'Finding'}
+                </span>
+                {f.branch && (
+                  <span style={{ color: 'var(--muted)', fontSize: 9, marginLeft: 'auto' }}>
+                    {f.branch} d{f.depth}
+                  </span>
+                )}
+              </div>
+              {f.content && (
+                <p style={{ color: 'var(--muted)', fontSize: 10, lineHeight: 1.4, marginTop: 4 }}>
+                  {f.content.slice(0, 300)}{f.content.length > 300 ? '...' : ''}
+                </p>
+              )}
+              <div className="flex items-center gap-2 mt-2" style={{ fontSize: 9, color: 'var(--muted)' }}>
+                {f.source && <span>{f.source}</span>}
+                {f.url && (
+                  <a
+                    href={f.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#60a5fa', textDecoration: 'none' }}
+                  >
+                    link
+                  </a>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Branches */}
+      {trail.branches && trail.branches.length > 0 && (
+        <>
+          <div className="text-[10px] font-semibold mb-2 tracking-widest" style={{ color: 'var(--muted)' }}>
+            BRANCHES
+          </div>
+          <div className="flex flex-wrap gap-1 mb-3">
+            {trail.branches.map((b, i) => {
+              const statusColor = b.status === 'fruit' ? '#4ade80'
+                : b.status === 'dead_end' ? '#f87171'
+                : b.status === 'needs_tool' ? '#fb923c'
+                : '#facc15'
+              return (
+                <span
+                  key={i}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 9, padding: '2px 6px', borderRadius: 4,
+                    background: `${statusColor}11`, color: statusColor, border: `1px solid ${statusColor}33`,
+                  }}
+                  title={b.reason ?? b.status}
+                >
+                  {b.name} ({b.findings_count})
+                </span>
+              )
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Go Deeper button */}
+      {canGoDeeper && status === 'succeeded' && (
+        <div className="mt-2">
+          <div className="text-[9px] mb-1" style={{ color: 'var(--muted)' }}>
+            {trail.deeper_leads!.length} lead{trail.deeper_leads!.length > 1 ? 's' : ''} for deeper investigation
+          </div>
+          <button
+            onClick={() => onGoDeeper(trail.deeper_leads!)}
+            disabled={goingDeeper}
+            style={{
+              background: '#a78bfa22', border: '1px solid #a78bfa55', color: '#a78bfa',
+              fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
+              cursor: goingDeeper ? 'not-allowed' : 'pointer', opacity: goingDeeper ? 0.5 : 1,
+            }}
+          >
+            {goingDeeper ? '⟳ Going deeper...' : '⬇ Go Deeper'}
+          </button>
+          <div className="mt-2 flex flex-col gap-1">
+            {trail.deeper_leads!.map((lead, i) => (
+              <span key={i} style={{ fontSize: 9, color: 'var(--muted)' }}>• {lead}</span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 function PipelineTabContent() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const col1Content = useSessionStore(s => s.col1Content)
   const setCol1Content = useSessionStore(s => s.setCol1Content)
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [runError, setRunError] = useState<{ id: string; message: string } | null>(null)
+  const [lockedIds, setLockedIds] = useState<Set<string>>(() => {
+    try {
+      const stored = window.localStorage?.getItem('locked_pipelines')
+      return stored ? new Set(JSON.parse(stored)) : new Set()
+    } catch { return new Set() }
+  })
+
+  const toggleLock = useCallback((id: string) => {
+    setLockedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      try { window.localStorage?.setItem('locked_pipelines', JSON.stringify([...next])) } catch {}
+      return next
+    })
+  }, [])
 
   const { data: pipelines = [] } = useQuery({ queryKey: ['pipelines'], queryFn: listPipelines })
   const { data: allRuns = [] } = useQuery({
@@ -134,17 +452,25 @@ function PipelineTabContent() {
   })
 
   const startRun = useMutation({
-    mutationFn: startPipelineRun,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] }),
+    mutationFn: (id: string) => startPipelineRun(id),
+    onSuccess: () => {
+      setRunError(null)
+      qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] })
+    },
+    onError: (err: unknown, pipelineId: string) => {
+      const axios = err as { response?: { data?: { detail?: string }; status?: number } }
+      const detail = axios.response?.data?.detail
+        || (err instanceof Error ? err.message : 'Failed to run pipeline')
+      setRunError({ id: pipelineId, message: detail })
+    },
   })
   const pauseRun = useMutation({
     mutationFn: cancelPipelineRun,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] }),
   })
-  const deleteRun = useMutation({
+  const deleteMut = useMutation({
     mutationFn: deletePipeline,
     onSuccess: () => {
-      setConfirmDeleteId(null)
       qc.invalidateQueries({ queryKey: ['pipelines'] })
       qc.invalidateQueries({ queryKey: ['pipeline-runs-all'] })
     },
@@ -185,245 +511,313 @@ function PipelineTabContent() {
         const activeRun = allRuns.find(
           r => r.pipeline_id === pipeline.id && (r.status === 'running' || r.status === 'queued'),
         )
+        const latestRun = allRuns.find(r => r.pipeline_id === pipeline.id)
         const isSelected = runId && allRuns.find(r => r.id === runId && r.pipeline_id === pipeline.id)
-        const isConfirming = confirmDeleteId === pipeline.id
+        const isLocked = pipeline.is_system || lockedIds.has(pipeline.id)
+        const hasIS = allRuns.some(r => r.pipeline_id === pipeline.id && r.trigger_type === 'agent_is')
+
+        const handleNameClick = () => {
+          if (latestRun) {
+            setCol1Content({ type: 'pipeline_run', runId: latestRun.id })
+          }
+          // No navigate() fallback — edit button handles navigation
+        }
+
+        const rowContent = (
+          <div
+            data-testid={`pipeline-row-${pipeline.id}`}
+            className="flex items-center px-3 py-2 rounded"
+            style={{
+              background: isSelected ? 'var(--panel2)' : 'var(--panel)',
+              border: `1px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+              gap: 8,
+            }}
+          >
+            {/* Action buttons — leftmost for thumb access */}
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              {activeRun ? (
+                <button
+                  title="Pause (cancel run)"
+                  onClick={(e) => { e.stopPropagation(); pauseRun.mutate(activeRun.id) }}
+                  disabled={pauseRun.isPending}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#facc15' }}
+                >
+                  ⏸
+                </button>
+              ) : (
+                <button
+                  title="Run pipeline"
+                  onClick={(e) => { e.stopPropagation(); startRun.mutate(pipeline.id) }}
+                  disabled={startRun.isPending}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#4ade80' }}
+                >
+                  ▶
+                </button>
+              )}
+              <button
+                title="Reset (clear selection)"
+                onClick={() => setCol1Content(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--muted)' }}
+              >
+                ↺
+              </button>
+            </div>
+            {/* Pipeline name — click to show latest run results */}
+            <span
+              className="text-xs font-medium truncate"
+              style={{ color: 'var(--text)', cursor: 'pointer', flex: 1 }}
+              onClick={handleNameClick}
+            >
+              {pipeline.name}
+            </span>
+            {/* IS badge */}
+            {hasIS && (
+              <span
+                style={{
+                  fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+                  background: '#7c3aed22', color: '#a78bfa', border: '1px solid #7c3aed44',
+                  flexShrink: 0,
+                }}
+              >
+                IS
+              </span>
+            )}
+            {/* Edit pipeline button */}
+            <button
+              title="Edit pipeline"
+              onClick={(e) => { e.stopPropagation(); navigate(`/pipelines/${pipeline.id}`) }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', flexShrink: 0 }}
+            >
+              ✎
+            </button>
+            {/* Lock toggle */}
+            <button
+              title={isLocked ? 'Unlock pipeline' : 'Lock pipeline'}
+              onClick={() => { if (!pipeline.is_system) toggleLock(pipeline.id) }}
+              style={{
+                background: 'none', border: 'none', cursor: pipeline.is_system ? 'default' : 'pointer',
+                fontSize: 12, color: isLocked ? '#facc15' : 'var(--muted)', flexShrink: 0,
+                opacity: pipeline.is_system ? 0.6 : 1,
+              }}
+            >
+              {isLocked ? '🔒' : '🔓'}
+            </button>
+          </div>
+        )
+
+        const error = runError?.id === pipeline.id ? runError.message : null
 
         return (
           <div key={pipeline.id} className="mb-2">
-            <div
-              className="flex items-center justify-between px-3 py-2 rounded"
-              style={{
-                background: isSelected ? 'var(--panel2)' : 'var(--panel)',
-                border: `1px solid ${isConfirming ? '#ef4444' : isSelected ? 'var(--accent)' : 'var(--border)'}`,
-              }}
-            >
-              <span
-                className="text-xs font-medium truncate"
-                style={{ color: 'var(--text)', cursor: 'pointer', flex: 1 }}
-                onClick={() => navigate(`/pipelines/${pipeline.id}`)}
-              >
-                {pipeline.name}
-              </span>
-              <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                {!isConfirming && (
-                  <>
-                    {activeRun ? (
-                      <button
-                        title="Pause (cancel run)"
-                        onClick={() => pauseRun.mutate(activeRun.id)}
-                        disabled={pauseRun.isPending}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#facc15' }}
-                      >
-                        ⏸
-                      </button>
-                    ) : (
-                      <button
-                        title="Run pipeline"
-                        onClick={() => startRun.mutate(pipeline.id)}
-                        disabled={startRun.isPending}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#4ade80' }}
-                      >
-                        ▶
-                      </button>
-                    )}
-                    <button
-                      title="Reset (clear selection)"
-                      onClick={() => setCol1Content(null)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'var(--muted)' }}
-                    >
-                      ↺
-                    </button>
-                    <button
-                      title="Delete pipeline"
-                      onClick={() => setConfirmDeleteId(pipeline.id)}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#f87171' }}
-                    >
-                      🗑
-                    </button>
-                  </>
-                )}
-                {isConfirming && (
-                  <>
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      style={{
-                        fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                        background: 'transparent', border: '1px solid var(--border)',
-                        color: 'var(--muted)', cursor: 'pointer',
-                      }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => deleteRun.mutate(pipeline.id)}
-                      disabled={deleteRun.isPending}
-                      style={{
-                        fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
-                        background: '#7f1d1d', border: '1px solid #ef4444',
-                        color: '#fca5a5', cursor: 'pointer', opacity: deleteRun.isPending ? 0.6 : 1,
-                      }}
-                    >
-                      {deleteRun.isPending ? 'Deleting…' : 'Delete'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            {isConfirming && (
+            {isLocked ? rowContent : (
+              <SwipeToDelete onDelete={() => deleteMut.mutate(pipeline.id)}>
+                {rowContent}
+              </SwipeToDelete>
+            )}
+            {error && (
               <div
-                className="px-3 py-1 text-[10px] rounded-b"
-                style={{ background: '#7f1d1d22', color: '#fca5a5', border: '1px solid #ef444433', borderTop: 'none', marginTop: -2 }}
+                className="px-3 py-1.5 text-[10px] rounded-b"
+                style={{
+                  background: '#ef444415', color: '#f87171',
+                  border: '1px solid #ef444433', borderTop: 'none', marginTop: -2,
+                }}
+                onClick={() => setRunError(null)}
+                title="Click to dismiss"
               >
-                This will permanently delete "{pipeline.name}" and all its runs.
+                {error}
               </div>
             )}
           </div>
         )
       })}
 
-      {runId && (
-        <div className="mt-4">
-          <div className="text-[10px] font-semibold mb-2 tracking-widest" style={{ color: 'var(--muted)' }}>
-            RUN RESULTS
-          </div>
-          <PipelineRunResults runId={runId} />
-        </div>
-      )}
+      {/* Always show create button */}
+      <button
+        onClick={() => navigate('/pipelines')}
+        style={{
+          width: '100%',
+          padding: '8px 0',
+          fontSize: 11,
+          fontWeight: 600,
+          borderRadius: 6,
+          background: 'transparent',
+          color: 'var(--accent)',
+          border: '1px dashed var(--border)',
+          cursor: 'pointer',
+          marginTop: 4,
+        }}
+      >
+        + Create Pipeline
+      </button>
     </div>
   )
 }
 
 export default function ResultsPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('Pipeline')
+  const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(new Set())
+  const tabBarRef = useRef<HTMLDivElement>(null)
   const col1Content = useSessionStore(s => s.col1Content)
+  const setCol1Content = useSessionStore(s => s.setCol1Content)
 
-  // Auto-switch to Pipeline tab when a pipeline run is selected
+  const { data: runs = [] } = useQuery({
+    queryKey: ['all-pipeline-runs'],
+    queryFn: listAllPipelineRuns,
+    refetchInterval: 5000,
+  })
+
+  // Keep the most recent runs as dynamic tabs (running first, then latest completed)
+  // Dismissed tabs are excluded unless they become active again (e.g. clicked from Live panel)
+  const runTabs = runs
+    .filter(r => !dismissedTabs.has(r.id))
+    .sort((a, b) => {
+      if (a.status === 'running' && b.status !== 'running') return -1
+      if (b.status === 'running' && a.status !== 'running') return 1
+      return new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
+    })
+    .slice(0, 8)
+
+  // Auto-switch to run tab when a pipeline run or job is selected from LiveStream.
+  // Also un-dismiss the tab if it was previously closed.
   useEffect(() => {
-    if (col1Content?.type === 'pipeline_run') setActiveTab('Pipeline')
+    if (col1Content?.type === 'pipeline_run') {
+      setDismissedTabs(prev => { const n = new Set(prev); n.delete(col1Content.runId); return n })
+      setActiveTab(`run:${col1Content.runId}`)
+    } else if (col1Content?.type === 'job') {
+      setDismissedTabs(prev => { const n = new Set(prev); n.delete(col1Content.jobId); return n })
+      setActiveTab(`run:${col1Content.jobId}`)
+    }
   }, [col1Content])
 
-  const { data: job } = useQuery({
-    queryKey: ['job', col1Content?.type === 'job' ? col1Content.jobId : null],
-    queryFn: () => getJob((col1Content as { type: 'job'; jobId: string }).jobId),
-    enabled: col1Content?.type === 'job' && !!col1Content?.jobId,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status
-      return status === 'running' || status === 'pending' ? 3000 : false
-    },
-  })
+  const activeRunId = activeTab.startsWith('run:') ? activeTab.slice(4) : null
 
-  const { data: results = [] } = useQuery({
-    queryKey: ['job-results', col1Content?.type === 'job' ? col1Content.jobId : null],
-    queryFn: () => getJobResults((col1Content as { type: 'job'; jobId: string }).jobId),
-    enabled: col1Content?.type === 'job' && !!col1Content?.jobId && job?.status === 'completed',
-  })
+  // If the active run ID isn't in runTabs yet (e.g. freshly created from a Live panel click
+  // before the next 5 s refetch), synthesise a placeholder tab so the button appears.
+  const tabsToRender = activeRunId && !runTabs.find(r => r.id === activeRunId)
+    ? [...runTabs, { id: activeRunId, pipeline_name: 'Run', status: 'queued', started_at: new Date().toISOString() }]
+    : runTabs
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-3 gap-1 pt-2 pb-1" style={{ borderBottom: '1px solid var(--border)' }}>
-        {TABS.map(tab => (
+      {/* Tab bar with scroll arrows */}
+      <div style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
+        {/* Scroll left */}
+        <button
+          onClick={() => tabBarRef.current?.scrollBy({ left: -120, behavior: 'smooth' })}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 10, color: 'var(--muted)', padding: '4px 2px', flexShrink: 0,
+          }}
+          title="Scroll tabs left"
+        >
+          ◂
+        </button>
+
+        {/* Scrollable tab area */}
+        <div
+          ref={tabBarRef}
+          className="flex items-center gap-1 py-1"
+          style={{ flex: 1, overflowX: 'auto', scrollbarWidth: 'none' }}
+        >
+          {/* Pipeline tab (static, no close button) */}
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className="px-2 py-1 rounded text-[11px] font-medium transition-colors"
+            onClick={() => setActiveTab('Pipeline')}
+            className="px-2 py-1 rounded text-[11px] font-medium transition-colors flex-shrink-0"
             style={{
-              background: activeTab === tab ? 'var(--panel2)' : 'transparent',
-              color:      activeTab === tab ? 'var(--accent)' : 'var(--muted)',
-              border:     activeTab === tab ? '1px solid var(--border)' : '1px solid transparent',
+              background: activeTab === 'Pipeline' ? 'var(--panel2)' : 'transparent',
+              color:      activeTab === 'Pipeline' ? 'var(--accent)' : 'var(--muted)',
+              border:     activeTab === 'Pipeline' ? '1px solid var(--border)' : '1px solid transparent',
               cursor: 'pointer',
             }}
           >
-            {tab}
+            Pipeline
           </button>
-        ))}
-        {job && (
-          <span className="ml-auto text-[10px] truncate max-w-[40%]" style={{ color: 'var(--subtext)' }}>
-            {job.query}
-          </span>
-        )}
+
+          {/* Dynamic run tabs with close button */}
+          {tabsToRender.map(run => {
+            const tabId: Tab = `run:${run.id}`
+            const isActive = activeTab === tabId
+            const statusDot = run.status === 'running' ? '#facc15' : run.status === 'succeeded' ? '#4ade80' : run.status === 'failed' ? '#ef4444' : '#475569'
+            return (
+              <div
+                key={run.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0,
+                  background: isActive ? 'var(--panel2)' : 'transparent',
+                  border: isActive ? '1px solid var(--border)' : '1px solid transparent',
+                  borderRadius: 6, paddingLeft: 8, paddingRight: 2,
+                  maxWidth: 150,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setActiveTab(tabId)
+                    setCol1Content({ type: 'pipeline_run', runId: run.id })
+                  }}
+                  className="text-[10px] font-medium flex-shrink-0"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0',
+                    color: isActive ? 'var(--accent)' : 'var(--muted)',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    overflow: 'hidden',
+                  }}
+                  title={`${run.pipeline_name} — ${run.status}`}
+                >
+                  <span style={{ fontSize: 6, color: statusDot }}>●</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {run.pipeline_name?.slice(0, 14) ?? 'Run'}
+                  </span>
+                </button>
+                {/* Close tab */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDismissedTabs(prev => new Set(prev).add(run.id))
+                    if (isActive) setActiveTab('Pipeline')
+                  }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: 9, color: 'var(--muted)', padding: '2px 4px',
+                    lineHeight: 1, borderRadius: 3,
+                  }}
+                  title="Close tab"
+                  onMouseEnter={e => { e.currentTarget.style.color = '#ef4444' }}
+                  onMouseLeave={e => { e.currentTarget.style.color = 'var(--muted)' }}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Scroll right */}
+        <button
+          onClick={() => tabBarRef.current?.scrollBy({ left: 120, behavior: 'smooth' })}
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 10, color: 'var(--muted)', padding: '4px 2px', flexShrink: 0,
+          }}
+          title="Scroll tabs right"
+        >
+          ▸
+        </button>
       </div>
 
+      {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'Pipeline' && <PipelineTabContent />}
 
-        {activeTab === 'News' && (
-          <div className="p-3">
-            {!col1Content && (
-              <div className="text-center mt-16">
-                <p className="text-xs" style={{ color: 'var(--muted)' }}>
-                  Send a message to the agent or tap a job in the live stream.
-                </p>
-              </div>
-            )}
-
-            {col1Content?.type === 'job' && (
-              <div>
-                {job && (
-                  <p className="text-[10px] mb-3" style={{ color: 'var(--subtext)' }}>
-                    {job.status === 'running' || job.status === 'pending'
-                      ? '⟳ Research in progress…'
-                      : `${job.status} — ${results.length} results`}
-                  </p>
-                )}
-                {results.map(r => (
-                  <div key={r.id} className="mb-3">
-                    <NewsCard
-                      item={{
-                        id: r.id,
-                        title: r.title,
-                        url: r.url ?? undefined,
-                        snippet: r.snippet ?? undefined,
-                        source_name: r.source,
-                      }}
-                    />
-                    <GradeBar
-                      resultId={r.id}
-                      jobId={(col1Content as { type: 'job'; jobId: string }).jobId}
-                      initialGrade={r.grade}
-                      onGrade={(resultId, grade) => {
-                        gradeResult((col1Content as { type: 'job'; jobId: string }).jobId, resultId, grade).catch(() => {})
-                      }}
-                    />
-                  </div>
-                ))}
-                {job?.status === 'completed' && results.length === 0 && (
-                  <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>No results found.</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'Summary' && (
-          <div className="p-3">
-            {col1Content?.type === 'job' && (
-              <div className="text-xs p-3 rounded" style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}>
-                {job ? (
-                  <>
-                    <div className="font-semibold mb-2" style={{ color: 'var(--accent)' }}>{job.query}</div>
-                    <div className="mb-1" style={{ color: 'var(--subtext)' }}>Status: {job.status}</div>
-                    <div style={{ color: 'var(--subtext)' }}>Results: {results.length}</div>
-                    {results.filter(r => r.source === 'qdrant').length > 0 && (
-                      <div className="mt-2 text-[10px]" style={{ color: 'var(--muted)' }}>
-                        {results.filter(r => r.source === 'qdrant').length} results from Qdrant memory
-                      </div>
-                    )}
-                  </>
-                ) : 'Loading…'}
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'Profiles' && (
-          <div className="p-3">
-            <p className="text-[10px]" style={{ color: 'var(--muted)' }}>Profile results appear here when LinkedIn plugin is active.</p>
-          </div>
-        )}
-
-        {activeTab === 'Social' && (
-          <div className="p-3">
-            <p className="text-[10px]" style={{ color: 'var(--muted)' }}>Social crawl results appear here.</p>
+        {activeRunId && (
+          <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            {/* Run results */}
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <PipelineRunResults runId={activeRunId} />
+            </div>
+            {/* Research flow visualization (collapsed by default, expands when events arrive) */}
+            <div style={{ borderTop: '1px solid var(--border)', maxHeight: '50%', overflowY: 'auto' }}>
+              <ResearchFlow runId={activeRunId} />
+            </div>
           </div>
         )}
       </div>

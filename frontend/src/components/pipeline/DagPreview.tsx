@@ -13,6 +13,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   enrich: '#a78bfa',
   score: '#4ade80',
   filter: '#fb923c',
+  datastore: '#f472b6',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,10 +30,12 @@ interface Props {
 }
 
 function topoLayers(nodes: PipelineNodeOut[], edges: PipelineEdgeOut[]): PipelineNodeOut[][] {
+  // Only results edges drive execution order; tool edges are rendered separately
+  const resultEdges = edges.filter(e => (e as any).edge_type !== 'tool')
   const validIds = new Set(nodes.map(n => n.id))
   const deps: Record<string, Set<string>> = {}
   for (const n of nodes) deps[n.id] = new Set()
-  for (const e of edges) {
+  for (const e of resultEdges) {
     // Only track deps for edges where both ends are valid nodes
     if (deps[e.target_node_id] && validIds.has(e.source_node_id)) {
       deps[e.target_node_id].add(e.source_node_id)
@@ -87,9 +90,10 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
 
   const svgHeight = maxY + 40
 
-  // Sentinel positions — centered on their connected nodes
-  const incomingIds = new Set(edges.map(e => e.target_node_id))
-  const outgoingIds = new Set(edges.map(e => e.source_node_id))
+  // Sentinel positions — centered on their connected nodes (results edges only)
+  const resultEdgesOnly = edges.filter(e => (e as any).edge_type !== 'tool')
+  const incomingIds = new Set(resultEdgesOnly.map(e => e.target_node_id))
+  const outgoingIds = new Set(resultEdgesOnly.map(e => e.source_node_id))
   const rootNodes = nodes.filter(n => !incomingIds.has(n.id))
   const leafNodes = nodes.filter(n => !outgoingIds.has(n.id))
 
@@ -106,7 +110,8 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
   const svgWidth = endX + SENTINEL_W + 20
 
   // Collect unique edge colors so we can define one arrowhead marker per color
-  const edgeColors = new Set<string>([SENTINEL_COLOR])
+  const TOOL_EDGE_COLOR = '#f472b6'
+  const edgeColors = new Set<string>([SENTINEL_COLOR, TOOL_EDGE_COLOR])
   edges.forEach(edge => {
     const step = stepMap[edge.target_node_id]
     edgeColors.add(step ? STATUS_COLORS[step.status] ?? '#475569' : '#334155')
@@ -194,6 +199,7 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
 
       {/* Edges */}
       {edges.map(edge => {
+        const isTool = (edge as any).edge_type === 'tool'
         const src = positions[edge.source_node_id]
         const tgt = positions[edge.target_node_id]
         if (!src || !tgt) return null
@@ -203,18 +209,27 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
         const x2 = tgt.x - 1
         const y2 = tgt.y + NODE_H / 2
         const step = stepMap[edge.target_node_id]
-        const color = step ? STATUS_COLORS[step.status] ?? '#475569' : '#334155'
+        const color = isTool ? TOOL_EDGE_COLOR : (step ? STATUS_COLORS[step.status] ?? '#475569' : '#334155')
         const markerId = `arrow-${color.replace('#', '')}`
+        const midX = (x1 + x2) / 2
+        const midY = (y1 + y2) / 2
         return (
-          <path
-            key={edge.id}
-            d={`M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`}
-            fill="none"
-            stroke={color}
-            strokeWidth={2}
-            opacity={0.8}
-            markerEnd={`url(#${markerId})`}
-          />
+          <g key={edge.id}>
+            <path
+              d={`M${x1},${y1} C${midX},${y1} ${midX},${y2} ${x2},${y2}`}
+              fill="none"
+              stroke={color}
+              strokeWidth={isTool ? 1.5 : 2}
+              strokeDasharray={isTool ? '6 3' : undefined}
+              opacity={0.8}
+              markerEnd={`url(#${markerId})`}
+            />
+            {isTool && (
+              <text x={midX} y={midY - 6} textAnchor="middle" fill={TOOL_EDGE_COLOR} fontSize={8} fontWeight={600}>
+                TOOL
+              </text>
+            )}
+          </g>
         )
       })}
 

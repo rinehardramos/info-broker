@@ -12,8 +12,15 @@ FROM python:3.11-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         ffmpeg \
+        curl \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install yt-dlp
+
+# Install Node.js (for Claude Code CLI)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g @anthropic-ai/claude-code
 
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv

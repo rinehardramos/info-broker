@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
+from app.crypto import decrypt_value, encrypt_value
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.models import CoreSettingIn, CoreSettingsOut
@@ -13,13 +14,14 @@ router = APIRouter(prefix="/v3/settings", tags=["v3-settings"])
 def get_core_settings(user: dict = Depends(get_current_user)):
     rows = fetch_all("SELECT key, value, is_secret FROM core_settings")
     return CoreSettingsOut(
-        settings={r["key"]: (None if r["is_secret"] else r["value"]) for r in rows}
+        settings={r["key"]: (None if r["is_secret"] else decrypt_value(r["value"])) for r in rows}
     )
 
 
 @router.put("/core", response_model=CoreSettingsOut)
 def update_core_settings(body: list[CoreSettingIn], user: dict = Depends(get_current_user)):
     for item in body:
+        stored_value = encrypt_value(item.value) if item.is_secret else item.value
         execute(
             """
             INSERT INTO core_settings (key, value, is_secret)
@@ -27,11 +29,11 @@ def update_core_settings(body: list[CoreSettingIn], user: dict = Depends(get_cur
             ON CONFLICT (key) DO UPDATE
             SET value = EXCLUDED.value, is_secret = EXCLUDED.is_secret, updated_at = now()
             """,
-            (item.key, item.value, item.is_secret),
+            (item.key, stored_value, item.is_secret),
         )
     rows = fetch_all("SELECT key, value, is_secret FROM core_settings")
     return CoreSettingsOut(
-        settings={r["key"]: (None if r["is_secret"] else r["value"]) for r in rows}
+        settings={r["key"]: (None if r["is_secret"] else decrypt_value(r["value"])) for r in rows}
     )
 
 

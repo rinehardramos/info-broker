@@ -14,16 +14,18 @@ interface Props {
 
 export default function PipelineRunItem({ run }: Props) {
   const setCol1Content = useSessionStore(s => s.setCol1Content)
-  const isTerminal = run.status === 'succeeded' || run.status === 'failed'
+  const isClickable = run.status !== 'queued'
 
   const handleClick = () => {
-    if (isTerminal) {
+    if (isClickable) {
       setCol1Content({ type: 'pipeline_run', runId: run.id })
     }
   }
 
-  const progress =
-    run.step_count > 0
+  const isIS = run.trigger_type === 'agent_is'
+  const progress = isIS
+    ? (run.status === 'running' ? 'researching…' : 'IS research')
+    : run.step_count > 0
       ? `${run.steps_done}/${run.step_count} steps`
       : 'no steps'
 
@@ -34,7 +36,7 @@ export default function PipelineRunItem({ run }: Props) {
       style={{
         background: 'var(--panel2)',
         border: '1px solid var(--border)',
-        cursor: isTerminal ? 'pointer' : 'default',
+        cursor: isClickable ? 'pointer' : 'default',
         opacity: run.status === 'queued' ? 0.6 : 1,
       }}
     >

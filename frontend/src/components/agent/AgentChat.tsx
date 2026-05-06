@@ -18,6 +18,7 @@ export default function AgentChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
+  const [useIntelligentSearch, setUseIntelligentSearch] = useState(false)
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
   const bottomRef               = useRef<HTMLDivElement>(null)
 
@@ -39,7 +40,7 @@ export default function AgentChat() {
             : m,
         ),
       )
-      if (event.message && event.type === 'job.completed') {
+      if (event.message && (event.type === 'job.completed' || event.type === 'job.failed')) {
         setMessages(prev => [
           ...prev,
           { id: `agent-${++_msgCounter}`, role: 'agent', content: event.message! },
@@ -65,7 +66,7 @@ export default function AgentChat() {
     setMessages(prev => [...prev, userMsg])
 
     try {
-      const result = await sendMessage(text, activeJobId ?? undefined)
+      const result = await sendMessage(text, activeJobId ?? undefined, useIntelligentSearch)
       setMessages(prev => [
         ...prev,
         { id: result.job_id, role: 'agent', content: `Research started…`, status: 'pending' },
@@ -95,17 +96,34 @@ export default function AgentChat() {
         style={{ color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}
       >
         <span>Agent</span>
-        {activePipeline && (
-          <span
-            style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}
-            title="Active pipeline — change in Settings"
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {activePipeline && (
+            <span
+              style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}
+              title="Active pipeline — change in Settings"
+            >
+              {activePipeline.pipeline_name}
+              {activePipeline.is_system && (
+                <span style={{ color: '#60a5fa', marginLeft: 3 }}>[Default]</span>
+              )}
+            </span>
+          )}
+          <button
+            onClick={() => setUseIntelligentSearch(prev => !prev)}
+            title={useIntelligentSearch ? 'Intelligent Search ON — click to disable' : 'Enable Intelligent Search'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 4,
+              padding: '2px 8px', borderRadius: 12, fontSize: 9, fontWeight: 600,
+              border: `1px solid ${useIntelligentSearch ? '#a78bfa' : '#334155'}`,
+              background: useIntelligentSearch ? '#a78bfa22' : 'transparent',
+              color: useIntelligentSearch ? '#a78bfa' : '#64748b',
+              cursor: 'pointer', transition: 'all 0.2s',
+            }}
           >
-            {activePipeline.pipeline_name}
-            {activePipeline.is_system && (
-              <span style={{ color: '#60a5fa', marginLeft: 3 }}>[Default]</span>
-            )}
-          </span>
-        )}
+            <span style={{ fontSize: 11 }}>{'\uD83D\uDD0D'}</span>
+            IS
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 py-3">

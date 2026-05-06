@@ -5,6 +5,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   enrich: '#a78bfa',
   score: '#4ade80',
   filter: '#fb923c',
+  datastore: '#f472b6',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -21,6 +22,7 @@ interface Props {
   selectedNodeId?: string | null
   invalidNodeIds?: Set<string>
   lockedNodeIds?: Set<string>
+  toolNodeIds?: Set<string>
   hiddenCategories?: Set<string>
   onSelect?: (nodeId: string) => void
   onRemove?: (nodeId: string) => void
@@ -37,6 +39,7 @@ export function StepList({
   selectedNodeId,
   invalidNodeIds = new Set(),
   lockedNodeIds = new Set(),
+  toolNodeIds = new Set(),
   hiddenCategories = new Set(),
   onSelect,
   onRemove,
@@ -47,7 +50,7 @@ export function StepList({
 }: Props) {
   const stepMap = Object.fromEntries(stepRuns.map(s => [s.node_id, s]))
 
-  const CATEGORY_ORDER = ['source', 'enrich', 'score', 'filter']
+  const CATEGORY_ORDER = ['source', 'enrich', 'score', 'filter', 'datastore']
   const byCategory: Record<string, NodeType[]> = {}
   for (const nt of nodeTypes) {
     byCategory[nt.category] = byCategory[nt.category] ?? []
@@ -65,6 +68,7 @@ export function StepList({
         const color = CATEGORY_COLORS[node.category] ?? '#60a5fa'
         const isSelected = node.id === selectedNodeId
         const isInvalid = invalidNodeIds.has(node.id)
+        const isTool = toolNodeIds.has(node.id)
         const displayNum = idx + 1
 
         return (
@@ -74,17 +78,18 @@ export function StepList({
                 width: 22,
                 height: 22,
                 borderRadius: '50%',
-                background: color,
+                background: isTool ? '#f472b6' : color,
                 color: '#000',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 10,
+                fontSize: isTool ? 12 : 10,
                 fontWeight: 700,
                 flexShrink: 0,
               }}
+              title={isTool ? 'Tool (datastore)' : undefined}
             >
-              {displayNum}
+              {isTool ? '\u2699' : displayNum}
             </div>
             <div
               onClick={() => onSelect?.(node.id)}
@@ -115,7 +120,7 @@ export function StepList({
                 {node.node_type}
               </div>
             </div>
-            {!readOnly && !lockedNodeIds.has(node.id) && (
+            {!readOnly && !lockedNodeIds.has(node.id) && !isTool && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <button onClick={() => onMoveUp?.(node.id)} disabled={idx === 0} title="Move up" style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 3, color: idx === 0 ? '#1e293b' : '#94a3b8', cursor: idx === 0 ? 'default' : 'pointer', padding: '1px 5px', fontSize: 9, lineHeight: 1 }}>▲</button>
                 <button onClick={() => onMoveDown?.(node.id)} disabled={idx === nodes.length - 1} title="Move down" style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 3, color: idx === nodes.length - 1 ? '#1e293b' : '#94a3b8', cursor: idx === nodes.length - 1 ? 'default' : 'pointer', padding: '1px 5px', fontSize: 9, lineHeight: 1 }}>▼</button>
@@ -129,6 +134,19 @@ export function StepList({
               >
                 FIXED
               </span>
+            )}
+            {isTool && !lockedNodeIds.has(node.id) && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                <span
+                  title="Connected as a tool to Intelligent Search"
+                  style={{ fontSize: 8, color: '#f472b6', padding: '0 4px', fontWeight: 700, letterSpacing: 0.5 }}
+                >
+                  TOOL
+                </span>
+                {!readOnly && (
+                  <button onClick={() => onRemove?.(node.id)} title="Remove step" style={{ background: 'transparent', border: '1px solid #334155', borderRadius: 3, color: '#94a3b8', cursor: 'pointer', padding: '1px 5px', fontSize: 11, lineHeight: 1 }}>×</button>
+                )}
+              </div>
             )}
           </div>
         )

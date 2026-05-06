@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "info-broker-mcp": {
+      "command": "/app/.venv/bin/python",
+      "args": ["-m", "mcp_server"],
+      "cwd": "/app",
+      "env": {
+        "INFO_BROKER_URL": "http://localhost:8000",
+        "INFO_BROKER_API_KEY": "changeme"
+      }
+    }
+  }
+}

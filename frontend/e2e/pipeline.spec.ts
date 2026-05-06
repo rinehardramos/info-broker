@@ -251,18 +251,19 @@ test.describe('PipelineBuilder — Agent Input → DDG Search → AI Scoring', (
     }
 
     // --- Add steps ---
+    // agent_input is locked (no × button) — verify via step-card testid instead
     await addStepSelect.selectOption({ label: 'Agent Input' })
-    await expect(page.getByRole('button', { name: '×' })).toHaveCount(1, { timeout: 5_000 })
+    await expect(page.getByTestId('step-card-agent_input')).toBeVisible({ timeout: 5_000 })
 
     await addStepSelect.selectOption({ label: 'DDG Search' })
-    await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 5_000 })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(1, { timeout: 5_000 })
 
     await addStepSelect.selectOption({ label: 'AI Scoring' })
-    await expect(page.getByRole('button', { name: '×' })).toHaveCount(3, { timeout: 5_000 })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 5_000 })
 
     // --- Fill required config fields ---
+    // DDG Search has no required fields (query comes from upstream input)
     await fillFirstInput('agent_input', 'what is pi?')
-    await fillFirstInput('ddg_search', 'what is pi?')
     await fillFirstInput('ai_scoring', 'relevant to mathematics')
 
     // --- Ensure edges: Agent Input → DDG Search, DDG Search → AI Scoring ---
@@ -278,7 +279,8 @@ test.describe('PipelineBuilder — Agent Input → DDG Search → AI Scoring', (
 
     // --- Reload and verify all 3 steps persisted ---
     await page.reload()
-    await expect(page.getByRole('button', { name: '×' })).toHaveCount(3, { timeout: 8_000 })
+    await expect(page.getByTestId('step-card-agent_input')).toBeVisible({ timeout: 8_000 })
+    await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 8_000 })
   })
 })
 
@@ -339,6 +341,108 @@ test.describe('PipelineBuilder — reorder steps', () => {
     await expect(page.getByRole('button', { name: '×' })).toHaveCount(2, { timeout: 8_000 })
     const firstAfterReload = await page.locator('[data-testid^="step-card-"]').first().getAttribute('data-testid')
     expect(firstAfterReload).toBe('step-card-manual_scoring')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Pipeline tab — click pipeline to view results
+// ---------------------------------------------------------------------------
+
+test.describe('Pipeline tab — pipeline row click', () => {
+  test.beforeEach(async ({ page }) => {
+    await login(page)
+  })
+
+  test('clicking pipeline name is responsive', async ({ page }) => {
+    // Wait for pipelines to load
+    await page.waitForResponse(
+      r => /\/api\/v3\/pipelines$/.test(r.url()) && r.status() === 200,
+      { timeout: 8_000 },
+    )
+
+    // Ensure Pipeline tab is active
+    await page.getByRole('button', { name: /^Pipeline$/ }).click()
+
+    // Check if any pipelines exist — skip if none
+    const pipelineRows = page.locator('[data-testid^="pipeline-row-"]')
+    const count = await pipelineRows.count()
+    if (count === 0) {
+      test.skip()
+      return
+    }
+
+    // Pipeline name span is always cursor:pointer (it selects the latest run when one exists)
+    const firstRow = pipelineRows.first()
+    const nameSpan = firstRow.locator('span.truncate')
+    await expect(nameSpan).toBeVisible()
+    const cursor = await nameSpan.evaluate(el => getComputedStyle(el).cursor)
+    expect(cursor).toBe('pointer')
+
+    // Clicking name should NOT navigate away (navigation is only via the ✎ edit button)
+    const urlBefore = page.url()
+    await nameSpan.click()
+    await page.waitForTimeout(500)
+    expect(page.url()).toBe(urlBefore)
+
+    // If the pipeline has runs, a run tab should now be active
+    const hasRunTab = await page.locator('button[class*="rounded"]').filter({ hasText: /●/ }).count() > 0
+    // (hasRunTab being true is a bonus; when no runs exist nothing happens — both are valid)
+  })
+
+  test('edit button navigates to pipeline builder', async ({ page }) => {
+    await page.waitForResponse(
+      r => /\/api\/v3\/pipelines$/.test(r.url()) && r.status() === 200,
+      { timeout: 8_000 },
+    )
+
+    await page.getByRole('button', { name: /^Pipeline$/ }).click()
+
+    const editButtons = page.getByTitle('Edit pipeline')
+    const count = await editButtons.count()
+    if (count === 0) {
+      test.skip()
+      return
+    }
+
+    await editButtons.first().click()
+    await expect(page).toHaveURL(/\/pipelines\//, { timeout: 5_000 })
+  })
+
+  test('play button click triggers a pipeline run', async ({ page }) => {
+    await page.waitForResponse(
+      r => /\/api\/v3\/pipelines$/.test(r.url()) && r.status() === 200,
+      { timeout: 8_000 },
+    )
+
+    await page.getByRole('button', { name: /^Pipeline$/ }).click()
+
+    const playButtons = page.getByTitle('Run pipeline')
+    const count = await playButtons.count()
+    if (count === 0) {
+      test.skip()
+      return
+    }
+
+    // Click play — should trigger API call
+    const runResponse = page.waitForResponse(
+      r => /\/api\/v3\/pipelines\/[^/]+\/run/.test(r.url()) && r.request().method() === 'POST',
+      { timeout: 8_000 },
+    )
+    await playButtons.first().click()
+    const resp = await runResponse
+    expect([200, 201, 202, 422]).toContain(resp.status()) // 202 accepted, 422 if validation errors
+  })
+
+  test('Create Pipeline button is always visible', async ({ page }) => {
+    await page.waitForResponse(
+      r => /\/api\/v3\/pipelines$/.test(r.url()) && r.status() === 200,
+      { timeout: 8_000 },
+    )
+    await page.getByRole('button', { name: /^Pipeline$/ }).click()
+    // Either the empty-state "Create A Pipeline" or the always-visible "+ Create Pipeline"
+    await expect(
+      page.getByRole('button', { name: /Create.*Pipeline/i }),
+    ).toBeVisible({ timeout: 8_000 })
   })
 })
 

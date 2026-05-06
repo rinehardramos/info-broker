@@ -8,8 +8,13 @@ import asyncio
 import logging
 import os
 
+# Load secrets BEFORE any other app imports — must run outside Temporal sandbox.
+from app.secrets import load_secrets
+load_secrets("info-broker")
+
 from temporalio.client import Client
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 from app.pipeline.workflow import TASK_QUEUE, PipelineWorkflow, execute_node
 
@@ -24,11 +29,21 @@ async def main() -> None:
     log.info("Connecting to Temporal at %s", target)
     client = await Client.connect(target)
 
+    # Allow our DB/secrets modules through Temporal's workflow sandbox --
+    # they use os.getenv() which the sandbox restricts by default.
+    sandbox_runner = SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules(
+            "app.routers.v3.db",
+            "app.secrets",
+        )
+    )
+
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
         workflows=[PipelineWorkflow],
         activities=[execute_node],
+        workflow_runner=sandbox_runner,
     )
 
     log.info("Starting worker on queue %s", TASK_QUEUE)

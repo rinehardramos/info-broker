@@ -21,6 +21,8 @@ from app.routers.v3.models import (
     PipelineRunOut,
     PipelineRunSummaryOut,
     PipelineStepRunOut,
+    PluginRequestOut,
+    PluginRequestStatusIn,
 )
 
 router = APIRouter(prefix="/v3/pipelines", tags=["v3-pipelines"])
@@ -78,6 +80,10 @@ def _with_timeout(schema: dict) -> dict:
     return s
 
 
+# Node types that are internal orchestrators — never exposed in the Pipeline Builder
+_HIDDEN_NODE_TYPES = {"intelligent_search"}
+
+
 @router.get("/nodes/types", response_model=list[NodeTypeOut])
 def list_node_types(user: dict = Depends(get_current_user)):
     from app.pipeline.nodes import NodeRegistry
@@ -90,7 +96,7 @@ def list_node_types(user: dict = Depends(get_current_user)):
             config_schema=_with_timeout(n.config_schema),
         )
         for n in NodeRegistry.all()
-        if _is_node_enabled(n.node_type)
+        if _is_node_enabled(n.node_type) and n.node_type not in _HIDDEN_NODE_TYPES
     ]
 
 
@@ -176,6 +182,8 @@ async def cancel_pipeline_run(run_id: str, user: dict = Depends(get_current_user
 
 @router.get("/runs/{run_id}", response_model=PipelineRunDetailOut)
 def get_run(run_id: str, user: dict = Depends(get_current_user)):
+    from app.routers.v3.models import ResearchTrailOut
+
     run = fetch_one(
         "SELECT * FROM pipeline_runs WHERE id = %s AND user_id = %s",
         (run_id, str(user["id"])),
@@ -186,9 +194,20 @@ def get_run(run_id: str, user: dict = Depends(get_current_user)):
         "SELECT * FROM pipeline_step_runs WHERE run_id = %s ORDER BY started_at",
         (run_id,),
     )
+
+    research = None
+    if run["trigger_type"] == "agent_is":
+        trail_row = fetch_one(
+            "SELECT query, entity_type, findings, trail, tool_calls FROM research_trails WHERE run_id = %s",
+            (run_id,),
+        )
+        if trail_row:
+            research = ResearchTrailOut(**dict(trail_row))
+
     return PipelineRunDetailOut(
         **dict(run),
         steps=[PipelineStepRunOut(**dict(s)) for s in steps],
+        research=research,
     )
 
 
@@ -348,6 +367,7 @@ async def start_pipeline_run(
     NodeRegistry.auto_discover()
     node_category = {n.node_type: n.category for n in NodeRegistry.all()}
     node_types_in_pipeline = [str(row["node_type"]) for row in nodes_rows]
+    # Datastore nodes are tool-only; exclude from source/aggregator validation
     source_count = sum(1 for nt in node_types_in_pipeline if node_category.get(nt) == "source" and nt != "aggregator")
     aggregator_count = sum(1 for nt in node_types_in_pipeline if nt == "aggregator")
     if source_count == 0:
@@ -367,12 +387,16 @@ async def start_pipeline_run(
         (run_id, pipeline_id, str(user["id"]), workflow_id),
     )
 
-    # Create step_run rows for each node
+    # Create step_run rows for each node (skip tool-target datastores — they never execute)
+    tool_target_ids = {
+        str(e["target_node_id"]) for e in edges_rows if e.get("edge_type") == "tool"
+    }
     for node in nodes_rows:
-        execute(
-            "INSERT INTO pipeline_step_runs (id, run_id, node_id, status) VALUES (%s, %s, %s, 'pending')",
-            (str(uuid.uuid4()), run_id, str(node["id"])),
-        )
+        if str(node["id"]) not in tool_target_ids:
+            execute(
+                "INSERT INTO pipeline_step_runs (id, run_id, node_id, status) VALUES (%s, %s, %s, 'pending')",
+                (str(uuid.uuid4()), run_id, str(node["id"])),
+            )
 
     host = os.getenv("TEMPORAL_HOST", "localhost")
     port = int(os.getenv("TEMPORAL_PORT", "7233"))
@@ -418,6 +442,32 @@ def list_pipeline_runs(pipeline_id: str, user: dict = Depends(get_current_user))
         (pipeline_id, str(user["id"])),
     )
     return [PipelineRunOut(**dict(r)) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Plugin requests
+# ---------------------------------------------------------------------------
+
+@router.get("/plugin-requests", response_model=list[PluginRequestOut])
+def list_plugin_requests(user: dict = Depends(get_current_user)):
+    rows = fetch_all(
+        "SELECT * FROM plugin_requests WHERE user_id = %s ORDER BY created_at DESC",
+        (str(user["id"]),),
+    )
+    return [PluginRequestOut(**dict(r)) for r in rows]
+
+
+@router.put("/plugin-requests/{request_id}/status")
+def update_plugin_request_status(
+    request_id: str,
+    body: PluginRequestStatusIn,
+    user: dict = Depends(get_current_user),
+):
+    execute(
+        "UPDATE plugin_requests SET status = %s, reviewed_at = now() WHERE id = %s AND user_id = %s",
+        (body.status, request_id, str(user["id"])),
+    )
+    return {"status": "updated"}
 
 
 # ---------------------------------------------------------------------------
