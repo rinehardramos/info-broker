@@ -1,13 +1,18 @@
 """Node execution endpoint — allows MCP server (and other callers) to run individual pipeline nodes."""
 from __future__ import annotations
 
+import json
 import logging
+import time
+import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.deps import require_api_key
+from app.observability.tracker import tracker
 from app.pipeline.nodes import NodeRegistry
 from app.pipeline.nodes.base import RunContext
+from app.routers.v3.stream import push_event
 
 router = APIRouter(prefix="/v3/nodes", tags=["v3-nodes"])
 log = logging.getLogger(__name__)
@@ -25,6 +30,7 @@ def _get_node(node_type: str):
 async def execute_node(
     node_type: str,
     body: dict,
+    request: Request,
     _key: str = Depends(require_api_key),
 ) -> dict:
     """Execute a pipeline node ad-hoc.
@@ -33,6 +39,10 @@ async def execute_node(
     body is extracted and passed as the upstream items list; everything else
     becomes the config dict.
     """
+    caller_identity: str = request.headers.get("X-Caller-Identity", "unknown")
+    session_id: str | None = request.headers.get("X-Session-Id")
+    call_id = str(uuid.uuid4())
+
     node = _get_node(node_type)
 
     # Allow caller to pass inputs alongside config in the same payload.
@@ -49,11 +59,85 @@ async def execute_node(
         node_id="mcp-adhoc",
     )
 
+    # --- observability: record call start (non-fatal) ---
+    try:
+        await tracker.log_call_start(
+            session_id=session_id or call_id,
+            tool_name=node_type,
+            node_type=node_type,
+            call_id=call_id,
+            caller_identity=caller_identity,
+            input_params=body,
+        )
+        await push_event(
+            "__admin__",
+            {
+                "type": "mcp.tool_call.start",
+                "call_id": call_id,
+                "node_type": node_type,
+                "caller_identity": caller_identity,
+                "session_id": session_id,
+            },
+        )
+    except Exception:
+        log.debug("observability log_call_start failed", exc_info=True)
+
+    t0 = time.monotonic_ns()
+
     try:
         result = await node.execute(body, inputs, ctx)
     except Exception as exc:
+        duration_ms = (time.monotonic_ns() - t0) // 1_000_000
         log.exception("Node %s execution failed", node_type)
+
+        # --- observability: record failure (non-fatal) ---
+        try:
+            await tracker.log_call_complete(
+                call_id=call_id,
+                status="failed",
+                duration_ms=duration_ms,
+                error_message=str(exc),
+            )
+            await push_event(
+                "__admin__",
+                {
+                    "type": "mcp.tool_call.complete",
+                    "call_id": call_id,
+                    "node_type": node_type,
+                    "status": "failed",
+                    "duration_ms": duration_ms,
+                    "error_message": str(exc),
+                },
+            )
+        except Exception:
+            log.debug("observability log_call_complete (failed) failed", exc_info=True)
+
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    duration_ms = (time.monotonic_ns() - t0) // 1_000_000
+
+    # --- observability: record success (non-fatal) ---
+    try:
+        await tracker.log_call_complete(
+            call_id=call_id,
+            status="succeeded",
+            result_preview=json.dumps(result[:3]) if result else None,
+            result_count=len(result),
+            duration_ms=duration_ms,
+        )
+        await push_event(
+            "__admin__",
+            {
+                "type": "mcp.tool_call.complete",
+                "call_id": call_id,
+                "node_type": node_type,
+                "status": "succeeded",
+                "result_count": len(result),
+                "duration_ms": duration_ms,
+            },
+        )
+    except Exception:
+        log.debug("observability log_call_complete (succeeded) failed", exc_info=True)
 
     return {"status": "success", "items": result, "count": len(result)}
 
