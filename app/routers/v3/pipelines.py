@@ -198,7 +198,7 @@ def get_run(run_id: str, user: dict = Depends(get_current_user)):
     research = None
     if run["trigger_type"] == "agent_is":
         trail_row = fetch_one(
-            "SELECT query, entity_type, findings, trail, tool_calls FROM research_trails WHERE run_id = %s",
+            "SELECT query, entity_type, findings, trail, tool_calls, suggested_pipeline FROM research_trails WHERE run_id = %s",
             (run_id,),
         )
         if trail_row:

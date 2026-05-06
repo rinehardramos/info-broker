@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS research_trails (
     trail         JSONB NOT NULL DEFAULT '[]',
     findings      JSONB NOT NULL DEFAULT '[]',
     tool_calls    INT NOT NULL DEFAULT 0,
+    suggested_pipeline JSONB,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
 """

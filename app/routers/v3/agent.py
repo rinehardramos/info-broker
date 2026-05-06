@@ -128,14 +128,17 @@ async def _run_is_research(run_id: str, uid: str, pipeline_id: str, query: str) 
 
         result = await run_research(query=query, user_id=uid)
 
+        suggested_pipeline = result.get("pipeline")
         execute(
-            """INSERT INTO research_trails (id, user_id, run_id, query, entity_type, trail, findings, tool_calls)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            """INSERT INTO research_trails
+                (id, user_id, run_id, query, entity_type, trail, findings, tool_calls, suggested_pipeline)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
             (str(uuid.uuid4()), uid, run_id, query,
              result.get("entity_type", "unknown"),
              json.dumps(result.get("tree", {})),
              json.dumps(result.get("findings", [])),
-             result.get("tree", {}).get("total_branches", 0)),
+             result.get("tree", {}).get("total_branches", 0),
+             json.dumps(suggested_pipeline) if suggested_pipeline else None),
         )
 
         for plugin in result.get("suggested_plugins", []):

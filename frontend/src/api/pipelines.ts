@@ -100,6 +100,11 @@ export interface ResearchTrail {
     }>
   }
   tool_calls: number
+  suggested_pipeline?: {
+    name: string
+    nodes: Array<{ node_type: string; label: string; config: Record<string, unknown> }>
+    edges: Array<{ source_index: number; target_index: number }>
+  } | null
 }
 
 export interface PipelineRunDetail extends PipelineRun {

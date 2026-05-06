@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
-import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, type ResearchTrail } from '../../api/pipelines'
+import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail } from '../../api/pipelines'
 import { sendMessage } from '../../api/v3'
 import { ResearchFlow } from './ResearchFlow'
 
@@ -262,8 +262,46 @@ function ResearchResults({
   goingDeeper: boolean
   onGoDeeper: (leads: string[]) => void
 }) {
+  const qc = useQueryClient()
+  const navigate = useNavigate()
+  const [pipelineSaved, setPipelineSaved] = useState(false)
+  const [savingPipeline, setSavingPipeline] = useState(false)
   const { findings, trail } = research
   const canGoDeeper = trail.can_go_deeper && (trail.deeper_leads?.length ?? 0) > 0
+  const hasPipeline = research.suggested_pipeline != null && (research.suggested_pipeline.nodes?.length ?? 0) > 0
+
+  async function handleSavePipeline() {
+    if (!research.suggested_pipeline) return
+    setSavingPipeline(true)
+    try {
+      const sp = research.suggested_pipeline
+      // Generate IDs for nodes and map source_index/target_index to node IDs
+      const nodeIds = sp.nodes.map(() => crypto.randomUUID())
+      const result = await createPipeline({
+        name: sp.name,
+        description: `Generated from IS research: "${research.query}"`,
+        nodes: sp.nodes.map((n, i) => ({
+          id: nodeIds[i],
+          node_type: n.node_type,
+          label: n.label,
+          config: n.config ?? {},
+          position_y: i,
+        })),
+        edges: sp.edges.map(e => ({
+          source_node_id: nodeIds[e.source_index],
+          target_node_id: nodeIds[e.target_index],
+        })),
+      })
+      setPipelineSaved(true)
+      qc.invalidateQueries({ queryKey: ['pipelines'] })
+      // Navigate to the new pipeline
+      navigate(`/pipeline/${result.id}`)
+    } catch (err) {
+      console.error('Failed to save pipeline:', err)
+    } finally {
+      setSavingPipeline(false)
+    }
+  }
 
   return (
     <div className="p-3">
@@ -393,28 +431,49 @@ function ResearchResults({
         </>
       )}
 
-      {/* Go Deeper button */}
-      {canGoDeeper && status === 'succeeded' && (
-        <div className="mt-2">
-          <div className="text-[9px] mb-1" style={{ color: 'var(--muted)' }}>
-            {trail.deeper_leads!.length} lead{trail.deeper_leads!.length > 1 ? 's' : ''} for deeper investigation
-          </div>
-          <button
-            onClick={() => onGoDeeper(trail.deeper_leads!)}
-            disabled={goingDeeper}
-            style={{
-              background: '#a78bfa22', border: '1px solid #a78bfa55', color: '#a78bfa',
-              fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
-              cursor: goingDeeper ? 'not-allowed' : 'pointer', opacity: goingDeeper ? 0.5 : 1,
-            }}
-          >
-            {goingDeeper ? '⟳ Going deeper...' : '⬇ Go Deeper'}
-          </button>
-          <div className="mt-2 flex flex-col gap-1">
-            {trail.deeper_leads!.map((lead, i) => (
-              <span key={i} style={{ fontSize: 9, color: 'var(--muted)' }}>• {lead}</span>
-            ))}
-          </div>
+      {/* Action buttons */}
+      {status === 'succeeded' && (canGoDeeper || hasPipeline) && (
+        <div className="mt-3 flex gap-2 flex-wrap">
+          {/* Go Deeper */}
+          {canGoDeeper && (
+            <div>
+              <button
+                onClick={() => onGoDeeper(trail.deeper_leads!)}
+                disabled={goingDeeper}
+                style={{
+                  background: '#a78bfa22', border: '1px solid #a78bfa55', color: '#a78bfa',
+                  fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
+                  cursor: goingDeeper ? 'not-allowed' : 'pointer', opacity: goingDeeper ? 0.5 : 1,
+                }}
+              >
+                {goingDeeper ? '⟳ Going deeper...' : '⬇ Go Deeper'}
+              </button>
+              <div className="mt-1 flex flex-col gap-1">
+                {trail.deeper_leads!.map((lead, i) => (
+                  <span key={i} style={{ fontSize: 9, color: 'var(--muted)' }}>• {lead}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Save Pipeline */}
+          {hasPipeline && (
+            <button
+              onClick={handleSavePipeline}
+              disabled={savingPipeline || pipelineSaved}
+              style={{
+                background: pipelineSaved ? '#4ade8022' : '#60a5fa22',
+                border: `1px solid ${pipelineSaved ? '#4ade8055' : '#60a5fa55'}`,
+                color: pipelineSaved ? '#4ade80' : '#60a5fa',
+                fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
+                cursor: savingPipeline || pipelineSaved ? 'not-allowed' : 'pointer',
+                opacity: savingPipeline ? 0.5 : 1,
+                alignSelf: 'flex-start',
+              }}
+            >
+              {pipelineSaved ? '✓ Pipeline Saved' : savingPipeline ? '⟳ Saving...' : '⬆ Save Pipeline'}
+            </button>
+          )}
         </div>
       )}
     </div>
