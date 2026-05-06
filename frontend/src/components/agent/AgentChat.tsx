@@ -53,6 +53,17 @@ export default function AgentChat() {
         ])
       }
     }
+    // Tool call streaming — update the running message with current tool
+    if (event.type === 'is.tool_call' && event.job_id && event.status === 'calling') {
+      const toolName = (event.tool ?? '').replace('mcp__info-broker-mcp__', '')
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === event.job_id
+            ? { ...m, content: `Researching... ${toolName}` }
+            : m,
+        ),
+      )
+    }
     if (event.type === 'agent.message' && event.message) {
       setMessages(prev => [
         ...prev,

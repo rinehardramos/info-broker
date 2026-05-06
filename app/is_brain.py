@@ -51,12 +51,16 @@ async def run_research(
     max_branches: int = 20,
     past_research: list[dict] | None = None,
     user_preferences: dict | None = None,
+    on_event: Any = None,  # async callable(dict) for streaming tool call events
 ) -> dict[str, Any]:
     """Run a research query via Claude Code subprocess.
 
     Returns a dict with: summary, findings, tree, pipeline,
     suggested_plugins, gaps. On error, returns a minimal result
     with the error in summary.
+
+    If on_event is provided, tool call events are pushed in real-time.
+    On timeout, partial results are returned instead of an empty error.
     """
     prompt = build_prompt(
         query=query,
@@ -66,20 +70,20 @@ async def run_research(
         user_preferences=user_preferences,
     )
 
-    cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "json"]
+    # Use stream-json for real-time tool call events + checkpointing
+    cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "stream-json", "--verbose"]
 
     # Use --bare only when API key auth is available (Docker/CI).
-    # Without --bare, Claude Code uses OAuth/keychain (subscription mode).
     if os.getenv("ANTHROPIC_API_KEY"):
         cmd.append("--bare")
 
     # Add MCP config and allow all MCP tools
     if _MCP_CONFIG.exists():
         cmd.extend(["--mcp-config", str(_MCP_CONFIG)])
-        # In --bare mode, MCP tools need explicit permission
         cmd.extend(["--allowedTools", "mcp__info-broker-mcp__*"])
 
     log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
+    timeout = int(os.getenv("IS_BRAIN_TIMEOUT", "300"))
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -89,45 +93,92 @@ async def run_research(
             env={**os.environ, "CLAUDE_CODE_HEADLESS": "1"},
         )
 
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(),
-            timeout=int(os.getenv("IS_BRAIN_TIMEOUT", "300")),
-        )
+        # Read stdout line-by-line for streaming events + checkpointing
+        result_line = None
+        tool_calls: list[dict] = []
+        timed_out = False
 
-        raw_out = stdout.decode(errors="replace")
+        async def _read_lines():
+            nonlocal result_line
+            async for raw_line in proc.stdout:
+                line = raw_line.decode(errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                etype = event.get("type", "")
+
+                # Capture tool call events for streaming
+                if etype == "assistant":
+                    for content in event.get("message", {}).get("content", []):
+                        if content.get("type") == "tool_use":
+                            tool_name = content.get("name", "")
+                            tc = {"tool": tool_name, "status": "calling", "id": content.get("id", "")}
+                            tool_calls.append(tc)
+                            if on_event:
+                                await on_event(tc)
+                        elif content.get("type") == "tool_result":
+                            tc = {"tool": "", "status": "done", "id": content.get("tool_use_id", "")}
+                            if on_event:
+                                await on_event(tc)
+
+                # Capture final result
+                if etype == "result":
+                    result_line = line
+
+        try:
+            await asyncio.wait_for(_read_lines(), timeout=timeout)
+        except asyncio.TimeoutError:
+            timed_out = True
+            log.warning("IS Brain: timed out after %ds, killing process", timeout)
+            proc.kill()
+
+        await proc.wait()
+
+        if timed_out:
+            # Use whatever result_line we got, or return partial
+            if result_line:
+                log.info("IS Brain: timed out but have result line, parsing")
+                parsed = _parse_stream_result(result_line)
+                parsed.setdefault("gaps", []).append("Research timed out — partial results")
+                return parsed
+            return _error_result(f"Research timed out after {timeout}s")
 
         if proc.returncode != 0:
-            err_msg = stderr.decode(errors="replace").strip()
-            # Check for auth failure — Claude Code returns this in stdout JSON
-            if "Not logged in" in raw_out or "Not logged in" in err_msg:
-                log.error("IS Brain: Claude Code not authenticated")
-                return _error_result(
-                    "Claude Code not authenticated. "
-                    "Run 'claude auth login' on the server, or set ANTHROPIC_API_KEY."
-                )
-            log.error("IS Brain: Claude Code exited %d: %s", proc.returncode, err_msg)
-            return _error_result(f"Claude Code error (exit {proc.returncode}): {err_msg}")
+            stderr_out = ""
+            if proc.stderr:
+                try:
+                    stderr_out = (await asyncio.wait_for(proc.stderr.read(), timeout=5)).decode(errors="replace")
+                except Exception:
+                    pass
+            if result_line and "Not logged in" in result_line:
+                return _error_result("Claude Code not authenticated. Run 'claude auth login' or set ANTHROPIC_API_KEY.")
+            log.error("IS Brain: Claude Code exited %d: %s", proc.returncode, stderr_out[:200])
+            return _error_result(f"Claude Code error (exit {proc.returncode}): {stderr_out[:200]}")
 
-        # Also check successful exit but with auth error in response
-        if "Not logged in" in raw_out:
-            return _error_result(
-                "Claude Code not authenticated. "
-                "Run 'claude auth login' on the server, or set ANTHROPIC_API_KEY."
-            )
+        if not result_line:
+            return _error_result("Claude Code produced no result")
 
-        log.info("IS Brain: Claude Code returned %d bytes", len(raw_out))
-        log.debug("IS Brain: raw output: %s", raw_out[:500])
-        return _parse_output(raw_out)
+        if "Not logged in" in result_line:
+            return _error_result("Claude Code not authenticated. Run 'claude auth login' or set ANTHROPIC_API_KEY.")
 
-    except asyncio.TimeoutError:
-        log.error("IS Brain: timed out after %ss", os.getenv("IS_BRAIN_TIMEOUT", "300"))
-        return _error_result("Research timed out")
+        log.info("IS Brain: completed with %d tool calls", len(tool_calls))
+        return _parse_stream_result(result_line)
+
     except FileNotFoundError:
         log.error("IS Brain: claude binary not found at %s", _CLAUDE_BIN)
         return _error_result(f"Claude Code not found at {_CLAUDE_BIN}")
     except Exception as exc:
         log.error("IS Brain: unexpected error: %s", exc)
         return _error_result(str(exc))
+
+
+def _parse_stream_result(line: str) -> dict[str, Any]:
+    """Parse a stream-json result line into research results."""
+    return _parse_output(line)
 
 
 def _parse_output(raw: str) -> dict[str, Any]:

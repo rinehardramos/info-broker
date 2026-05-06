@@ -27,10 +27,10 @@ def test_build_prompt_includes_depth():
 
 
 def test_build_prompt_includes_past_research():
-    past = [{"query": "prior search", "findings": [1, 2, 3]}]
+    past = [{"query": "prior search", "findings": [{"title": "a"}, {"title": "b"}, {"title": "c"}]}]
     result = build_prompt("q", past_research=past)
     assert "prior search" in result
-    assert "Findings: 3" in result
+    assert "Findings (3)" in result
 
 
 # ---------------------------------------------------------------------------
@@ -39,11 +39,37 @@ def test_build_prompt_includes_past_research():
 
 
 def _make_mock_process(stdout: str, returncode: int = 0, stderr: str = ""):
+    """Create a mock subprocess with async stdout line iteration."""
     proc = AsyncMock()
-    proc.communicate = AsyncMock(
-        return_value=(stdout.encode(), stderr.encode())
-    )
     proc.returncode = returncode
+    proc.wait = AsyncMock(return_value=returncode)
+
+    # Mock stdout as async iterator (line-by-line)
+    lines = [line.encode() + b"\n" for line in stdout.split("\n") if line.strip()]
+
+    class MockStdout:
+        def __init__(self):
+            self._lines = iter(lines)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._lines)
+            except StopIteration:
+                raise StopAsyncIteration
+
+        async def read(self):
+            return b""
+
+    proc.stdout = MockStdout()
+
+    # Mock stderr
+    stderr_mock = AsyncMock()
+    stderr_mock.read = AsyncMock(return_value=stderr.encode())
+    proc.stderr = stderr_mock
+
     return proc
 
 
@@ -84,13 +110,14 @@ def test_run_research_handles_claude_error():
     assert result["findings"] == []
 
 
-def test_run_research_handles_invalid_json():
+def test_run_research_handles_no_result_line():
     from app.is_brain import run_research
 
+    # Non-JSON lines are skipped in stream-json mode — no result line produced
     mock_proc = _make_mock_process("This is not JSON at all")
 
     with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
         result = asyncio.run(run_research("test query", "user-1"))
 
-    assert "This is not JSON" in result["summary"]
+    assert "no result" in result["summary"].lower()
     assert result["entity_type"] == "unknown"

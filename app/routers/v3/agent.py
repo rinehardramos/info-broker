@@ -146,7 +146,20 @@ async def _run_is_research(
     try:
         from app.is_brain import run_research
 
-        result = await run_research(query=query, user_id=uid, past_research=past_research)
+        async def _on_tool_event(ev: dict) -> None:
+            await push_event(uid, {
+                "type": "is.tool_call",
+                "job_id": run_id,
+                "run_id": run_id,
+                "tool": ev.get("tool", ""),
+                "status": ev.get("status", ""),
+                "call_id": ev.get("id", ""),
+            })
+
+        result = await run_research(
+            query=query, user_id=uid, past_research=past_research,
+            on_event=_on_tool_event,
+        )
 
         suggested_pipeline = result.get("pipeline")
         execute(
