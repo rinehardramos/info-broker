@@ -290,7 +290,7 @@ async def run_linkedin_profile_search(
 
     job_titles: comma-separated list of job titles (e.g. "CEO, CTO, Founder, Managing Director")
     locations: comma-separated list of locations (e.g. "Philippines, United States")
-    scraper_mode: "Fast", "Full", or "Full + email search"
+    scraper_mode: "Short", "Full", or "Full + email search"
     """
     result = await api_call(
         "POST",

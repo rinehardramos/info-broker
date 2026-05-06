@@ -42,7 +42,7 @@ class LinkedInProfileNode:
             "scraper_mode": {
                 "type": "string",
                 "title": "Scraper Mode",
-                "enum": ["Fast", "Full", "Full + email search"],
+                "enum": ["Short", "Full", "Full + email search"],
                 "default": "Full",
             },
             "recently_changed_jobs": {
