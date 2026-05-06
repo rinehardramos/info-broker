@@ -52,7 +52,10 @@ class LinkedInProfileNode:
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         from app.pipeline.nodes.apify_actor import _resolve_api_key
 
-        api_key = _resolve_api_key()
+        try:
+            api_key = _resolve_api_key()
+        except RuntimeError as exc:
+            return [{"error": str(exc), "source": "linkedin_profile"}]
         max_results = min(int(config.get("max_results", 10)), 50)
 
         search_url = config.get("search_url", "").strip()
