@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -125,6 +126,131 @@ def set_node_type_enabled(
 
 
 # ---------------------------------------------------------------------------
+# Node health check (must come BEFORE parametric routes)
+# ---------------------------------------------------------------------------
+
+# Simple in-process TTL cache: { node_type: (timestamp, HealthStatus) }
+_health_cache: dict[str, tuple[float, dict]] = {}
+_HEALTH_CACHE_TTL = 300  # seconds
+
+
+@router.get("/nodes/types/health")
+async def get_nodes_health(user: dict = Depends(get_current_user)):
+    """Check health status of all pipeline nodes."""
+    import asyncio
+    from app.pipeline.nodes import NodeRegistry
+    from app.pipeline.nodes.base import HealthStatus
+    NodeRegistry.auto_discover()
+
+    results = []
+    pending_checks: list[tuple] = []  # (node, node_type)
+    now = time.time()
+
+    for node in NodeRegistry.all():
+        nt = node.node_type
+
+        # Check cache first
+        if nt in _health_cache:
+            cached_time, cached_status = _health_cache[nt]
+            if now - cached_time < _HEALTH_CACHE_TTL:
+                results.append({"node_type": nt, "display_name": node.display_name, **cached_status})
+                continue
+
+        # No health_check method = always healthy
+        if not hasattr(node, "health_check"):
+            status: dict = HealthStatus(
+                healthy=True, error=None, requires_key=None, setup_url=None, setup_instructions=None
+            )
+            _health_cache[nt] = (now, status)
+            results.append({"node_type": nt, "display_name": node.display_name, **status})
+        else:
+            pending_checks.append((node, nt))
+
+    # Run health checks in parallel with 10s timeout per check
+    async def _check(node, nt):
+        try:
+            return nt, await asyncio.wait_for(node.health_check(), timeout=10)
+        except asyncio.TimeoutError:
+            return nt, HealthStatus(
+                healthy=False, error="Health check timed out",
+                requires_key=None, setup_url=None, setup_instructions=None,
+            )
+        except Exception as exc:
+            return nt, HealthStatus(
+                healthy=False, error=str(exc),
+                requires_key=None, setup_url=None, setup_instructions=None,
+            )
+
+    if pending_checks:
+        check_results = await asyncio.gather(
+            *[_check(node, nt) for node, nt in pending_checks]
+        )
+        for nt, status in check_results:
+            _health_cache[nt] = (now, status)
+            node = next(n for n in NodeRegistry.all() if n.node_type == nt)
+            results.append({"node_type": nt, "display_name": node.display_name, **status})
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# get_healthy_nodes — helper for IS brain
+# ---------------------------------------------------------------------------
+
+async def get_healthy_nodes() -> list[dict]:
+    """Return node metadata for only healthy + enabled nodes. Used by IS brain."""
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+
+    healthy = []
+    now = time.time()
+
+    for node in NodeRegistry.all():
+        nt = node.node_type
+        if nt in ("agent_input", "intelligent_search"):
+            continue
+        if not _is_node_enabled(nt):
+            continue
+
+        # Check health
+        if hasattr(node, "health_check"):
+            if nt in _health_cache:
+                cached_time, cached_status = _health_cache[nt]
+                if now - cached_time < _HEALTH_CACHE_TTL:
+                    if not cached_status["healthy"]:
+                        continue
+                else:
+                    try:
+                        status = await node.health_check()
+                        _health_cache[nt] = (now, status)
+                        if not status["healthy"]:
+                            continue
+                    except Exception:
+                        continue
+            else:
+                try:
+                    status = await node.health_check()
+                    _health_cache[nt] = (now, status)
+                    if not status["healthy"]:
+                        continue
+                except Exception:
+                    continue
+
+        # Build tool info for IS prompt
+        tool_name = f"run_{nt}"
+        params = ", ".join(node.config_schema.get("properties", {}).keys()) if hasattr(node, "config_schema") else ""
+        healthy.append({
+            "node_type": nt,
+            "mcp_tool_name": tool_name,
+            "display_name": node.display_name,
+            "params": params,
+            "description": node.display_name,
+        })
+
+    return healthy
+
+
+# ---------------------------------------------------------------------------
 # Run detail (must come BEFORE parametric routes)
 # ---------------------------------------------------------------------------
 
@@ -140,6 +266,7 @@ def list_all_pipeline_runs(user: dict = Depends(get_current_user)):
             pr.trigger_type,
             pr.started_at,
             pr.finished_at,
+            pr.error_message,
             COUNT(psr.id)                                          AS step_count,
             COUNT(CASE WHEN psr.status IN ('succeeded','failed') THEN 1 END) AS steps_done
         FROM pipeline_runs pr

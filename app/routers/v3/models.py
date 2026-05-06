@@ -252,13 +252,14 @@ class PipelineRunOut(BaseModel):
     trigger_type: str
     started_at: datetime
     finished_at: datetime | None
+    error_message: str | None = None
 
 
 class ResearchTrailOut(BaseModel):
     query: str
     entity_type: str | None
     findings: list[dict]
-    trail: dict
+    trail: dict | list
     tool_calls: int
     suggested_pipeline: dict | None = None
 
@@ -278,6 +279,7 @@ class PipelineRunSummaryOut(BaseModel):
     finished_at: datetime | None
     step_count: int
     steps_done: int
+    error_message: str | None = None
 
 
 class NodeTypeOut(BaseModel):

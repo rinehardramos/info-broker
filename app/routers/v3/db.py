@@ -163,9 +163,11 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     temporal_workflow_id TEXT,
     status               VARCHAR(20) NOT NULL DEFAULT 'queued',
     trigger_type         VARCHAR(16) NOT NULL DEFAULT 'manual',
+    error_message        TEXT,
     started_at           TIMESTAMPTZ DEFAULT now(),
     finished_at          TIMESTAMPTZ
 );
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS error_message TEXT;
 
 CREATE TABLE IF NOT EXISTS pipeline_step_runs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

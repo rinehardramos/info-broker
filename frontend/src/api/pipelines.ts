@@ -66,6 +66,7 @@ export interface PipelineRun {
   trigger_type: string
   started_at: string
   finished_at: string | null
+  error_message?: string | null
 }
 
 export interface ResearchFinding {
@@ -160,6 +161,7 @@ export interface PipelineRunSummary {
   finished_at: string | null
   step_count: number
   steps_done: number
+  error_message: string | null
 }
 
 export const listAllPipelineRuns = (): Promise<PipelineRunSummary[]> =>

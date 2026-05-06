@@ -237,18 +237,21 @@ async def _run_is_research(
             "type": "pipeline.run.complete", "run_id": run_id, "status": "succeeded",
         })
     except Exception as exc:
-        log.error("IS Brain failed: %s", exc)
+        error_msg = str(exc)[:1000]
+        log.error("IS Brain failed: %s", error_msg)
         execute(
-            "UPDATE pipeline_runs SET status = 'failed', finished_at = now() WHERE id = %s",
-            (run_id,),
+            "UPDATE pipeline_runs SET status = 'failed', finished_at = now(), error_message = %s WHERE id = %s",
+            (error_msg, run_id),
         )
         await push_event(uid, {
             "type": "job.failed", "job_id": run_id, "status": "failed",
             "run_id": run_id,
-            "message": f"Research failed: {str(exc)[:200]}",
+            "message": f"Research failed: {error_msg[:200]}",
+            "error": error_msg,
         })
         await push_event(uid, {
             "type": "pipeline.run.complete", "run_id": run_id, "status": "failed",
+            "error": error_msg,
         })
 
 

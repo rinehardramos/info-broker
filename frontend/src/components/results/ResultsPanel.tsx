@@ -154,6 +154,53 @@ function PipelineRunResults({ runId }: { runId: string }) {
     )
   }
 
+  // IS research run — failed with no findings
+  if (run.trigger_type === 'agent_is' && run.status === 'failed' && !run.research) {
+    return (
+      <div className="p-3">
+        <div
+          className="rounded p-3 mb-3 text-xs"
+          style={{ background: '#ef444415', border: '1px solid #ef444433' }}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <span style={{ fontSize: 8, color: '#f87171' }}>◆</span>
+            <span style={{ color: '#f87171', fontWeight: 600 }}>IS Research — Failed</span>
+          </div>
+          {run.error_message ? (
+            <div>
+              <div style={{ color: '#fca5a5', fontSize: 10, marginBottom: 6 }}>
+                The research brain encountered an error:
+              </div>
+              <div
+                className="p-2 rounded"
+                style={{
+                  background: '#0f172a', border: '1px solid #1e293b',
+                  fontFamily: 'monospace', fontSize: 10, color: '#fca5a5',
+                  whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                }}
+              >
+                {run.error_message}
+              </div>
+            </div>
+          ) : (
+            <p style={{ color: '#fca5a5', fontSize: 10 }}>
+              Research failed with no error details captured. Check server logs for more information.
+            </p>
+          )}
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => {/* TODO: retry */}}
+              className="px-3 py-1 rounded text-xs"
+              style={{ background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)' }}
+            >
+              Retry Research
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   // IS research run — still running, show live streaming view
   if (run.trigger_type === 'agent_is' && (run.status === 'queued' || run.status === 'running')) {
     return (
@@ -206,6 +253,17 @@ function PipelineRunResults({ runId }: { runId: string }) {
           <p style={{ color: 'var(--muted)', fontSize: 10, marginTop: 4 }}>
             ⟳ Pipeline in progress…
           </p>
+        )}
+        {run.status === 'failed' && (run as any).error_message && (
+          <div
+            className="mt-2 p-2 rounded text-xs"
+            style={{ background: '#ef444415', border: '1px solid #ef444433', color: '#fca5a5' }}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Error Details</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {(run as any).error_message}
+            </div>
+          </div>
         )}
       </div>
 
