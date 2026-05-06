@@ -162,3 +162,17 @@ export const listAllPipelineRuns = (): Promise<PipelineRunSummary[]> =>
 
 export const cancelPipelineRun = (runId: string): Promise<void> =>
   api.post(`/v3/pipelines/runs/${runId}/cancel`).then(() => undefined)
+
+export interface PluginRequest {
+  id: string
+  spec: { name: string; description: string; reason: string }
+  status: string
+  created_at: string
+  reviewed_at: string | null
+}
+
+export const listPluginRequests = (): Promise<PluginRequest[]> =>
+  api.get('/v3/pipelines/plugin-requests').then(r => r.data)
+
+export const updatePluginRequestStatus = (id: string, status: string): Promise<void> =>
+  api.put(`/v3/pipelines/plugin-requests/${id}/status`, { status }).then(() => undefined)

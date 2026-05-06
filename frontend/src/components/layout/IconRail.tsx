@@ -1,7 +1,9 @@
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useTheme } from '../../hooks/useTheme'
 import { useSessionStore } from '../../stores/sessionStore'
 import { THEMES } from '../../lib/theme'
+import { listPluginRequests } from '../../api/pipelines'
 
 const NAV = [
   { icon: '⬡', path: '/',          label: 'Research' },
@@ -18,6 +20,13 @@ export default function IconRail() {
   const { theme, toggle } = useTheme()
   const { logout, username } = useSessionStore()
 
+  const { data: pluginRequests } = useQuery({
+    queryKey: ['plugin-requests'],
+    queryFn: listPluginRequests,
+    refetchInterval: 30000,
+  })
+  const pendingCount = pluginRequests?.filter(r => r.status === 'pending').length ?? 0
+
   return (
     <div
       className="flex flex-col items-center py-3 gap-4 flex-shrink-0"
@@ -32,10 +41,11 @@ export default function IconRail() {
       <div className="flex-1 flex flex-col items-center gap-3 mt-2">
         {NAV.map(({ icon, path, label }) => {
           const active = location.pathname === path
+          const hasBadge = path === '/plugins' && pendingCount > 0
           return (
             <button
               key={path}
-              title={label}
+              title={hasBadge ? `${label} (${pendingCount} pending)` : label}
               onClick={() => navigate(path)}
               style={{
                 width: 20,
@@ -46,9 +56,17 @@ export default function IconRail() {
                 cursor: 'pointer',
                 border: 'none',
                 borderRadius: 3,
+                position: 'relative',
               }}
             >
               {icon}
+              {hasBadge && (
+                <span style={{
+                  position: 'absolute', top: -2, right: -4,
+                  width: 8, height: 8, borderRadius: '50%',
+                  background: '#f87171', border: '1px solid var(--panel)',
+                }} />
+              )}
             </button>
           )
         })}

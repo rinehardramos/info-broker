@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
 import { getPipelineNodeEnabled, setPipelineNodeEnabled, getAppPluginEnabled, setAppPluginEnabled } from '../api/v3'
-import { listNodeTypes, type NodeType } from '../api/pipelines'
+import { listNodeTypes, listPluginRequests, updatePluginRequestStatus, type NodeType, type PluginRequest } from '../api/pipelines'
 
 // ─── Static integrations (non-pipeline-node plugins) ─────────────────────────
 
@@ -224,10 +224,20 @@ const CATEGORY_ORDER = ['source', 'enrich', 'score', 'filter', 'datastore']
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function PluginsPage() {
+  const qc = useQueryClient()
   const { data: nodeTypes = [], isLoading } = useQuery({
     queryKey: ['all-node-types'],
     queryFn: listNodeTypes,
   })
+  const { data: pluginRequests = [] } = useQuery({
+    queryKey: ['plugin-requests'],
+    queryFn: listPluginRequests,
+  })
+  const dismissMutation = useMutation({
+    mutationFn: (id: string) => updatePluginRequestStatus(id, 'dismissed'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-requests'] }),
+  })
+  const pendingRequests = pluginRequests.filter(r => r.status === 'pending')
 
   // Sort by category order, then alphabetically within category
   const sortedNodes = [...nodeTypes].sort((a, b) => {
@@ -282,6 +292,61 @@ export default function PluginsPage() {
               {APP_PLUGINS.map(p => <HybridAppPluginCard key={p.id} plugin={p} />)}
             </div>
           </section>
+
+          {/* Plugin requests from IS brain */}
+          {pendingRequests.length > 0 && (
+            <section style={{ marginBottom: 28 }}>
+              <h2
+                style={{
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+                  color: '#f87171', margin: '0 0 12px',
+                }}
+              >
+                SUGGESTED PLUGINS ({pendingRequests.length})
+              </h2>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                  gap: 12,
+                }}
+              >
+                {pendingRequests.map(req => (
+                  <div
+                    key={req.id}
+                    style={{
+                      background: 'var(--panel2)',
+                      border: '1px solid #f8717133',
+                      borderRadius: 8,
+                      padding: 14,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+                        {req.spec.name}
+                      </span>
+                      <button
+                        onClick={() => dismissMutation.mutate(req.id)}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: 9, color: 'var(--muted)', padding: '0 4px',
+                        }}
+                        title="Dismiss"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
+                      {req.spec.description}
+                    </p>
+                    <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>
+                      Reason: {req.spec.reason}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Pipeline node plugins — fetched from API */}
           <section>
