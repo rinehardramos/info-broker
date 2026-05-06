@@ -189,28 +189,40 @@ def _error_item(msg: str) -> dict:
 
 def _map_item(item: dict) -> dict:
     """Normalise a harvestapi~linkedin-profile-search response item."""
-    # Handle nested currentPosition
-    current = (
-        (item.get("currentPosition") or [{}])[0]
-        if item.get("currentPosition")
-        else {}
-    )
-    # Handle email from various fields
+    first = item.get("firstName") or item.get("first_name", "")
+    last = item.get("lastName") or item.get("last_name", "")
+    full = item.get("fullName") or item.get("name") or f"{first} {last}".strip()
+
+    # currentPosition may be a list of dicts
+    positions = item.get("currentPosition") or item.get("positions") or []
+    current = positions[0] if isinstance(positions, list) and positions else {}
+
+    title = (current.get("title") or item.get("currentPositionTitle")
+             or item.get("headline") or item.get("summary", "")[:80])
+    company = (current.get("companyName") or item.get("currentCompanyName")
+               or item.get("company", ""))
+
+    # Location can be a string or {"linkedinText": "..."}
+    loc = item.get("location", "")
+    if isinstance(loc, dict):
+        loc = loc.get("linkedinText") or loc.get("text") or ""
+
+    # Email from various fields
     email = item.get("email") or item.get("emailAddress") or ""
-    if not email and item.get("emails"):
-        emails = item["emails"]
+    if not email:
+        emails = item.get("emails") or []
         email = emails[0] if isinstance(emails, list) and emails else ""
 
     return {
         "id": item.get("profileUrl") or item.get("linkedinUrl") or "",
-        "full_name": item.get("fullName") or item.get("name", ""),
-        "first_name": item.get("firstName") or item.get("first_name", ""),
-        "last_name": item.get("lastName") or item.get("last_name", ""),
-        "title": current.get("title") or item.get("currentPositionTitle") or item.get("headline", ""),
-        "company": current.get("companyName") or item.get("currentCompanyName") or item.get("company", ""),
+        "full_name": full,
+        "first_name": first,
+        "last_name": last,
+        "title": title,
+        "company": company,
         "linkedin_url": item.get("profileUrl") or item.get("linkedinUrl", ""),
-        "headline": item.get("headline", ""),
-        "location": item.get("location", ""),
+        "headline": item.get("headline") or item.get("summary", "")[:120],
+        "location": loc,
         "email": email,
         "source": "linkedin_profile",
         "confidence": 85,
