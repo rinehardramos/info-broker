@@ -759,15 +759,16 @@ function ResearchResults({
               onClick={() => onGoDeeper(trail.deeper_leads!)}
               disabled={goingDeeper}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
-                fontSize: 10, padding: '5px 12px', borderRadius: 8,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: '#a78bfa18', border: '1px solid #a78bfa44', color: '#a78bfa',
+                fontSize: 11, fontWeight: 600, padding: '7px 14px', borderRadius: 8,
                 cursor: goingDeeper ? 'not-allowed' : 'pointer',
+                opacity: goingDeeper ? 0.5 : 1,
               }}
             >
               {goingDeeper
-                ? <><Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Going deeper...</>
-                : <><ArrowDownToLine size={11} /> Go Deeper (skip analysis)</>}
+                ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Going deeper...</>
+                : <><ArrowDownToLine size={12} /> Go Deeper</>}
             </button>
           )}
           {hasPipeline && (
@@ -775,15 +776,18 @@ function ResearchResults({
               onClick={handleSavePipeline}
               disabled={savingPipeline || pipelineSaved}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)',
-                fontSize: 10, padding: '5px 12px', borderRadius: 8,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                background: pipelineSaved ? '#4ade8018' : '#60a5fa18',
+                border: `1px solid ${pipelineSaved ? '#4ade8044' : '#60a5fa44'}`,
+                color: pipelineSaved ? '#4ade80' : '#60a5fa',
+                fontSize: 11, fontWeight: 600, padding: '7px 14px', borderRadius: 8,
                 cursor: savingPipeline || pipelineSaved ? 'not-allowed' : 'pointer',
+                opacity: savingPipeline ? 0.5 : 1,
               }}
             >
               {pipelineSaved
-                ? <><Save size={11} /> Saved</>
-                : <><Save size={11} /> Save Pipeline</>}
+                ? <><Save size={12} /> Saved</>
+                : <><Save size={12} /> Save Pipeline</>}
             </button>
           )}
         </div>
