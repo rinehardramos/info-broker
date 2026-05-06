@@ -47,6 +47,20 @@ class NodeRegistry:
         from app.pipeline.nodes.apollo_zoominfo import ApolloZoominfoNode
         from app.pipeline.nodes.ph_sec_dti import PhSecDtiNode
         from app.pipeline.nodes.linkedin_navigator import LinkedinNavigatorNode
+        from app.pipeline.nodes.facebook_pages import FacebookPagesNode
+        from app.pipeline.nodes.twitter_search import TwitterSearchNode
+        from app.pipeline.nodes.opencorporates import OpenCorporatesNode
+        from app.pipeline.nodes.instagram_profile import InstagramProfileNode
+        from app.pipeline.nodes.hunter_io import HunterIoNode
+        from app.pipeline.nodes.whois_lookup import WhoisLookupNode
+        from app.pipeline.nodes.google_news import GoogleNewsNode
+        from app.pipeline.nodes.shodan_search import ShodanSearchNode
+        from app.pipeline.nodes.clutch_buyer import ClutchBuyerNode
+        from app.pipeline.nodes.headless_crawler import HeadlessCrawlerNode
+        from app.pipeline.nodes.ph_bir import PhBirNode
+        from app.pipeline.nodes.analyzer import AnalyzerNode
+        from app.pipeline.nodes.stripe_marketplace import StripeMarketplaceNode
+        from app.pipeline.nodes.financial_projections import FinancialProjectionsNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -55,5 +69,11 @@ class NodeRegistry:
             IntelligentSearchNode(), SummarizerNode(),
             ClutchGoodfirmsNode(), LinkedInProfileNode(), ApifyMcpNode(), WebSearchFetchNode(),
             WikipediaApiNode(), ApolloZoominfoNode(), PhSecDtiNode(), LinkedinNavigatorNode(),
+            FacebookPagesNode(), TwitterSearchNode(), OpenCorporatesNode(),
+            InstagramProfileNode(), HunterIoNode(), WhoisLookupNode(),
+            GoogleNewsNode(), ShodanSearchNode(),
+            ClutchBuyerNode(), HeadlessCrawlerNode(), PhBirNode(),
+            AnalyzerNode(),
+            StripeMarketplaceNode(), FinancialProjectionsNode(),
         ]:
             cls.register(node)

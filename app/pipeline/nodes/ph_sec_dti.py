@@ -17,6 +17,9 @@ _SEC_SEARCH_URL = "https://www.sec.gov.ph/company-search/"
 # Known SEC eSPARC search endpoint (may change as the site evolves)
 _SEC_ESPARC_URL = "https://esparc.sec.gov.ph/api/search/company"
 
+# GIS endpoint — returns officer/director list for a given company code
+_SEC_GIS_URL = "https://esparc.sec.gov.ph/api/gis/company/{company_code}"
+
 
 class PhSecDtiNode:
     node_type = "ph_sec_dti"
@@ -33,6 +36,15 @@ class PhSecDtiNode:
                 "default": "company_name",
                 "description": "Search by company name or SEC registration number",
             },
+            "include_officers": {
+                "type": "boolean",
+                "title": "Include Officers",
+                "default": False,
+                "description": (
+                    "When enabled, attempt to extract officer/director information "
+                    "from the company's General Information Sheet (GIS) on SEC eSPARC"
+                ),
+            },
         },
         "required": [],
     }
@@ -41,6 +53,7 @@ class PhSecDtiNode:
         self, config: dict, inputs: list[dict], context: RunContext
     ) -> list[dict]:
         search_type = config.get("search_type", "company_name")
+        include_officers = bool(config.get("include_officers", False))
         loop = asyncio.get_running_loop()
         results: list[dict] = []
 
@@ -57,13 +70,23 @@ class PhSecDtiNode:
                 log.debug("ph_sec_dti: skipping item with no query: %s", item)
                 continue
 
-            result = await loop.run_in_executor(
+            company_results = await loop.run_in_executor(
                 None, _search_sec, search_type, query
             )
-            results.extend(result)
+
+            if include_officers and company_results:
+                company_results = await loop.run_in_executor(
+                    None, _enrich_with_officers, company_results
+                )
+
+            results.extend(company_results)
 
         return results
 
+
+# ---------------------------------------------------------------------------
+# Company search (unchanged from original)
+# ---------------------------------------------------------------------------
 
 def _search_sec(search_type: str, query: str) -> list[dict]:
     """
@@ -214,6 +237,111 @@ def _parse_sec_html(html: str, query: str) -> list[dict]:
 
     return results[:10]
 
+
+# ---------------------------------------------------------------------------
+# GIS officer extraction
+# ---------------------------------------------------------------------------
+
+def _enrich_with_officers(company_results: list[dict]) -> list[dict]:
+    """Attempt to fetch GIS officer data for each company result.
+
+    Mutates results in-place by adding an ``officers`` key.
+    Companies without a registration number are skipped silently.
+    """
+    for record in company_results:
+        company_code = record.get("registration_number") or ""
+        if not company_code:
+            continue
+
+        officers = _fetch_gis_officers(company_code)
+        if officers is not None:
+            record["officers"] = officers
+
+    return company_results
+
+
+def _fetch_gis_officers(company_code: str) -> list[dict] | None:
+    """Fetch officer/director list from the SEC eSPARC GIS endpoint.
+
+    Returns a list of officer dicts, an empty list if the company has no GIS
+    on file, or None if the request failed so the caller can omit the field.
+    """
+    url = _SEC_GIS_URL.format(company_code=company_code)
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            response = client.get(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (compatible; info-broker/1.0)",
+                    "Accept": "application/json",
+                },
+            )
+            if response.status_code == 404:
+                log.debug("ph_sec_dti: no GIS found for %s", company_code)
+                return []
+            if response.status_code != 200:
+                log.debug(
+                    "ph_sec_dti: GIS endpoint returned HTTP %d for %s",
+                    response.status_code,
+                    company_code,
+                )
+                return None
+            data = response.json()
+    except Exception as exc:
+        log.debug("ph_sec_dti: GIS fetch failed for %s: %s", company_code, exc)
+        return None
+
+    return _parse_gis_officers(data)
+
+
+def _parse_gis_officers(data: dict | list) -> list[dict]:
+    """Normalise GIS response into a list of officer dicts.
+
+    The eSPARC GIS endpoint may return the officers list under several keys
+    depending on the endpoint version; we probe the common ones.
+    """
+    # If the top-level is already a list, treat it as the officer list
+    if isinstance(data, list):
+        items = data
+    else:
+        # Try common envelope keys
+        items = (
+            data.get("officers")
+            or data.get("directors")
+            or data.get("data")
+            or []
+        )
+
+    officers: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        officer = {
+            "name": (
+                item.get("name")
+                or item.get("officerName")
+                or item.get("directorName")
+                or ""
+            ).strip(),
+            "position": (
+                item.get("position")
+                or item.get("designation")
+                or item.get("title")
+                or ""
+            ).strip(),
+            "nationality": item.get("nationality", ""),
+            "tin": item.get("tin") or item.get("taxIdentificationNumber") or "",
+        }
+        # Only include rows that have at least a name
+        if officer["name"]:
+            officers.append(officer)
+
+    return officers
+
+
+# ---------------------------------------------------------------------------
+# HTML parsing helpers (unchanged)
+# ---------------------------------------------------------------------------
 
 def _extract_between(text: str, start_tag: str, end_tag: str) -> list[str]:
     """Extract all substrings between start_tag and end_tag (case-insensitive on tag name)."""
