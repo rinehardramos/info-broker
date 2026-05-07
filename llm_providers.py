@@ -26,6 +26,12 @@ _PROVIDERS: dict[str, dict[str, str]] = {
         "chat_model": "gemini-2.5-pro",
         "embedding_model": os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2-preview"),
     },
+    "ollama": {
+        "base_url": os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1"),
+        "api_key_env": "OLLAMA_API_KEY",  # not needed but OpenAI client requires it
+        "chat_model": os.getenv("OLLAMA_CHAT_MODEL", "llama3"),
+        "embedding_model": os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text"),
+    },
     "lmstudio": {
         "base_url": os.getenv("LM_STUDIO_BASE_URL", "http://localhost:1234/v1"),
         "api_key_env": "LM_STUDIO_API_KEY",
@@ -35,6 +41,7 @@ _PROVIDERS: dict[str, dict[str, str]] = {
 }
 
 DEFAULT_PROVIDER = os.getenv("LLM_PROVIDER", "google")
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama")
 
 _GEMINI_EMBED_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models"
@@ -58,14 +65,31 @@ def embedding_model(provider: str = DEFAULT_PROVIDER) -> str:
     return _PROVIDERS.get(provider, _PROVIDERS["google"])["embedding_model"]
 
 
-def embed_text(text: str, provider: str = DEFAULT_PROVIDER) -> list[float]:
+def embed_text(text: str, provider: str | None = None) -> list[float]:
     """Return an embedding vector for ``text`` using the configured provider.
 
-    For ``google``, calls the native Gemini embedContent REST endpoint
-    (the OpenAI-compatible endpoint does not support embeddings).
-    For ``lmstudio``, uses the OpenAI-compatible embeddings endpoint.
+    Provider resolution: explicit arg > EMBEDDING_PROVIDER env > DEFAULT_PROVIDER.
+    Supports: ollama (native API), google (Gemini REST), lmstudio (OpenAI-compat).
     """
     if not text:
+        return [0.0] * 768
+
+    if provider is None:
+        provider = EMBEDDING_PROVIDER
+
+    if provider == "ollama":
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+        model = embedding_model("ollama")
+        resp = requests.post(
+            f"{base_url.rstrip('/v1').rstrip('/')}/api/embed",
+            json={"model": model, "input": text},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        embeddings = data.get("embeddings", [])
+        if embeddings:
+            return embeddings[0]
         return [0.0] * 768
 
     if provider == "google":
