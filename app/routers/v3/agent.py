@@ -250,6 +250,30 @@ async def _run_is_research(
         except Exception as exc:
             log.warning("Fusion layer failed (non-fatal): %s", exc)
 
+        # Completeness assessment + deception detection
+        try:
+            from app.pipeline.fusion.completeness import assess_completeness
+            from app.pipeline.fusion.deception import detect_deception
+
+            entity_type = result.get("entity_type", "person")
+            completeness = assess_completeness(
+                result.get("findings", []),
+                selectors if 'selectors' in dir() else [],
+                entity_type,
+            )
+            deception_results = detect_deception(result.get("findings", []))
+            deception_flagged = [d for d in deception_results if d.get("deception_risk", 0) > 0.3]
+
+            # Log coverage summary
+            log.info(
+                "Investigation completeness: %.0f%% coverage, %d gaps, %d deception flags",
+                completeness.get("coverage_pct", 0) * 100,
+                len(completeness.get("gaps", [])),
+                len(deception_flagged),
+            )
+        except Exception as exc:
+            log.warning("Completeness/deception analysis failed (non-fatal): %s", exc)
+
         # Create procedural memory skill
         try:
             from app.memory.skills import create_skill_from_run
