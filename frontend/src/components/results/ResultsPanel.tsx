@@ -349,8 +349,9 @@ function confidenceLevel(score: number): 'high' | 'medium' | 'low' {
   return 'low'
 }
 
-// Module-level cache: analysis results persist across tab switches
+// Module-level caches: persist across tab switches / remounts
 const _analysisCache = new Map<string, any>()
+const _analyzingRuns = new Set<string>()
 
 function ResearchResults({
   research,
@@ -369,8 +370,14 @@ function ResearchResults({
   const navigate = useNavigate()
   const [pipelineSaved, setPipelineSaved] = useState(false)
   const [savingPipeline, setSavingPipeline] = useState(false)
-  const [analyzing, setAnalyzing] = useState(false)
-  const [analysis, setAnalysis] = useState<any>(() => _analysisCache.get(runId ?? '') ?? research.analysis ?? null)
+  // Initialize from: module cache > server DB > null
+  // Initialize analyzing from: module set > DB status marker
+  const _rid = runId ?? ''
+  const initAnalysis = _analysisCache.get(_rid) ?? (research.analysis && !(research.analysis as any)._status ? research.analysis : null)
+  const initAnalyzing = _analyzingRuns.has(_rid) || (research.analysis && (research.analysis as any)._status === 'analyzing')
+
+  const [analyzing, setAnalyzing] = useState(!!initAnalyzing)
+  const [analysis, setAnalysis] = useState<any>(initAnalysis)
   const [feedback, setFeedback] = useState<Record<number, number>>({})
   const mountedRef = useRef(true)
 
@@ -381,10 +388,6 @@ function ResearchResults({
 
   useEffect(() => {
     if (runId) {
-      // Restore cached analysis on tab switch
-      const cached = _analysisCache.get(runId)
-      if (cached) setAnalysis(cached)
-
       getRunFeedback(runId).then(fb => {
         if (!mountedRef.current) return
         const mapped: Record<number, number> = {}
@@ -394,19 +397,11 @@ function ResearchResults({
     }
   }, [runId])
 
-  // Check if analysis is in-progress from server (restored from DB)
-  useEffect(() => {
-    if (analysis && (analysis as any)._status === 'analyzing') {
-      setAnalyzing(true)
-      setAnalysis(null) // clear placeholder, wait for WS event
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   // Listen for analysis WS events
   const handleWsEvent = useCallback((event: any) => {
     if (!runId) return
     if (event.type === 'analysis.completed' && event.run_id === runId) {
-      // Refetch the run to get the persisted analysis
+      _analyzingRuns.delete(runId)
       getPipelineRun(runId).then(run => {
         if (run?.research?.analysis && mountedRef.current) {
           const a = run.research.analysis
@@ -417,6 +412,7 @@ function ResearchResults({
       }).catch(() => {})
     }
     if (event.type === 'analysis.failed' && event.run_id === runId) {
+      _analyzingRuns.delete(runId)
       if (mountedRef.current) setAnalyzing(false)
     }
   }, [runId])
@@ -425,12 +421,12 @@ function ResearchResults({
 
   const handleAnalyze = async (context?: string) => {
     setAnalyzing(true)
+    if (runId) _analyzingRuns.add(runId)
     try {
-      // This now returns immediately (202) — analysis runs in background
       await runAnalyzer(research.findings, undefined, context || undefined, research.query, runId || undefined)
-      // Result will arrive via WS event -> refetch run -> setAnalysis
     } catch (err) {
       console.error('Analysis failed:', err)
+      if (runId) _analyzingRuns.delete(runId)
       if (mountedRef.current) setAnalyzing(false)
     }
   }
