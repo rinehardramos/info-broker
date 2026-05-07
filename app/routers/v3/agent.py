@@ -187,8 +187,8 @@ async def _run_is_research(
             log.debug("Skill retrieval failed (non-fatal): %s", exc)
 
         # Load entity investigation strategy (hardcode "person" for Phase 1)
-        from app.pipeline.strategies import get_strategy
-        entity_strategy = get_strategy("person")
+        from app.pipeline.strategies.compiler import compile_strategy
+        entity_strategy = await compile_strategy("person")
 
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
