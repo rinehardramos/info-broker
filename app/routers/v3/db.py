@@ -359,6 +359,27 @@ CREATE TABLE IF NOT EXISTS research_skills (
 );
 CREATE INDEX IF NOT EXISTS idx_skills_quality ON research_skills (quality_score DESC);
 CREATE INDEX IF NOT EXISTS idx_skills_entity ON research_skills (entity_type);
+
+CREATE TABLE IF NOT EXISTS investigation_strategy_overlays (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_type     VARCHAR(50) NOT NULL,
+    selector_type   VARCHAR(50) NOT NULL,
+    pivot_pattern   VARCHAR(200) NOT NULL,
+    overlay_type    VARCHAR(20) NOT NULL,
+    content         TEXT,
+    technique_ref   VARCHAR(100),
+    yield_rate      FLOAT DEFAULT 0.0,
+    intel_value     FLOAT DEFAULT 0.5,
+    category        VARCHAR(20) DEFAULT 'situational',
+    confidence      FLOAT DEFAULT 0.0,
+    run_count       INT DEFAULT 0,
+    pinned          BOOLEAN DEFAULT FALSE,
+    last_validated  TIMESTAMPTZ DEFAULT now(),
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    updated_at      TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_overlays_entity_type ON investigation_strategy_overlays (entity_type, overlay_type);
+CREATE INDEX IF NOT EXISTS idx_overlays_selector ON investigation_strategy_overlays (entity_type, selector_type);
 """
 
 
