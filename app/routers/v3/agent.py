@@ -226,6 +226,30 @@ async def _run_is_research(
         except Exception as exc:
             log.warning("Memory indexing failed (non-fatal): %s", exc)
 
+        # Intelligence Fusion: extract selectors + write to KG
+        try:
+            from app.pipeline.fusion.selectors import extract_selectors_from_findings
+            from app.pipeline.fusion.writer import write_entities_to_kg, write_relationships_to_kg
+
+            # Extract selectors as lightweight entity observations
+            selectors = extract_selectors_from_findings(result.get("findings", []))
+            if selectors:
+                # Convert selectors to entity format for KG
+                selector_entities = [
+                    {"name": s["value"], "type": s["type"], "attributes": {"selector_type": s["type"]}}
+                    for s in selectors
+                ]
+                await write_entities_to_kg(run_id, selector_entities, "intelligent_search")
+
+            # If analyzer-extracted entities exist, write those too
+            for finding in result.get("findings", []):
+                if finding.get("source") == "analyzer" and finding.get("entities"):
+                    await write_entities_to_kg(run_id, finding["entities"], "analyzer")
+                if finding.get("source") == "analyzer" and finding.get("relationships"):
+                    await write_relationships_to_kg(run_id, finding["relationships"], "analyzer")
+        except Exception as exc:
+            log.warning("Fusion layer failed (non-fatal): %s", exc)
+
         # Create procedural memory skill
         try:
             from app.memory.skills import create_skill_from_run
