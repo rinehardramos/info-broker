@@ -186,9 +186,11 @@ async def _run_is_research(
         except Exception as exc:
             log.debug("Skill retrieval failed (non-fatal): %s", exc)
 
-        # Load entity investigation strategy (hardcode "person" for Phase 1)
+        # Load entity investigation strategy — auto-classify query to strategy
+        from app.pipeline.strategies.orchestrator import classify_query
         from app.pipeline.strategies.compiler import compile_strategy
-        entity_strategy = await compile_strategy("person")
+        research_category = classify_query(query)
+        entity_strategy = await compile_strategy(research_category)
 
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,

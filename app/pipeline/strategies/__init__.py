@@ -14,5 +14,13 @@ def get_strategy(entity_type: str) -> str:
     return _STRATEGIES.get(entity_type, "")
 
 def _load_strategies() -> None:
-    from app.pipeline.strategies.person import STRATEGY, ENTITY_TYPE
-    _STRATEGIES[ENTITY_TYPE] = STRATEGY
+    from app.pipeline.strategies.person import STRATEGY as PS, ENTITY_TYPE as PT
+    from app.pipeline.strategies.generation import STRATEGY as GS, ENTITY_TYPE as GT
+    from app.pipeline.strategies.explanation import STRATEGY as ES, ENTITY_TYPE as ET
+    from app.pipeline.strategies.prediction import STRATEGY as PRS, ENTITY_TYPE as PRT
+    from app.pipeline.strategies.synthesis import STRATEGY as SS, ENTITY_TYPE as ST
+    _STRATEGIES[PT] = PS
+    _STRATEGIES[GT] = GS
+    _STRATEGIES[ET] = ES
+    _STRATEGIES[PRT] = PRS
+    _STRATEGIES[ST] = SS
