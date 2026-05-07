@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from unittest.mock import MagicMock, patch
+
+# Mock psycopg2 so importing app.routers.v3.db doesn't fail in test env
+if "psycopg2" not in sys.modules:
+    sys.modules["psycopg2"] = MagicMock()
+    sys.modules["psycopg2.extras"] = MagicMock()
 
 
 def _arun(coro):
