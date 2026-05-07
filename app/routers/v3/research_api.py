@@ -112,6 +112,15 @@ def submit_finding_feedback(
     # If thumbs down, learn the error pattern
     if body.get("score") == -1:
         _learn_error_pattern(body.get("title", ""), body.get("reason", ""))
+
+    # Update procedural skill quality
+    try:
+        from app.memory.skills import update_skill_quality
+        import asyncio
+        asyncio.get_event_loop().create_task(update_skill_quality(run_id))
+    except Exception:
+        pass
+
     return {"status": "ok"}
 
 

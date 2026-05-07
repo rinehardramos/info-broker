@@ -6,6 +6,7 @@ import os
 import uuid
 
 import asyncio
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -138,6 +139,8 @@ async def _run_is_research(
     """Background task: run IS brain and push WS events."""
     from app.routers.v3.stream import push_event
 
+    started_at = datetime.now(timezone.utc)
+
     await push_event(uid, {
         "type": "job.update", "job_id": run_id, "status": "running",
         "run_id": run_id, "message": query,
@@ -171,10 +174,23 @@ async def _run_is_research(
         from app.routers.v3.pipelines import get_healthy_nodes
         healthy_nodes = await get_healthy_nodes()
 
+        # Get matching procedural skills for SUGGESTED STRATEGIES
+        strategies_section = ""
+        try:
+            from app.memory.skills import get_matching_skills, format_skills_for_prompt
+            matching_skills = await get_matching_skills(query, limit=3)
+            strategies_section = format_skills_for_prompt(matching_skills)
+            # Track suggestion count
+            for s in matching_skills:
+                execute("UPDATE research_skills SET times_suggested = times_suggested + 1, last_suggested_at = now() WHERE id = %s", (str(s["id"]),))
+        except Exception as exc:
+            log.debug("Skill retrieval failed (non-fatal): %s", exc)
+
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
             on_event=_on_tool_event,
             available_nodes=healthy_nodes,
+            strategies_section=strategies_section,
         )
 
         # Check if IS brain returned an error result (no findings, error summary)
@@ -204,6 +220,14 @@ async def _run_is_research(
             await index_research_findings(run_id, query, result.get("findings", []))
         except Exception as exc:
             log.warning("Memory indexing failed (non-fatal): %s", exc)
+
+        # Create procedural memory skill
+        try:
+            from app.memory.skills import create_skill_from_run
+            duration = int((datetime.now(timezone.utc) - started_at).total_seconds()) if started_at else 0
+            await create_skill_from_run(run_id, query, result, duration_seconds=duration)
+        except Exception as exc:
+            log.warning("Skill creation failed (non-fatal): %s", exc)
 
         # Deduplicate plugin suggestions against existing nodes
         from app.pipeline.nodes import NodeRegistry

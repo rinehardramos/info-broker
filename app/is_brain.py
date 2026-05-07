@@ -56,6 +56,7 @@ async def run_research(
     user_preferences: dict | None = None,
     on_event: Any = None,  # async callable(dict) for streaming tool call events
     available_nodes: list[dict] | None = None,  # healthy+enabled nodes for prompt
+    strategies_section: str = "",  # procedural memory strategies for the prompt
 ) -> dict[str, Any]:
     """Run a research query via Claude Code subprocess.
 
@@ -73,6 +74,7 @@ async def run_research(
         past_research=past_research,
         user_preferences=user_preferences,
         available_nodes=available_nodes,
+        strategies_section=strategies_section,
     )
 
     # Resolve the freshest API key — DB first, then env var, then try host keychain
