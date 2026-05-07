@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Callable, Protocol, TypedDict
 
 
 @dataclass
@@ -10,6 +10,14 @@ class RunContext:
     run_id: str
     node_id: str
     push_event: Callable = lambda *a, **kw: None
+
+
+class HealthStatus(TypedDict):
+    healthy: bool
+    error: str | None
+    requires_key: str | None
+    setup_url: str | None
+    setup_instructions: str | None
 
 
 class PipelineNode(Protocol):

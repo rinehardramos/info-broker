@@ -146,10 +146,6 @@ def test_text_to_markdown_blank_lines_preserved():
 # ---------------------------------------------------------------------------
 
 def test_fetch_with_retry_returns_text_on_first_success():
-    with patch("app.pipeline.nodes.web_crawl.scrape_url", return_value="page content") as mock_scrape:
-        # Need to import from the module's namespace properly
-        pass
-
     with patch("app.lib.ddg_fallback.scrape_url", return_value="page content"):
         result = _fetch_with_retry("https://example.com", "UA/1.0")
     assert result == "page content"

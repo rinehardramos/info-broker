@@ -49,42 +49,20 @@ def test_health_status_unhealthy():
 
 
 # ---------------------------------------------------------------------------
-# ApifyActorNode.health_check
+# LinkedInProfileNode.health_check
 # ---------------------------------------------------------------------------
 
-def test_apify_actor_health_check_no_key():
-    node = ApifyActorNode()
-    with patch("app.pipeline.nodes.apify_actor._resolve_api_key", side_effect=RuntimeError("no key")):
+def test_linkedin_health_check_no_key():
+    node = LinkedInProfileNode()
+    with patch('app.pipeline.nodes.apify_actor._resolve_api_key', side_effect=RuntimeError('no key')):
         result = _arun(node.health_check())
-    assert result["healthy"] is False
-    assert result["requires_key"] == "APIFY_API_TOKEN"
-    assert result["error"] is not None
+    assert result['healthy'] is False
+    assert result['requires_key'] == 'APIFY_API_TOKEN'
+    assert result['error'] is not None
 
 
-def test_apify_actor_health_check_with_invalid_key():
-    """When key exists but Apify returns 401, should be unhealthy."""
-    node = ApifyActorNode()
-
-    mock_resp = MagicMock()
-    mock_resp.status_code = 401
-
-    mock_client = AsyncMock()
-    mock_client.get = AsyncMock(return_value=mock_resp)
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
-
-    with (
-        patch("app.pipeline.nodes.apify_actor._resolve_api_key", return_value="bad-key"),
-        patch("httpx.AsyncClient", return_value=mock_client),
-    ):
-        result = _arun(node.health_check())
-    assert result["healthy"] is False
-    assert "401" in result["error"]
-
-
-def test_apify_actor_health_check_with_valid_key():
-    """When key exists and Apify returns 200, should be healthy."""
-    node = ApifyActorNode()
+def test_linkedin_health_check_with_valid_key():
+    node = LinkedInProfileNode()
 
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -95,55 +73,47 @@ def test_apify_actor_health_check_with_valid_key():
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with (
-        patch("app.pipeline.nodes.apify_actor._resolve_api_key", return_value="good-key"),
-        patch("httpx.AsyncClient", return_value=mock_client),
+        patch('app.pipeline.nodes.apify_actor._resolve_api_key', return_value='good-key'),
+        patch('httpx.AsyncClient', return_value=mock_client),
     ):
         result = _arun(node.health_check())
-    assert result["healthy"] is True
-    assert result["error"] is None
+    assert result['healthy'] is True
+    assert result['error'] is None
 
 
-# ---------------------------------------------------------------------------
-# ApifyMcpNode.health_check
-# ---------------------------------------------------------------------------
-
-def test_apify_mcp_health_check_no_key():
-    node = ApifyMcpNode()
-    with patch("app.pipeline.nodes.apify_actor._resolve_api_key", side_effect=RuntimeError("no key")):
-        result = _arun(node.health_check())
-    assert result["healthy"] is False
-    assert result["requires_key"] == "APIFY_API_TOKEN"
-    assert result["error"] is not None
-
-
-def test_apify_mcp_health_check_with_key():
-    node = ApifyMcpNode()
-    with patch("app.pipeline.nodes.apify_actor._resolve_api_key", return_value="fake-key"):
-        result = _arun(node.health_check())
-    assert result["healthy"] is True
-    assert result["error"] is None
-
-
-# ---------------------------------------------------------------------------
-# LinkedInProfileNode.health_check
-# ---------------------------------------------------------------------------
-
-def test_linkedin_profile_health_check_no_key():
+def test_linkedin_health_check_403_returns_approval_url():
     node = LinkedInProfileNode()
-    with patch("app.pipeline.nodes.apify_actor._resolve_api_key", side_effect=RuntimeError("no key")):
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+    mock_resp.json.return_value = {'error': {'data': {'approvalUrl': 'https://example.com/approve'}}}
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch('app.pipeline.nodes.apify_actor._resolve_api_key', return_value='some-key'),
+        patch('httpx.AsyncClient', return_value=mock_client),
+    ):
         result = _arun(node.health_check())
-    assert result["healthy"] is False
-    assert result["requires_key"] == "APIFY_API_TOKEN"
-    assert result["error"] is not None
+    assert result['healthy'] is False
+    assert 'not approved' in result['error'].lower() or 'permission' in result['error'].lower()
 
 
-def test_linkedin_profile_health_check_with_key():
-    node = LinkedInProfileNode()
-    with patch("app.pipeline.nodes.apify_actor._resolve_api_key", return_value="fake-key"):
-        result = _arun(node.health_check())
-    assert result["healthy"] is True
-    assert result["error"] is None
+# ---------------------------------------------------------------------------
+# Nodes without health_check: ApifyActorNode, ApifyMcpNode
+# ---------------------------------------------------------------------------
 
+def test_apify_actor_has_no_health_check():
+    node = ApifyActorNode()
+    assert not hasattr(node, 'health_check')
+
+
+def test_apify_mcp_has_no_health_check():
+    node = ApifyMcpNode()
+    assert not hasattr(node, 'health_check')
 
 # ---------------------------------------------------------------------------
 # Nodes without health_check have no health_check attribute
@@ -201,9 +171,11 @@ def test_get_healthy_nodes_excludes_unhealthy(monkeypatch):
 
     result = _arun(get_healthy_nodes())
     node_types = [r["node_type"] for r in result]
-    assert "apify_actor" not in node_types
-    assert "apify_mcp" not in node_types
+    # linkedin_profile has health_check that checks the key — should be excluded
     assert "linkedin_profile" not in node_types
+    # apify_actor and apify_mcp have no health_check — they are always included
+    assert "apify_actor" in node_types
+    assert "apify_mcp" in node_types
 
 
 def test_get_healthy_nodes_result_shape(monkeypatch):
