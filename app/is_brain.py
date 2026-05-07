@@ -75,11 +75,24 @@ async def run_research(
         available_nodes=available_nodes,
     )
 
+    # Resolve the freshest API key — DB first, then env var
+    api_key = ""
+    try:
+        from app.routers.v3.db import fetch_one
+        row = fetch_one("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
+        if row and row["value"] and "REDACTED" not in row["value"]:
+            api_key = row["value"]
+    except Exception:
+        pass
+    if not api_key:
+        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+
     # Use stream-json for real-time tool call events + checkpointing
     cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "stream-json", "--verbose"]
 
-    # Use --bare only when API key auth is available (Docker/CI).
-    if os.getenv("ANTHROPIC_API_KEY"):
+    # Use --bare only when we have a real API key (sk-ant-api) — NOT for OAuth tokens
+    # OAuth tokens (sk-ant-oat) work via claude auth, not --bare
+    if api_key and api_key.startswith("sk-ant-api"):
         cmd.append("--bare")
 
     # Add MCP config and allow all MCP tools
@@ -89,16 +102,13 @@ async def run_research(
 
     log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
 
-    # Build env — refresh ANTHROPIC_API_KEY from DB (core_settings) if available,
-    # to handle OAuth token expiry without container restart.
+    # Build spawn env with the resolved key
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
-    try:
-        from app.routers.v3.db import fetch_one
-        row = fetch_one("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
-        if row and row["value"]:
-            spawn_env["ANTHROPIC_API_KEY"] = row["value"]
-    except Exception:
-        pass
+    if api_key:
+        spawn_env["ANTHROPIC_API_KEY"] = api_key
+    else:
+        # No API key — remove from env so Claude Code falls back to OAuth auth
+        spawn_env.pop("ANTHROPIC_API_KEY", None)
 
     try:
         proc = await asyncio.create_subprocess_exec(
