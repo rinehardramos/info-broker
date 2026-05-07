@@ -112,3 +112,93 @@ def test_fused_retrieve_handles_all_signals_failing():
         results = asyncio.run(retriever.fused_retrieve("test query"))
 
     assert results == [], f"Expected empty list, got {results}"
+
+
+# ---------------------------------------------------------------------------
+# fused_retrieve_with_skills
+# ---------------------------------------------------------------------------
+
+def test_fused_retrieve_with_skills_returns_separate_lists():
+    """fused_retrieve_with_skills returns (findings, skills) as separate lists.
+
+    Signal layout:
+        semantic  -> [a, b]
+        bm25      -> [b, c]
+        entity    -> []
+        temporal  -> []
+        feedback  -> []
+        skill     -> [s1, s2]
+
+    Findings: unique refs a, b, c  => 3
+    Skills: s1, s2                 => 2
+    """
+    from app.memory import retriever
+
+    semantic_results = _make_results("semantic", ["a", "b"])
+    bm25_results     = _make_results("bm25",     ["b", "c"])
+    skill_results    = _make_results("skill",    ["s1", "s2"])
+    empty: list[MemoryResult] = []
+
+    with (
+        patch.object(retriever, "semantic_search",  new=AsyncMock(return_value=semantic_results)),
+        patch.object(retriever, "bm25_search",      new=AsyncMock(return_value=bm25_results)),
+        patch.object(retriever, "entity_search",    new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "temporal_search",  new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "feedback_search",  new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "skill_search",     new=AsyncMock(return_value=skill_results)),
+    ):
+        findings, skills = asyncio.run(retriever.fused_retrieve_with_skills("test query"))
+
+    assert len(findings) == 3, f"Expected 3 findings, got {len(findings)}"
+    assert len(skills) == 2, f"Expected 2 skills, got {len(skills)}"
+    finding_refs = {r.ref for r in findings}
+    assert finding_refs == {"a", "b", "c"}
+    skill_refs = {r.ref for r in skills}
+    assert skill_refs == {"s1", "s2"}
+
+
+def test_fused_retrieve_with_skills_skill_signal_failure_returns_empty_skills():
+    """When the skill signal raises an exception, the skills list is empty and findings are unaffected."""
+    from app.memory import retriever
+
+    semantic_results = _make_results("semantic", ["x", "y"])
+    empty: list[MemoryResult] = []
+
+    with (
+        patch.object(retriever, "semantic_search",  new=AsyncMock(return_value=semantic_results)),
+        patch.object(retriever, "bm25_search",      new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "entity_search",    new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "temporal_search",  new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "feedback_search",  new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "skill_search",     new=AsyncMock(side_effect=RuntimeError("skill failure"))),
+    ):
+        findings, skills = asyncio.run(retriever.fused_retrieve_with_skills("test query"))
+
+    assert skills == [], f"Expected empty skills on exception, got {skills}"
+    assert len(findings) == 2, f"Expected 2 findings unaffected, got {len(findings)}"
+
+
+def test_fused_retrieve_with_skills_respects_limits():
+    """limit and skill_limit parameters are respected."""
+    from app.memory import retriever
+
+    big_findings = _make_results("semantic", [f"doc:{i}" for i in range(20)])
+    big_skills   = _make_results("skill",    [f"skill:{i}" for i in range(10)])
+    empty: list[MemoryResult] = []
+
+    with (
+        patch.object(retriever, "semantic_search",  new=AsyncMock(return_value=big_findings)),
+        patch.object(retriever, "bm25_search",      new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "entity_search",    new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "temporal_search",  new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "feedback_search",  new=AsyncMock(return_value=empty)),
+        patch.object(retriever, "skill_search",     new=AsyncMock(return_value=big_skills)),
+    ):
+        findings, skills = asyncio.run(
+            retriever.fused_retrieve_with_skills("test query", limit=5, skill_limit=3)
+        )
+
+    assert len(findings) == 5, f"Expected 5 findings (limit), got {len(findings)}"
+    # skill_search is called with skill_limit=3; it returns whatever it returns (mocked as 10)
+    # The function passes skill_limit to skill_search but doesn't re-truncate the return
+    assert len(skills) == 10, f"Skill mock returned 10; expected 10, got {len(skills)}"

@@ -1,4 +1,4 @@
-"""Tests for multi-signal retrieval — semantic, bm25, entity, temporal, feedback."""
+"""Tests for multi-signal retrieval — semantic, bm25, entity, temporal, feedback, skill."""
 
 from __future__ import annotations
 
@@ -203,3 +203,60 @@ def test_feedback_signal_boosts_liked_findings():
     # Thumbs-up (user_score=1) should be first
     assert results[0].user_score == 1
     assert results[0].title == "Acme Corp is excellent"
+
+
+# ---------------------------------------------------------------------------
+# 6. Skill signal (Qdrant research_memory, type="skill")
+# ---------------------------------------------------------------------------
+
+def test_skill_signal_returns_memory_results():
+    """Mock Qdrant client.search returning 2 skill hits; verify source='skill' and title/content formatting."""
+    hit1 = MagicMock()
+    hit1.id = "skill-001"
+    hit1.score = 0.88
+    hit1.payload = {
+        "query": "How to search company filings",
+        "tool_sequence": ["search_web", "extract_text", "summarize"],
+        "skill_id": "skill-uuid-001",
+    }
+
+    hit2 = MagicMock()
+    hit2.id = "skill-002"
+    hit2.score = 0.71
+    hit2.payload = {
+        "query": "Competitor analysis workflow",
+        "tool_sequence": ["search_web", "entity_extract"],
+        "skill_id": "skill-uuid-002",
+    }
+
+    mock_client = MagicMock()
+    mock_client.search.return_value = [hit1, hit2]
+
+    with patch("app.memory.signals._get_qdrant_client", return_value=mock_client), \
+         patch("app.memory.signals._embed_text", return_value=[0.1] * 768):
+        from app.memory import signals
+        results = asyncio.run(signals.skill_search("company research"))
+
+    assert len(results) == 2
+    assert all(isinstance(r, MemoryResult) for r in results)
+    assert all(r.source == "skill" for r in results)
+    refs = {r.ref for r in results}
+    assert refs == {"skill-001", "skill-002"}
+    assert results[0].score == 0.88
+    assert results[0].title.startswith("Skill:")
+    assert "search_web" in results[0].content
+    assert results[0].run_id == "skill-uuid-001"
+    assert results[0].user_score == 0
+
+
+def test_skill_signal_returns_empty_on_exception():
+    """When Qdrant raises an exception, skill_search returns [] without re-raising."""
+    mock_client = MagicMock()
+    mock_client.search.side_effect = RuntimeError("Qdrant unavailable")
+
+    with patch("app.memory.signals._get_qdrant_client", return_value=mock_client), \
+         patch("app.memory.signals._embed_text", return_value=[0.1] * 768):
+        from app.memory import signals
+        results = asyncio.run(signals.skill_search("company research"))
+
+    assert results == []

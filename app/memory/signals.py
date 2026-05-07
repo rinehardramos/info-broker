@@ -291,3 +291,39 @@ async def feedback_search(query: str, limit: int = 50) -> list[MemoryResult]:
     except Exception as exc:  # noqa: BLE001
         log.warning("feedback_search failed: %s", exc)
         return []
+
+
+# ---------------------------------------------------------------------------
+# 6. Skill search — Qdrant research_memory filtered by type="skill"
+# ---------------------------------------------------------------------------
+
+async def skill_search(query: str, limit: int = 5) -> list[MemoryResult]:
+    """Search Qdrant for skills matching the query by embedding similarity."""
+    try:
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        client = _get_qdrant_client()
+        vector = _embed_text(query)
+        hits = client.search(
+            collection_name="research_memory",
+            query_vector=vector,
+            query_filter=Filter(must=[
+                FieldCondition(key="type", match=MatchValue(value="skill")),
+            ]),
+            limit=limit,
+            with_payload=True,
+        )
+        return [
+            MemoryResult(
+                ref=str(h.id),
+                title=f"Skill: {h.payload.get('query', '')[:50]}",
+                content=f"Tools: {' -> '.join(h.payload.get('tool_sequence', [])[:6])}",
+                source="skill",
+                score=h.score,
+                run_id=h.payload.get("skill_id"),
+                user_score=0,
+            )
+            for h in hits if h.payload
+        ]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Skill signal failed: %s", exc)
+        return []

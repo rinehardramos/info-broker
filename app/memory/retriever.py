@@ -12,6 +12,7 @@ from app.memory.signals import (
     entity_search,
     feedback_search,
     semantic_search,
+    skill_search,
     temporal_search,
 )
 
@@ -62,3 +63,47 @@ async def fused_retrieve(
         signal_names=_SIGNAL_NAMES,
     )
     return fused[:limit]
+
+
+async def fused_retrieve_with_skills(
+    query: str,
+    limit: int = 20,
+    skill_limit: int = 3,
+    time_filter: tuple | None = None,
+) -> tuple[list[MemoryResult], list[MemoryResult]]:
+    """Run 6 signals: 5 finding signals + 1 skill signal.
+
+    Returns (findings, skills) as separate lists.
+    """
+    signal_results = await asyncio.gather(
+        semantic_search(query, limit=50),
+        bm25_search(query, limit=50),
+        entity_search(query, limit=30),
+        temporal_search(query, limit=30, time_filter=time_filter),
+        feedback_search(query, limit=50),
+        skill_search(query, limit=skill_limit),
+        return_exceptions=True,
+    )
+
+    # Separate skills (index 5) from findings (indices 0-4)
+    skill_results: list[MemoryResult] = (
+        signal_results[5]
+        if not isinstance(signal_results[5], Exception)
+        else []
+    )
+
+    finding_signals: list[list[MemoryResult]] = []
+    for i, result in enumerate(signal_results[:5]):
+        if isinstance(result, Exception):
+            log.warning("Signal %s failed: %s", _SIGNAL_NAMES[i], result)
+            finding_signals.append([])
+        else:
+            finding_signals.append(result)
+
+    fused_findings = reciprocal_rank_fusion(
+        finding_signals,
+        k=60,
+        signal_names=_SIGNAL_NAMES,
+    )
+
+    return fused_findings[:limit], skill_results
