@@ -360,18 +360,36 @@ async def _call_llm(prompt: str, model: str = "") -> str:
         log.warning("Analyzer: no ANTHROPIC_API_KEY, returning empty")
         return "{}"
 
+    from app.llm_models import general_model
+
     loop = asyncio.get_running_loop()
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        response = await loop.run_in_executor(
-            None,
-            lambda: client.messages.create(
-                model=model,
-                max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
-            ),
-        )
-        return response.content[0].text
-    except Exception as exc:
-        log.error("Analyzer LLM call failed: %s", exc)
-        return "{}"
+    client = anthropic.Anthropic(api_key=api_key)
+
+    # Retry with exponential backoff on rate limits, fallback to general model
+    models_to_try = [model]
+    fallback = general_model()
+    if fallback != model:
+        models_to_try.append(fallback)
+
+    for current_model in models_to_try:
+        for attempt in range(3):
+            try:
+                response = await loop.run_in_executor(
+                    None,
+                    lambda m=current_model: client.messages.create(
+                        model=m,
+                        max_tokens=4096,
+                        messages=[{"role": "user", "content": prompt}],
+                    ),
+                )
+                return response.content[0].text
+            except anthropic.RateLimitError:
+                wait = 2 ** (attempt + 1)
+                log.warning("Analyzer: rate limited on %s, retry %d in %ds", current_model, attempt + 1, wait)
+                await asyncio.sleep(wait)
+            except Exception as exc:
+                log.error("Analyzer LLM call failed (%s): %s", current_model, exc)
+                break  # non-retryable error, try fallback model
+
+    log.error("Analyzer: all models exhausted after retries")
+    return "{}"
