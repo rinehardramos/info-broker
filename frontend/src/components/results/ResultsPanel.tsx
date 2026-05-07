@@ -397,23 +397,42 @@ function ResearchResults({
     }
   }, [runId])
 
-  // Listen for analysis WS events
-  const handleWsEvent = useCallback((event: any) => {
-    if (!runId) return
-    if (event.type === 'analysis.completed' && event.run_id === runId) {
-      _analyzingRuns.delete(runId)
+  // Poll for analysis completion when analyzing is in progress
+  useEffect(() => {
+    if (!analyzing || !runId) return
+    const interval = setInterval(() => {
       getPipelineRun(runId).then(run => {
-        if (run?.research?.analysis && mountedRef.current) {
-          const a = run.research.analysis
+        if (!mountedRef.current) return
+        const a = run?.research?.analysis
+        if (a && !(a as any)._status) {
+          // Analysis complete — has real data (no _status marker)
           _analysisCache.set(runId, a)
+          _analyzingRuns.delete(runId)
           setAnalysis(a)
+          setAnalyzing(false)
+        } else if (a && (a as any)._status === 'failed') {
+          _analyzingRuns.delete(runId)
           setAnalyzing(false)
         }
       }).catch(() => {})
-    }
-    if (event.type === 'analysis.failed' && event.run_id === runId) {
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [analyzing, runId])
+
+  // Also listen for WS events (faster than polling when connected)
+  const handleWsEvent = useCallback((event: any) => {
+    if (!runId) return
+    if ((event.type === 'analysis.completed' || event.type === 'analysis.failed') && event.run_id === runId) {
       _analyzingRuns.delete(runId)
-      if (mountedRef.current) setAnalyzing(false)
+      getPipelineRun(runId).then(run => {
+        if (!mountedRef.current) return
+        const a = run?.research?.analysis
+        if (a && !(a as any)._status) {
+          _analysisCache.set(runId, a)
+          setAnalysis(a)
+        }
+        setAnalyzing(false)
+      }).catch(() => {})
     }
   }, [runId])
 
