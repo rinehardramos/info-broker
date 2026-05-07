@@ -27,6 +27,14 @@ def _get_qdrant_client():
 
 
 def _embed_text(text: str) -> list[float]:
+    if not os.getenv("GEMINI_API_KEY"):
+        try:
+            from app.routers.v3.db import fetch_one
+            row = fetch_one("SELECT value FROM core_settings WHERE key = 'gemini_api_key'", ())
+            if row and row["value"]:
+                os.environ["GEMINI_API_KEY"] = row["value"]
+        except Exception:
+            pass
     from llm_providers import embed_text
     return embed_text(text)
 
