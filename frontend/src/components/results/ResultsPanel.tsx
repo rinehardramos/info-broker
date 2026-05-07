@@ -348,6 +348,9 @@ function confidenceLevel(score: number): 'high' | 'medium' | 'low' {
   return 'low'
 }
 
+// Module-level cache: analysis results persist across tab switches
+const _analysisCache = new Map<string, any>()
+
 function ResearchResults({
   research,
   status,
@@ -366,12 +369,23 @@ function ResearchResults({
   const [pipelineSaved, setPipelineSaved] = useState(false)
   const [savingPipeline, setSavingPipeline] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
-  const [analysis, setAnalysis] = useState<any>(null)
+  const [analysis, setAnalysis] = useState<any>(() => _analysisCache.get(runId ?? '') ?? null)
   const [feedback, setFeedback] = useState<Record<number, number>>({})
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   useEffect(() => {
     if (runId) {
+      // Restore cached analysis on tab switch
+      const cached = _analysisCache.get(runId)
+      if (cached) setAnalysis(cached)
+
       getRunFeedback(runId).then(fb => {
+        if (!mountedRef.current) return
         const mapped: Record<number, number> = {}
         Object.entries(fb).forEach(([idx, val]) => { mapped[Number(idx)] = val.score })
         setFeedback(mapped)
@@ -383,13 +397,14 @@ function ResearchResults({
     setAnalyzing(true)
     try {
       const result = await runAnalyzer(research.findings, undefined, context || undefined, research.query, runId || undefined)
-      // API returns {status, items: [...], count} — extract the analysis from items[0]
-      const analysis = result?.items?.[0] ?? (Array.isArray(result) ? result[0] : result)
-      setAnalysis(analysis)
+      const analysisData = result?.items?.[0] ?? (Array.isArray(result) ? result[0] : result)
+      // Cache so it survives tab switches
+      if (runId) _analysisCache.set(runId, analysisData)
+      if (mountedRef.current) setAnalysis(analysisData)
     } catch (err) {
       console.error('Analysis failed:', err)
     } finally {
-      setAnalyzing(false)
+      if (mountedRef.current) setAnalyzing(false)
     }
   }
 
