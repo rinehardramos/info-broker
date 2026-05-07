@@ -92,9 +92,11 @@ def test_materialize_relationships():
 
     neo4j_mock = MagicMock()
 
+    # materialize_relationships calls fetch_all twice:
+    # 1st call returns relationship observations, 2nd returns entity refs for slug resolution
     with (
         patch("app.knowledge.materializer.fetch_one", return_value={"last_rel_obs_at": None}),
-        patch("app.knowledge.materializer.fetch_all", return_value=rel_obs),
+        patch("app.knowledge.materializer.fetch_all", side_effect=[rel_obs, []]),
         patch("app.knowledge.materializer.execute"),
     ):
         materializer = GraphMaterializer(neo4j_client=neo4j_mock)

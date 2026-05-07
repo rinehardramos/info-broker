@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, call, patch
 
 import pytest
@@ -90,7 +91,8 @@ class TestUpsertEntity:
         assert kwargs["ref"] == "org:42"
         assert kwargs["name"] == "Acme Corp"
         assert kwargs["confidence"] == 75
-        assert kwargs["attributes"] == {"industry": "tech"}
+        # attributes are JSON-serialised before being sent to Cypher
+        assert kwargs["attributes"] == '{"industry": "tech"}'
         assert kwargs["aliases"] == ["Acme", "ACME Corporation"]
         assert kwargs["observation_count"] == 3
 
@@ -106,6 +108,46 @@ class TestUpsertEntity:
         assert "ON CREATE SET" in cypher_arg
         assert "ON MATCH SET" in cypher_arg
         assert "apoc.map.merge" in cypher_arg
+
+    def test_upsert_entity_sets_valid_from_on_create(self):
+        client = _make_client()
+        mock_session = MagicMock()
+        client._driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        client._driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        client.upsert_entity(ref="loc:2", entity_type="location", name="Paris")
+
+        cypher_arg = mock_session.run.call_args[0][0]
+        assert "valid_from" in cypher_arg
+        assert "valid_to" in cypher_arg
+        # ON CREATE sets valid_from = $first_seen and valid_to = null
+        assert "n.valid_from = $first_seen" in cypher_arg
+        assert "n.valid_to = null" in cypher_arg
+
+    def test_upsert_entity_valid_from_uses_earliest_on_match(self):
+        client = _make_client()
+        mock_session = MagicMock()
+        client._driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        client._driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        ts = datetime(2024, 6, 1, tzinfo=timezone.utc)
+        client.upsert_entity(ref="loc:3", entity_type="location", name="Berlin", first_seen=ts)
+
+        cypher_arg = mock_session.run.call_args[0][0]
+        # ON MATCH must update valid_from only when the new value is earlier
+        assert "$first_seen < n.valid_from" in cypher_arg
+
+    def test_upsert_entity_first_seen_iso_format(self):
+        client = _make_client()
+        mock_session = MagicMock()
+        client._driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        client._driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        ts = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        client.upsert_entity(ref="person:99", entity_type="person", name="Jane", first_seen=ts)
+
+        _, kwargs = mock_session.run.call_args
+        assert kwargs["first_seen"] == ts.isoformat()
 
 
 class TestUpsertRelationship:
@@ -178,6 +220,48 @@ class TestUpsertRelationship:
         cypher_arg = mock_session.run.call_args[0][0]
         assert "ON CREATE SET" in cypher_arg
         assert "ON MATCH SET" in cypher_arg
+
+    def test_upsert_relationship_sets_valid_from_on_create(self):
+        client = _make_client()
+        mock_session = MagicMock()
+        client._driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        client._driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        client.upsert_relationship(from_ref="x", to_ref="y", rel_type="targets")
+
+        cypher_arg = mock_session.run.call_args[0][0]
+        assert "valid_from" in cypher_arg
+        assert "valid_to" in cypher_arg
+        assert "r.valid_from = $first_seen" in cypher_arg
+        assert "r.valid_to = null" in cypher_arg
+
+    def test_upsert_relationship_valid_from_uses_earliest_on_match(self):
+        client = _make_client()
+        mock_session = MagicMock()
+        client._driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        client._driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        ts = datetime(2023, 3, 1, tzinfo=timezone.utc)
+        client.upsert_relationship(
+            from_ref="p", to_ref="q", rel_type="funds", first_seen=ts
+        )
+
+        cypher_arg = mock_session.run.call_args[0][0]
+        assert "$first_seen < r.valid_from" in cypher_arg
+
+    def test_upsert_relationship_first_seen_iso_format(self):
+        client = _make_client()
+        mock_session = MagicMock()
+        client._driver.session.return_value.__enter__ = MagicMock(return_value=mock_session)
+        client._driver.session.return_value.__exit__ = MagicMock(return_value=False)
+
+        ts = datetime(2025, 5, 10, 8, 0, 0, tzinfo=timezone.utc)
+        client.upsert_relationship(
+            from_ref="org:1", to_ref="org:2", rel_type="acquired", first_seen=ts
+        )
+
+        _, kwargs = mock_session.run.call_args
+        assert kwargs["first_seen"] == ts.isoformat()
 
 
 class TestGetSubgraph:

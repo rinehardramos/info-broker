@@ -115,6 +115,8 @@ ON CREATE SET
     n.confidence = $confidence,
     n.first_seen = $first_seen,
     n.last_seen = $last_seen,
+    n.valid_from = $first_seen,
+    n.valid_to = null,
     n.observation_count = $observation_count,
     n.aliases = $aliases,
     n.attributes = $attributes
@@ -127,9 +129,13 @@ ON MATCH SET
     n.last_seen = CASE
         WHEN $last_seen IS NOT NULL AND (n.last_seen IS NULL OR $last_seen > n.last_seen)
         THEN $last_seen ELSE n.last_seen END,
+    n.valid_from = CASE
+        WHEN $first_seen IS NOT NULL AND (n.valid_from IS NULL OR $first_seen < n.valid_from)
+        THEN $first_seen ELSE n.valid_from END,
+    n.valid_to = null,
     n.observation_count = n.observation_count + $observation_count,
     n.aliases = apoc.coll.toSet(n.aliases + $aliases),
-    n.attributes = $attributes
+    n.attributes = apoc.map.merge(apoc.convert.fromJsonMap(n.attributes), apoc.convert.fromJsonMap($attributes))
 RETURN n
 """
         params = dict(
@@ -139,7 +145,7 @@ RETURN n
             aliases=_aliases, attributes=json.dumps(attrs) if attrs else "{}",
         )
         with self._driver.session() as session:
-            session.execute_write(lambda tx: tx.run(cypher, **params).consume())
+            session.run(cypher, **params)
 
     def upsert_relationship(
         self,
@@ -164,6 +170,8 @@ ON CREATE SET
     r.evidence = $evidence,
     r.first_seen = $first_seen,
     r.last_seen = $last_seen,
+    r.valid_from = $first_seen,
+    r.valid_to = null,
     r.observation_count = 1
 ON MATCH SET
     r.confidence = CASE WHEN $confidence > r.confidence THEN $confidence ELSE r.confidence END,
@@ -174,6 +182,10 @@ ON MATCH SET
     r.last_seen = CASE
         WHEN $last_seen IS NOT NULL AND (r.last_seen IS NULL OR $last_seen > r.last_seen)
         THEN $last_seen ELSE r.last_seen END,
+    r.valid_from = CASE
+        WHEN $first_seen IS NOT NULL AND (r.valid_from IS NULL OR $first_seen < r.valid_from)
+        THEN $first_seen ELSE r.valid_from END,
+    r.valid_to = null,
     r.observation_count = r.observation_count + 1
 RETURN r
 """
@@ -182,7 +194,7 @@ RETURN r
             evidence=evidence, first_seen=_first_seen, last_seen=_last_seen,
         )
         with self._driver.session() as session:
-            session.execute_write(lambda tx: tx.run(cypher, **params).consume())
+            session.run(cypher, **params)
 
     def get_subgraph(self, ref: str, hops: int = 2) -> list[dict[str, Any]]:
         max_hops = min(hops, 5)
