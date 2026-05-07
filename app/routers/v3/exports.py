@@ -106,8 +106,10 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
 
     date_str = datetime.now().strftime("%Y-%m-%d")
 
-    pdf = FPDF()
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_left_margin(10)
+    pdf.set_right_margin(10)
     pdf.add_page()
 
     pdf.set_font("Helvetica", "B", 16)
@@ -141,6 +143,7 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
                 pdf.cell(0, 6, "   " + " | ".join(parts), ln=True)
                 pdf.set_text_color(0, 0, 0)
             if f.get("content"):
+                pdf.set_x(pdf.l_margin)
                 pdf.multi_cell(0, 5, "   " + _trunc(f["content"], 200))
             if f.get("url"):
                 pdf.set_font("Helvetica", "I", 8)
@@ -190,6 +193,7 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
             pdf.set_font("Helvetica", "", 9)
             for ins in insights:
                 text = ins if isinstance(ins, str) else ins.get("text", ins.get("insight", str(ins)))
+                pdf.set_x(pdf.l_margin)
                 pdf.multi_cell(0, 5, f"  - {_trunc(text, 300)}")
 
         recs = analysis.get("recommendations", [])
@@ -200,6 +204,7 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
             pdf.set_font("Helvetica", "", 9)
             for rec in recs:
                 text = rec if isinstance(rec, str) else rec.get("text", rec.get("recommendation", str(rec)))
+                pdf.set_x(pdf.l_margin)
                 pdf.multi_cell(0, 5, f"  - {_trunc(text, 300)}")
 
     pdf.output(output_path)
