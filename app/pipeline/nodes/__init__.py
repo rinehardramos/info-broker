@@ -68,6 +68,10 @@ class NodeRegistry:
         from app.pipeline.nodes.sec_edgar import SecEdgarNode
         from app.pipeline.nodes.glassdoor_reviews import GlassdoorReviewsNode
         from app.pipeline.nodes.maven_gumroad import MavenGumroadNode
+        from app.pipeline.nodes.smtp_verifier import SmtpVerifierNode
+        from app.pipeline.nodes.hibp_lookup import HibpLookupNode
+        from app.pipeline.nodes.reverse_lookup import ReverseLookupNode
+        from app.pipeline.nodes.email_enumerator import EmailEnumeratorNode
         from app.pipeline.nodes.export_pdf import ExportPdfNode
         from app.pipeline.nodes.export_csv import ExportCsvNode
         from app.pipeline.nodes.export_excel import ExportExcelNode
@@ -88,5 +92,7 @@ class NodeRegistry:
             WaybackMachineNode(), FtcFoiaNode(), IbpapNode(), PolishKrsNode(),
             SecEdgarNode(), GlassdoorReviewsNode(), MavenGumroadNode(),
             ExportPdfNode(), ExportCsvNode(), ExportExcelNode(),
+            SmtpVerifierNode(), HibpLookupNode(), ReverseLookupNode(),
+            EmailEnumeratorNode(),
         ]:
             cls.register(node)
