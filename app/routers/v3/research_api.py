@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 
 from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
@@ -156,52 +156,93 @@ def _learn_error_pattern(title: str, reason: str):
 
 
 @router.post("/research-trails/analyze")
-async def analyze_findings(body: dict, user: dict = Depends(get_current_user)):
-    """Run the Intelligence Analyzer on a set of findings. JWT-authenticated."""
-    from app.pipeline.nodes import NodeRegistry
-    from app.pipeline.nodes.base import RunContext
+async def analyze_findings(body: dict, background_tasks: "BackgroundTasks", user: dict = Depends(get_current_user)):
+    """Run the Intelligence Analyzer as a background task. Returns immediately.
 
-    NodeRegistry.auto_discover()
-    node = NodeRegistry.get("analyzer")
+    Pushes WS events: analysis.started, analysis.completed/analysis.failed.
+    Result is persisted to research_trails.analysis.
+    """
+    from fastapi import BackgroundTasks as _BT  # noqa: F811
+    from app.routers.v3.stream import push_event
 
-    items = body.get("items") or body.get("inputs") or body.get("findings") or []
-    config = {
-        "analysis_type": body.get("analysis_type", "comprehensive"),
-        "min_confidence": body.get("min_confidence", 50),
-        "context_prompt": body.get("context_prompt", ""),
-        "query": body.get("query", ""),
-        "model": body.get("model", ""),  # empty = use reasoning_model() from settings
-    }
-    ctx = RunContext(
-        user_id=str(user["id"]),
-        run_id="analyze-adhoc",
-        node_id="analyzer",
-    )
-    result = await node.execute(config, items, ctx)
-    analysis = result[0] if isinstance(result, list) and result else result
-
-    # Persist analysis to research_trails so it survives page navigation
     run_id = body.get("run_id")
-    if run_id and analysis:
+    uid = str(user["id"])
+
+    # Push "started" event immediately
+    await push_event(uid, {
+        "type": "analysis.started",
+        "run_id": run_id,
+    })
+
+    # Mark analyzing in DB
+    if run_id:
         try:
             execute(
                 "UPDATE research_trails SET analysis = %s WHERE run_id = %s",
-                (json.dumps(analysis), run_id),
+                (json.dumps({"_status": "analyzing"}), run_id),
             )
-        except Exception as exc:
-            log.warning("Analysis persist failed (non-fatal): %s", exc)
+        except Exception:
+            pass
 
-    # Write analysis results to knowledge graph
-    if analysis:
+    async def _run_analysis():
+        from app.pipeline.nodes import NodeRegistry
+        from app.pipeline.nodes.base import RunContext
+
         try:
-            from app.knowledge.writer import kg_writer
-            kg_result = await kg_writer.write_from_analyzer(
-                analysis, source_run_id=run_id,
-            )
-            log.info("KG Writer: %s", kg_result)
+            NodeRegistry.auto_discover()
+            node = NodeRegistry.get("analyzer")
+
+            items = body.get("items") or body.get("inputs") or body.get("findings") or []
+            config = {
+                "analysis_type": body.get("analysis_type", "comprehensive"),
+                "min_confidence": body.get("min_confidence", 50),
+                "context_prompt": body.get("context_prompt", ""),
+                "query": body.get("query", ""),
+                "model": body.get("model", ""),
+            }
+            ctx = RunContext(user_id=uid, run_id=run_id or "analyze-adhoc", node_id="analyzer")
+            result = await node.execute(config, items, ctx)
+            analysis = result[0] if isinstance(result, list) and result else result
+
+            # Persist to DB
+            if run_id and analysis:
+                execute(
+                    "UPDATE research_trails SET analysis = %s WHERE run_id = %s",
+                    (json.dumps(analysis), run_id),
+                )
+
+            # Write to knowledge graph
+            if analysis:
+                try:
+                    from app.knowledge.writer import kg_writer
+                    await kg_writer.write_from_analyzer(analysis, source_run_id=run_id)
+                except Exception as exc:
+                    log.warning("KG write failed (non-fatal): %s", exc)
+
+            # Push completion event
+            await push_event(uid, {
+                "type": "analysis.completed",
+                "run_id": run_id,
+                "entities": len(analysis.get("entities", [])) if isinstance(analysis, dict) else 0,
+                "relationships": len(analysis.get("relationships", [])) if isinstance(analysis, dict) else 0,
+            })
         except Exception as exc:
-            log.warning("KG write failed (non-fatal): %s", exc)
-    return {"status": "success", "items": result, "count": len(result)}
+            log.error("Analysis failed: %s", exc)
+            if run_id:
+                execute(
+                    "UPDATE research_trails SET analysis = %s WHERE run_id = %s",
+                    (json.dumps({"_status": "failed", "error": str(exc)[:500]}), run_id),
+                )
+            await push_event(uid, {
+                "type": "analysis.failed",
+                "run_id": run_id,
+                "error": str(exc)[:200],
+            })
+
+    # Run in background — returns 202 immediately
+    import asyncio
+    asyncio.create_task(_run_analysis())
+    return {"status": "analyzing", "run_id": run_id}
 
 
 # ---------------------------------------------------------------------------

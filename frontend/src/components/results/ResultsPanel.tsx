@@ -5,6 +5,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail } from '../../api/pipelines'
 import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback } from '../../api/v3'
 import { ResearchFlow } from './ResearchFlow'
+import { useWebSocket } from '../../hooks/useWebSocket'
 import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
 import { Sparkles, ArrowDownToLine, Save, ThumbsUp, ThumbsDown, RefreshCw, RotateCcw, Layers, Loader2 } from 'lucide-react'
@@ -393,17 +394,43 @@ function ResearchResults({
     }
   }, [runId])
 
+  // Check if analysis is in-progress from server (restored from DB)
+  useEffect(() => {
+    if (analysis && (analysis as any)._status === 'analyzing') {
+      setAnalyzing(true)
+      setAnalysis(null) // clear placeholder, wait for WS event
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for analysis WS events
+  const handleWsEvent = useCallback((event: any) => {
+    if (!runId) return
+    if (event.type === 'analysis.completed' && event.run_id === runId) {
+      // Refetch the run to get the persisted analysis
+      getPipelineRun(runId).then(run => {
+        if (run?.research?.analysis && mountedRef.current) {
+          const a = run.research.analysis
+          _analysisCache.set(runId, a)
+          setAnalysis(a)
+          setAnalyzing(false)
+        }
+      }).catch(() => {})
+    }
+    if (event.type === 'analysis.failed' && event.run_id === runId) {
+      if (mountedRef.current) setAnalyzing(false)
+    }
+  }, [runId])
+
+  useWebSocket(handleWsEvent)
+
   const handleAnalyze = async (context?: string) => {
     setAnalyzing(true)
     try {
-      const result = await runAnalyzer(research.findings, undefined, context || undefined, research.query, runId || undefined)
-      const analysisData = result?.items?.[0] ?? (Array.isArray(result) ? result[0] : result)
-      // Cache so it survives tab switches
-      if (runId) _analysisCache.set(runId, analysisData)
-      if (mountedRef.current) setAnalysis(analysisData)
+      // This now returns immediately (202) — analysis runs in background
+      await runAnalyzer(research.findings, undefined, context || undefined, research.query, runId || undefined)
+      // Result will arrive via WS event -> refetch run -> setAnalysis
     } catch (err) {
       console.error('Analysis failed:', err)
-    } finally {
       if (mountedRef.current) setAnalyzing(false)
     }
   }
