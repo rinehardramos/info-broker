@@ -382,7 +382,7 @@ function ResearchResults({
   const handleAnalyze = async (context?: string) => {
     setAnalyzing(true)
     try {
-      const result = await runAnalyzer(research.findings, undefined, context || undefined, research.query)
+      const result = await runAnalyzer(research.findings, undefined, context || undefined, research.query, runId || undefined)
       // API returns {status, items: [...], count} — extract the analysis from items[0]
       const analysis = result?.items?.[0] ?? (Array.isArray(result) ? result[0] : result)
       setAnalysis(analysis)
@@ -453,6 +453,20 @@ function ResearchResults({
         <div style={{ fontSize: 11, color: 'var(--subtext)', marginTop: 4 }}>
           {research.query}
         </div>
+        {runId && (
+          <button
+            onClick={() => { navigator.clipboard.writeText(runId); }}
+            title="Click to copy run ID"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4,
+              fontSize: 9, fontFamily: 'monospace', color: 'var(--muted)',
+              background: 'var(--panel)', border: '1px solid var(--border)',
+              padding: '1px 6px', borderRadius: 4, cursor: 'pointer',
+            }}
+          >
+            ID: {runId.slice(0, 8)} <span style={{ fontSize: 8, opacity: 0.6 }}>copy</span>
+          </button>
+        )}
         {research.entity_type && research.entity_type !== 'unknown' && (
           <span
             style={{

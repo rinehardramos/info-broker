@@ -193,8 +193,8 @@ export const submitFindingFeedback = (runId: string, index: number, score: numbe
 export const getRunFeedback = (runId: string): Promise<Record<string, { score: number; reason: string }>> =>
   api.get(`/v3/research-trails/${runId}/feedback`).then(r => r.data)
 
-export const runAnalyzer = (items: object[], analysisType?: string, contextPrompt?: string, query?: string) =>
-  api.post('/v3/research-trails/analyze', { items, analysis_type: analysisType, context_prompt: contextPrompt, query }).then(r => r.data)
+export const runAnalyzer = (items: object[], analysisType?: string, contextPrompt?: string, query?: string, runId?: string) =>
+  api.post('/v3/research-trails/analyze', { items, analysis_type: analysisType, context_prompt: contextPrompt, query, run_id: runId }).then(r => r.data)
 
 // --- Knowledge Graph ---
 

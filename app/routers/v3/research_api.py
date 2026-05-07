@@ -184,7 +184,7 @@ async def analyze_findings(body: dict, user: dict = Depends(get_current_user)):
             from app.knowledge.writer import kg_writer
             analysis = result[0] if isinstance(result, list) else result
             kg_result = await kg_writer.write_from_analyzer(
-                analysis, source_run_id=None,
+                analysis, source_run_id=body.get("run_id"),
             )
             log.info("KG Writer: %s", kg_result)
         except Exception as exc:

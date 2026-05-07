@@ -638,6 +638,43 @@ async def run_maven_gumroad(
 
 
 # ---------------------------------------------------------------------------
+# Research run access (knowledge base reference)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def get_research_by_id(run_id: str) -> str:
+    """Fetch a specific research trail by its run ID.
+
+    Returns the full research data: query, findings, trail tree, entity_type,
+    tool_calls count, and suggested_pipeline. Use this to access prior research
+    results by their reference ID.
+    """
+    result = await api_call("GET", f"/v3/research-trails/{run_id}")
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def get_run_status(run_id: str) -> str:
+    """Get the status and metadata of a pipeline/research run by ID.
+
+    Returns: status, query, trigger_type, error_message, started_at, finished_at.
+    """
+    result = await api_call("GET", f"/v3/pipelines/runs/{run_id}")
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def list_recent_runs(limit: int = 10) -> str:
+    """List recent research and pipeline runs with their IDs, queries, and status.
+
+    Use this to find run IDs for further lookup with get_research_by_id or get_run_status.
+    """
+    result = await api_call("GET", "/v3/pipelines/runs/all", params={"limit": limit})
+    return json.dumps(result, default=str)
+
+
+# ---------------------------------------------------------------------------
 # Meta tools
 # ---------------------------------------------------------------------------
 
