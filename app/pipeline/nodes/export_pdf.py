@@ -123,7 +123,7 @@ class ExportPdfNode:
                 for ent in entities:
                     name = ent.get("name", "")
                     etype = ent.get("type", "")
-                    pdf.cell(0, 6, f"  - {name}" + (f" ({etype})" if etype else ""), ln=True)
+                    pdf.cell(0, 6, _safe_latin1(f"  - {name}" + (f" ({etype})" if etype else "")), ln=True)
                 pdf.ln(3)
 
             # Relationships
@@ -136,7 +136,7 @@ class ExportPdfNode:
                     frm = rel.get("from", rel.get("from_entity", ""))
                     to = rel.get("to", rel.get("to_entity", ""))
                     rtype = rel.get("type", rel.get("relationship_type", ""))
-                    pdf.cell(0, 6, f"  - {frm} --[{rtype}]--> {to}", ln=True)
+                    pdf.cell(0, 6, _safe_latin1(f"  - {frm} --[{rtype}]--> {to}"), ln=True)
                 pdf.ln(3)
 
             # Insights
@@ -180,13 +180,13 @@ class ExportPdfNode:
         }]
 
 
+def _safe_latin1(text: str) -> str:
+    """Encode text to latin-1, replacing unmappable characters, for fpdf2 Helvetica."""
+    return str(text).encode("latin-1", errors="replace").decode("latin-1")
+
+
 def _truncate(text: str, max_len: int) -> str:
-    text = str(text)
+    text = _safe_latin1(text)
     if len(text) > max_len:
         return text[:max_len - 3] + "..."
     return text
-
-
-def _safe_latin1(text: str) -> str:
-    """Encode text to latin-1, replacing unmappable characters, for fpdf2 Helvetica."""
-    return text.encode("latin-1", errors="replace").decode("latin-1")
