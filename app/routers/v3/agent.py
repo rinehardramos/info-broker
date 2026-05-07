@@ -234,6 +234,13 @@ async def _run_is_research(
         except Exception as exc:
             log.warning("Skill creation failed (non-fatal): %s", exc)
 
+        # Analyze pivot patterns for strategy overlay learning
+        try:
+            from app.pipeline.strategies.analyzer import analyze_run_pivots
+            await analyze_run_pivots(run_id, query, result)
+        except Exception as exc:
+            log.warning("Pivot analysis failed (non-fatal): %s", exc)
+
         # Deduplicate plugin suggestions against existing nodes
         from app.pipeline.nodes import NodeRegistry
         NodeRegistry.auto_discover()
