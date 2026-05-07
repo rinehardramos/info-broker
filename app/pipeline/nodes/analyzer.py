@@ -338,13 +338,44 @@ class AnalyzerNode:
 
 
 async def _call_llm(prompt: str, model: str = "") -> str:
-    """Call Claude API for analysis. Uses the anthropic SDK (same pattern as summarizer.py)."""
-    import os
+    """Call Claude via Claude Code CLI (uses subscription, no API key needed).
 
-    import anthropic
+    Falls back to Anthropic SDK if Claude Code is unavailable.
+    """
+    import os
+    import shutil
 
     if not model:
         model = reasoning_model()
+
+    # Primary: Claude Code CLI (uses subscription — no rate limits)
+    claude_bin = shutil.which("claude") or "/usr/local/bin/claude"
+    if os.path.isfile(claude_bin):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                claude_bin, "-p", prompt,
+                "--output-format", "text",
+                "--model", model,
+                "--max-turns", "1",
+                "--no-input",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "CLAUDE_CODE_HEADLESS": "1"},
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            if proc.returncode == 0 and stdout:
+                result = stdout.decode().strip()
+                log.info("Analyzer: Claude Code returned %d chars", len(result))
+                return result
+            else:
+                log.warning("Analyzer: Claude Code exit %s, falling back to API", proc.returncode)
+        except asyncio.TimeoutError:
+            log.warning("Analyzer: Claude Code timed out, falling back to API")
+        except Exception as exc:
+            log.warning("Analyzer: Claude Code failed (%s), falling back to API", exc)
+
+    # Fallback: Anthropic API SDK
+    import anthropic
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
@@ -357,7 +388,7 @@ async def _call_llm(prompt: str, model: str = "") -> str:
             pass
 
     if not api_key:
-        log.warning("Analyzer: no ANTHROPIC_API_KEY, returning empty")
+        log.warning("Analyzer: no Claude Code and no API key, returning empty")
         return "{}"
 
     from app.llm_models import general_model
@@ -365,12 +396,10 @@ async def _call_llm(prompt: str, model: str = "") -> str:
     loop = asyncio.get_running_loop()
     client = anthropic.Anthropic(api_key=api_key, max_retries=0)
 
-    # Retry with exponential backoff on rate limits, fallback to cheaper models
     models_to_try = [model]
     fallback = general_model()
     if fallback != model:
         models_to_try.append(fallback)
-    # Last resort: haiku has highest rate limits
     if "haiku" not in model and "haiku" not in fallback:
         models_to_try.append("claude-haiku-4-5-20251001")
 
@@ -392,7 +421,7 @@ async def _call_llm(prompt: str, model: str = "") -> str:
                 await asyncio.sleep(wait)
             except Exception as exc:
                 log.error("Analyzer LLM call failed (%s): %s", current_model, exc)
-                break  # non-retryable error, try fallback model
+                break
 
-    log.error("Analyzer: all models exhausted after retries")
+    log.error("Analyzer: all methods exhausted")
     return "{}"
