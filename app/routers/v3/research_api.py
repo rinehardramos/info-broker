@@ -169,6 +169,7 @@ async def analyze_findings(body: dict, user: dict = Depends(get_current_user)):
         "analysis_type": body.get("analysis_type", "comprehensive"),
         "min_confidence": body.get("min_confidence", 50),
         "context_prompt": body.get("context_prompt", ""),
+        "query": body.get("query", ""),
         "model": body.get("model", "claude-haiku-4-5-20251001"),
     }
     ctx = RunContext(

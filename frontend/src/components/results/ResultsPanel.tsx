@@ -382,7 +382,7 @@ function ResearchResults({
   const handleAnalyze = async (context?: string) => {
     setAnalyzing(true)
     try {
-      const result = await runAnalyzer(research.findings, undefined, context || undefined)
+      const result = await runAnalyzer(research.findings, undefined, context || undefined, research.query)
       // API returns {status, items: [...], count} — extract the analysis from items[0]
       const analysis = result?.items?.[0] ?? (Array.isArray(result) ? result[0] : result)
       setAnalysis(analysis)
