@@ -3,6 +3,54 @@
 **Date:** 2026-05-07
 **Status:** Draft
 **Triggered by:** Query 04692dda lacking depth — shallow, cursory investigation strategy
+**Companion specs:**
+- `2026-05-07-universal-research-engine-design.md` — extends to all 5 research categories
+- `2026-05-07-research-paradigms-reference.md` — taxonomy + decision rationale
+**Aligned with:**
+- `2026-05-07-memory-system-phase1-retrieval-fusion-design.md` — fused retrieval feeds IS brain context
+- `2026-05-07-memory-system-phase2-procedural-memory-design.md` — skills + SUGGESTED STRATEGIES
+- `2026-05-06-knowledge-graph-observability-design.md` — entity storage unified on KG event store
+
+## Cross-Spec Alignment (2026-05-07)
+
+### Unified Entity Model
+This spec's Intelligence Fusion Layer writes to the Knowledge Graph's event-sourced
+`entity_observations` / `relationship_observations` tables (not its own tables).
+Entity resolution uses the KG's 5-step algorithm + this spec's transitive selector linkage.
+The KG Neo4j materializer produces the queryable graph as a read projection.
+
+### Prompt Injection Order
+```
+1. Base System Prompt
+2. Context Section (Phase 1 fused retrieval: past research)
+3. Entity Strategy (this spec: compiled from seed + overlays)
+4. Suggested Strategies (Phase 2: procedural memory matched skills)
+5. Available MCP Tools
+6. Budget + Research Goal + Output Format
+```
+The Research Orchestrator (universal engine spec) runs as a PRE-STEP before prompt
+assembly — it selects which strategy module to load, not what to inject.
+
+### Post-Run Hook Order
+```python
+# In post-run hook:
+await create_skill_from_run(...)        # Phase 2: run-level skill
+await analyze_run_pivots(...)           # This spec: pivot-level overlays
+await write_to_kg_event_store(...)      # KG spec: entity observations
+```
+
+### Unified Observation Flow
+```
+IS Brain run completes
+  → research_trails (audit log — existing)
+  → research_memory Qdrant (semantic search — Phase 1)
+  → research_skills (procedural memory — Phase 2)
+  → Intelligence Fusion Layer (this spec)
+      → entity_observations (KG event store)
+      → relationship_observations (KG event store)
+      → investigation_strategy_overlays (self-learning)
+  → Neo4j materializer (KG background worker)
+```
 
 ## Problem Statement
 
@@ -587,39 +635,53 @@ class Relationship:
 - **Path finding:** What connects Entity A to Entity B?
 - **Cluster detection:** Which entities form tight clusters?
 
-### 4.4 Storage
+### 4.4 Storage — Unified with Knowledge Graph Event Store
 
-The relationship graph is stored in PostgreSQL (for durability and querying) with optional Qdrant indexing for semantic search:
+**ALIGNMENT DECISION (2026-05-07):** The Intelligence Fusion Layer does NOT maintain
+its own `entities` / `relationships` tables. Instead, it writes to the Knowledge Graph's
+event-sourced `entity_observations` and `relationship_observations` tables (defined in
+`2026-05-06-knowledge-graph-observability-design.md`). The Neo4j materializer then
+produces the queryable graph as a read projection.
+
+**Why:** Avoids duplicate entity models. The KG event store is more robust (immutable,
+event-sourced, supports temporal queries via `valid_from`/`valid_to`). The fusion layer
+becomes a **writer** to the KG, not a parallel store.
+
+**Dependency:** Requires KG Phase 1-2 (event store + materializer) to be implemented
+before the Intelligence Fusion Layer can persist entities.
+
+**Entity Resolution Algorithm:** Uses the KG's 5-step algorithm (from KG spec) with
+an additional step 3.5 for transitive selector linkage:
+
+1. Exact ref match
+2. Alias lookup in `entity_aliases`
+3. Embedding similarity via Qdrant (cosine >= 0.92 for same type)
+3.5. **Transitive selector linkage** (from this spec): if Finding A shares a selector
+     with Entity B, and Finding B shares a selector with Entity C → A, B, C are same entity
+4. New entity if no match
+5. Conflict resolution: highest confidence wins, ties broken by most recent `observed_at`
+
+**Write Path:**
+```
+Intelligence Fusion Layer
+  ├── Selector Extraction (regex-based)
+  ├── Entity Resolution (KG 5-step + transitive linkage)
+  ├── Classification Metadata (Admiralty + STIX + corroboration + decay)
+  ↓
+  → entity_observations (KG event store) with classification in payload
+  → relationship_observations (KG event store)
+  → investigation_strategy_overlays (self-learning, separate table)
+  ↓
+Neo4j Materializer (background worker)
+  → Neo4j graph with Admiralty scores on nodes/edges
+```
+
+**Investigation-Specific Table (only new table from this spec):**
 
 ```sql
-CREATE TABLE entities (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id          UUID NOT NULL REFERENCES pipeline_runs(id),
-    type            VARCHAR(50) NOT NULL,
-    canonical_name  TEXT NOT NULL,
-    selectors       JSONB NOT NULL DEFAULT '[]',
-    attributes      JSONB NOT NULL DEFAULT '{}',
-    created_at      TIMESTAMPTZ DEFAULT now(),
-    updated_at      TIMESTAMPTZ DEFAULT now()
+CREATE TABLE investigation_strategy_overlays (
+    -- see Part 7.3 for full schema
 );
-
-CREATE TABLE relationships (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    run_id          UUID NOT NULL REFERENCES pipeline_runs(id),
-    source_entity   UUID NOT NULL REFERENCES entities(id),
-    target_entity   UUID NOT NULL REFERENCES entities(id),
-    type            VARCHAR(50) NOT NULL,
-    confidence      VARCHAR(20) NOT NULL DEFAULT 'possible',
-    evidence        JSONB NOT NULL DEFAULT '[]',
-    first_seen      TIMESTAMPTZ,
-    last_seen       TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ DEFAULT now()
-);
-
-CREATE INDEX idx_entities_run ON entities(run_id);
-CREATE INDEX idx_entities_selectors ON entities USING GIN (selectors);
-CREATE INDEX idx_relationships_source ON relationships(source_entity);
-CREATE INDEX idx_relationships_target ON relationships(target_entity);
 ```
 
 ---
@@ -1073,16 +1135,16 @@ High-priority gaps identified and incorporated:
 | `app/is_prompt.py` | Add `{entity_strategy}` placeholder |
 | `app/pipeline/nodes/intelligent_search.py` | Load compiled strategy, extract selectors from results |
 | `app/pipeline/nodes/analyzer.py` | Add ACH and PIR optional modes |
-| `app/routers/v3/research_api.py` | Add post-run pivot analysis hook |
-| Schema migration | Add `entities`, `relationships`, `investigation_strategy_overlays` tables |
+| `app/routers/v3/research_api.py` | Add post-run pivot analysis hook + call `analyze_run_pivots()` alongside `create_skill_from_run()` |
+| Schema migration | Add `investigation_strategy_overlays` table only (entities/relationships use KG event store) |
 
 ### Database Tables
 
-| Table | Purpose |
-|-------|---------|
-| `entities` | Resolved entity profiles with selectors and attributes |
-| `relationships` | Entity-to-entity edges with evidence |
-| `investigation_strategy_overlays` | Learned strategy modifications |
+| Table | Purpose | Spec Owner |
+|-------|---------|------------|
+| `entity_observations` | Resolved entities (event-sourced) | KG spec (shared) |
+| `relationship_observations` | Entity edges (event-sourced) | KG spec (shared) |
+| `investigation_strategy_overlays` | Learned strategy modifications | This spec (new) |
 
 ---
 
@@ -1225,26 +1287,27 @@ This spec focuses on Person entity type. The architecture is extensible to other
 
 The fusion layer, classification, and learning loop are entity-type-agnostic.
 
-### Phase 1: Collection Enhancement
+### Phase 1: Collection Enhancement (no dependencies)
 - New pipeline nodes (13 nodes)
 - Seed person strategy file
-- Strategy injection into IS brain prompt
+- Strategy injection into IS brain prompt (`{entity_strategy}` placeholder)
 - Integration with procedural memory (existing SUGGESTED STRATEGIES)
 
-### Phase 2: Intelligence Fusion Layer
+### Phase 2: Intelligence Fusion Layer (depends on: KG spec Phases 1-2)
 - Selector extraction from findings
-- Entity resolution and merging
-- Relationship graph building and storage
+- Entity resolution using KG's 5-step algorithm + transitive linkage
+- Write to KG event store (`entity_observations`, `relationship_observations`)
 - Classification metadata envelope (Admiralty + STIX + corroboration + decay)
+- **Note:** Requires KG event store + materializer to be implemented first
 
-### Phase 3: Analysis Enhancement
+### Phase 3: Analysis Enhancement (depends on: Phase 2)
 - Completeness assessment against domain checklist
 - ACH mode for conflicting evidence
 - PIR decomposition mode
 - Deception detection scoring
 
-### Phase 4: Self-Learning Loop
-- Post-run pivot analysis
+### Phase 4: Self-Learning Loop (depends on: Phase 1, colocated with Phase 2 procedural memory)
+- Post-run pivot analysis (`analyze_run_pivots()` alongside `create_skill_from_run()`)
 - Strategy overlay system (reinforce/prune/discover/upgrade)
 - 4-quadrant tactic classification (high priority / sentinel / situational / prune)
 - Confidence decay and human override
