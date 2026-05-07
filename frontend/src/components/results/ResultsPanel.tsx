@@ -369,7 +369,7 @@ function ResearchResults({
   const [pipelineSaved, setPipelineSaved] = useState(false)
   const [savingPipeline, setSavingPipeline] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
-  const [analysis, setAnalysis] = useState<any>(() => _analysisCache.get(runId ?? '') ?? null)
+  const [analysis, setAnalysis] = useState<any>(() => _analysisCache.get(runId ?? '') ?? research.analysis ?? null)
   const [feedback, setFeedback] = useState<Record<number, number>>({})
   const mountedRef = useRef(true)
 

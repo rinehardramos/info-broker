@@ -263,6 +263,7 @@ class ResearchTrailOut(BaseModel):
     trail: dict | list
     tool_calls: int
     suggested_pipeline: dict | None = None
+    analysis: dict | None = None
 
 
 class PipelineRunDetailOut(PipelineRunOut):

@@ -178,13 +178,25 @@ async def analyze_findings(body: dict, user: dict = Depends(get_current_user)):
         node_id="analyzer",
     )
     result = await node.execute(config, items, ctx)
+    analysis = result[0] if isinstance(result, list) and result else result
+
+    # Persist analysis to research_trails so it survives page navigation
+    run_id = body.get("run_id")
+    if run_id and analysis:
+        try:
+            execute(
+                "UPDATE research_trails SET analysis = %s WHERE run_id = %s",
+                (json.dumps(analysis), run_id),
+            )
+        except Exception as exc:
+            log.warning("Analysis persist failed (non-fatal): %s", exc)
+
     # Write analysis results to knowledge graph
-    if result:
+    if analysis:
         try:
             from app.knowledge.writer import kg_writer
-            analysis = result[0] if isinstance(result, list) else result
             kg_result = await kg_writer.write_from_analyzer(
-                analysis, source_run_id=body.get("run_id"),
+                analysis, source_run_id=run_id,
             )
             log.info("KG Writer: %s", kg_result)
         except Exception as exc:

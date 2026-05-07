@@ -107,6 +107,7 @@ export interface ResearchTrail {
     nodes: Array<{ node_type: string; label: string; config: Record<string, unknown> }>
     edges: Array<{ source_index: number; target_index: number }>
   } | null
+  analysis?: Record<string, unknown> | null
 }
 
 export interface PipelineRunDetail extends PipelineRun {
