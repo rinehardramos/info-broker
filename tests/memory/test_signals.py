@@ -4,7 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from unittest.mock import MagicMock, patch
+
+# Stub out heavy optional dependencies before any app imports so that
+# module-level imports in signals.py / neo4j_client.py don't fail in CI.
+for _mod in [
+    "qdrant_client",
+    "qdrant_client.models",
+    "neo4j",
+    "psycopg2",
+    "psycopg2.extras",
+]:
+    if _mod not in sys.modules:
+        sys.modules[_mod] = MagicMock()
 
 from app.memory.models import MemoryResult
 
