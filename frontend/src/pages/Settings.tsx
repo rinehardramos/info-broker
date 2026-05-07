@@ -12,8 +12,8 @@ const CORE_FIELDS = [
   { key: 'anthropic_api_key',      label: 'Anthropic API Key (Claude)',                 secret: true },
   // LLM Providers
   { key: 'llm.active_provider',    label: 'Active LLM Provider',  secret: false },
-  { key: 'llm.openai.api_key',     label: 'OpenAI API Key',       secret: true },
-  { key: 'llm.gemini.api_key',     label: 'Gemini API Key',       secret: true },
+  { key: 'openai_api_key',          label: 'OpenAI API Key',       secret: true },
+  { key: 'gemini_api_key',          label: 'Gemini API Key',       secret: true },
   { key: 'llm.lmstudio.base_url',  label: 'LM Studio Base URL',   secret: false },
   // Infrastructure
   { key: 'db.postgres_url',        label: 'Postgres URL',         secret: false },
