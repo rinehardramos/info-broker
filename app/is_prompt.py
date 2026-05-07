@@ -30,6 +30,7 @@ QUERY: {query}
 - run_summarizer(items, instructions) — condense findings
 - suggest_plugin(name, description, reason) — request a new tool you don't have yet
 
+{entity_strategy}
 {strategies_section}
 ## YOUR WORKFLOW
 
@@ -198,6 +199,7 @@ def build_prompt(
     user_preferences: dict | None = None,
     available_nodes: list[dict] | None = None,
     strategies_section: str = "",
+    entity_strategy: str = "",
 ) -> str:
     """Build the full research prompt with context.
 
@@ -240,4 +242,5 @@ def build_prompt(
         today=date.today().isoformat(),
         tools_section=tools_section,
         strategies_section=strategies_section,
+        entity_strategy=entity_strategy,
     )

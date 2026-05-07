@@ -14,3 +14,24 @@ def test_get_strategy_person_contains_key_sections():
 
 def test_get_strategy_unknown_returns_empty():
     assert get_strategy("unknown_type_xyz") == ""
+
+
+from app.is_prompt import build_prompt
+
+def test_build_prompt_includes_entity_strategy():
+    prompt = build_prompt(
+        query="profile John Doe",
+        entity_strategy="=== TEST STRATEGY ===\nDo things.",
+    )
+    assert "=== TEST STRATEGY ===" in prompt
+
+def test_build_prompt_entity_strategy_before_workflow():
+    prompt = build_prompt(
+        query="profile John Doe",
+        entity_strategy="=== PERSON STRATEGY ===",
+    )
+    assert prompt.index("=== PERSON STRATEGY ===") < prompt.index("YOUR WORKFLOW")
+
+def test_build_prompt_no_entity_strategy_by_default():
+    prompt = build_prompt(query="test query")
+    assert "=== PERSON INVESTIGATION STRATEGY ===" not in prompt
