@@ -1088,6 +1088,133 @@ High-priority gaps identified and incorporated:
 
 ## Part 11: Implementation Phases
 
+## Part 12: Multi-Context Strategy Modules
+
+### The Universal vs. Context-Specific Split
+
+The architecture has two layers: **universal infrastructure** (shared across all use cases) and **context-specific strategies** (tailored per use case).
+
+**Universal (always active):**
+- Selector-centric engine (selector extraction, pivot execution, graph traversal)
+- Intelligence Fusion Layer (entity resolution, relationship graph)
+- Self-learning loop (overlay system, tactic classification)
+- Pipeline nodes (technical capabilities)
+
+**Context-specific (varies by strategy module):**
+- Priority selectors (which selectors matter most)
+- Pivot patterns (which pivots to execute and in what priority)
+- Completeness checklist (what counts as "done")
+- Classification depth (full Admiralty vs. lightweight confidence)
+- Tactic categories (sentinels, pruning thresholds)
+- Analysis modes (ACH/PIR toggles)
+
+### Strategy Modules by Use Case
+
+#### `strategies/person.py` — Intelligence / OSINT Profile
+
+**Use case:** Comprehensive person investigation — background checks, threat assessment, due diligence.
+
+- **Priority selectors:** All 12 types, full depth
+- **Completeness:** 10-domain checklist (identity through online communities)
+- **Classification:** Full Admiralty + STIX + corroboration + decay + deception detection
+- **Sentinels:** PEP/sanctions, court records, breach data, crypto wallets
+- **Analysis modes:** ACH + PIR available
+- **Hop depth:** 2-3 (investigate family/associates one level deep)
+
+#### `strategies/lead.py` — Sales / Marketing Lead Generation
+
+**Use case:** Building prospect lists, finding decision-maker contact information for outreach.
+
+- **Priority selectors:** email (deliverable), phone (direct line), employer (current), full_name
+- **Completeness:** Simplified — 4 domains only: identity (name/title), contact info (email/phone), company context, social presence
+- **Classification:** Lightweight — confidence score + email deliverability status. Skip Admiralty, skip deception detection.
+- **Sentinels:** None — every tactic should produce leads or be pruned
+- **Analysis modes:** None — synthesis only
+- **Hop depth:** 0-1 (find the person, get their info, move to next lead)
+- **Key difference:** Optimizes for VOLUME and DELIVERABILITY, not depth. 50 verified emails > 1 comprehensive profile.
+
+**Unique pivot patterns:**
+- `employer_domain` → run_hunter_io (find all employees with email patterns)
+- `job_title + industry` → run_apollo_zoominfo (batch people search)
+- `email` → run_smtp_verifier (deliverability is the #1 priority)
+
+#### `strategies/researcher.py` — Academic Research
+
+**Use case:** Finding publications, co-authors, institutional affiliations, research networks.
+
+- **Priority selectors:** full_name, employer (university/institution), domain (institutional)
+- **Completeness:** 4 domains: identity, publications, affiliations, research network
+- **Classification:** Moderate — source reliability matters (peer-reviewed > preprint > blog), but skip Admiralty formal system. Use simple tiers: authoritative / peer-reviewed / self-reported / unverified.
+- **Sentinels:** None
+- **Analysis modes:** None typically
+- **Hop depth:** 1-2 (co-authors and their affiliations)
+
+**Unique pivot patterns:**
+- `full_name` → Google Scholar search → publication list, citation count, h-index
+- `publication` → co-author extraction → new full_name selectors
+- `institution` → faculty page crawl → colleagues, lab members
+- `ORCID` → cross-reference across publishers
+
+**Nodes used:** Primarily web_search, web_crawl, document_search. Most specialized OSINT nodes (SMTP, HIBP, face search) are irrelevant.
+
+#### `strategies/company.py` — Competitive Intelligence
+
+**Use case:** Analyzing competitors, market mapping, strategic intelligence on companies.
+
+- **Priority selectors:** domain, employer (company name), ticker_symbol, registration_number
+- **Completeness:** 6 domains: identity (legal entity), digital presence, leadership team, financials, market position, technology stack
+- **Classification:** Moderate — source reliability + timeliness matter (financials age fast)
+- **Sentinels:** Patent filings (low frequency, high strategic value), regulatory actions
+- **Analysis modes:** PIR useful ("What is their strategic direction?")
+- **Hop depth:** 1 (find leadership → basic profiles)
+
+**Unique pivot patterns:**
+- `domain` → run_shodan_search (tech stack inference from exposed services)
+- `company_name` → job posting search (reveals hiring priorities = strategic direction)
+- `company_name` → run_glassdoor (employee sentiment, org culture)
+- `executive_name` → run_linkedin_profile → speaking engagements (strategic signals)
+
+#### `strategies/due_diligence.py` — KYC / AML / Compliance
+
+**Use case:** Know Your Customer, Anti-Money Laundering, Enhanced Due Diligence investigations.
+
+- **Priority selectors:** full_name, employer, address, national_id, crypto_wallet
+- **Completeness:** Full — uses the intelligence 10-domain checklist + additional compliance domains (PEP status, sanctions, UBO tracing, source of wealth)
+- **Classification:** FULL Admiralty + STIX + corroboration + decay + deception detection. This is the most classification-heavy use case — every finding needs an audit trail.
+- **Sentinels:** PEP/sanctions (mandatory), adverse media (mandatory), court records (mandatory), crypto tracing
+- **Analysis modes:** ACH + PIR both enabled by default
+- **Hop depth:** 2-3 (must trace beneficial ownership through shell companies)
+
+**Unique features:**
+- **Regulatory compliance output:** Findings must map to specific KYC/AML requirements (e.g., EU AMLD6, BSA/AML)
+- **Audit trail:** Full provenance chain required — every finding traces back to source, tool call, and extraction method
+- **Adverse media categorization:** Financial crime, fraud, corruption, terrorism financing, sanctions evasion, human trafficking, environmental crime
+
+### How Strategy Selection Works
+
+1. **Explicit:** User sets `strategy: "lead"` in IS node config
+2. **Auto-detected:** IS brain analyzes the research_goal and infers the best strategy:
+   - "Find email addresses for all VPs of Engineering at Series B startups" → `lead`
+   - "Build a complete background profile of John Doe" → `person`
+   - "What is Company X's competitive position?" → `company`
+   - "Run KYC on this individual" → `due_diligence`
+3. **Fallback:** If no strategy matches, use `person` as the default (most comprehensive)
+
+### Impact on Architecture
+
+No architectural changes needed — the strategy module system was designed for this from the start. Each strategy module exports:
+- `ENTITY_TYPE: str`
+- `STRATEGY: str` (the prompt text)
+- `PRIORITY_SELECTORS: list[dict]`
+- `COMPLETENESS_CHECKLIST: list[dict]`
+- `CLASSIFICATION_DEPTH: str` (full | moderate | lightweight)
+- `SENTINEL_TACTICS: list[str]`
+- `ANALYSIS_MODES: dict[str, bool]` (ach, pir)
+
+The compiler merges these with learned overlays exactly the same way regardless of context.
+
+---
+
 ### Entity Type Extensibility
 
 This spec focuses on Person entity type. The architecture is extensible to other entity types (Company, Product, Location, Event) by:
