@@ -2,7 +2,7 @@
 
 Two tiers:
 - reasoning_model: Most capable model for analysis, orchestration, synthesis.
-  Default: claude-opus-4-6
+  Default: claude-opus-4-7
 - general_model: Cost-effective model for leaf tasks (scoring, summarizing, extraction).
   Default: claude-sonnet-4-6
 
@@ -14,7 +14,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_REASONING = "claude-opus-4-6"
+_DEFAULT_REASONING = "claude-opus-4-7"
 _DEFAULT_GENERAL = "claude-sonnet-4-6"
 
 # In-memory cache (refreshed on each call — DB reads are cheap)

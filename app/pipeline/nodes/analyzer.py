@@ -195,7 +195,7 @@ class AnalyzerNode:
             "model": {
                 "type": "string",
                 "title": "Model",
-                "default": "claude-opus-4-6",
+                "default": "claude-opus-4-7",
             },
             "context_prompt": {
                 "type": "string",

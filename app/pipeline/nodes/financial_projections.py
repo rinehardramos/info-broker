@@ -116,7 +116,7 @@ class FinancialProjectionsNode:
             "model": {
                 "type": "string",
                 "title": "Model",
-                "default": "claude-opus-4-6",
+                "default": "claude-opus-4-7",
             },
             "time_horizon": {
                 "type": "string",
@@ -169,7 +169,7 @@ class FinancialProjectionsNode:
         }]
 
 
-async def _call_llm(prompt: str, model: str = "claude-opus-4-6") -> str:
+async def _call_llm(prompt: str, model: str = "claude-opus-4-7") -> str:
     """Call Claude API for financial projections analysis."""
     import os
 

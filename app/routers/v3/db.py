@@ -447,7 +447,7 @@ INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES
 INSERT INTO graph_materializer_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- LLM model tier defaults
-INSERT INTO core_settings (key, value, is_secret) VALUES ('llm.reasoning_model', 'claude-opus-4-6', false) ON CONFLICT (key) DO NOTHING;
+INSERT INTO core_settings (key, value, is_secret) VALUES ('llm.reasoning_model', 'claude-opus-4-7', false) ON CONFLICT (key) DO NOTHING;
 INSERT INTO core_settings (key, value, is_secret) VALUES ('llm.general_model', 'claude-sonnet-4-6', false) ON CONFLICT (key) DO NOTHING;
 """
 # Default credentials: admin / admin

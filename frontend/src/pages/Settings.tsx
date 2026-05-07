@@ -7,7 +7,7 @@ import IconRail from '../components/layout/IconRail'
 
 const CORE_FIELDS = [
   // LLM Model Tiers
-  { key: 'llm.reasoning_model',    label: 'Reasoning Model (Analysis, Orchestration)',  secret: false, hint: 'claude-opus-4-6' },
+  { key: 'llm.reasoning_model',    label: 'Reasoning Model (Analysis, Orchestration)',  secret: false, hint: 'claude-opus-4-7' },
   { key: 'llm.general_model',      label: 'General Model (Scoring, Summarizing)',       secret: false, hint: 'claude-sonnet-4-6' },
   { key: 'anthropic_api_key',      label: 'Anthropic API Key (Claude)',                 secret: true },
   // LLM Providers
