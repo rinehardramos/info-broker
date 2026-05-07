@@ -102,13 +102,15 @@ async def run_research(
 
     log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
 
-    # Build spawn env with the resolved key
+    # Build spawn env — only set ANTHROPIC_API_KEY for real API keys
+    # For OAuth tokens or no key, REMOVE the env var so Claude Code
+    # falls back to its own auth (subscription via /root/.claude)
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
-    if api_key:
+    if api_key and api_key.startswith("sk-ant-api"):
         spawn_env["ANTHROPIC_API_KEY"] = api_key
     else:
-        # No API key — remove from env so Claude Code falls back to OAuth auth
         spawn_env.pop("ANTHROPIC_API_KEY", None)
+        log.info("IS Brain: no real API key, using Claude Code subscription auth")
 
     try:
         proc = await asyncio.create_subprocess_exec(
