@@ -27,6 +27,9 @@ _MCP_CONFIG = Path(os.getenv(
 # Claude Code binary
 _CLAUDE_BIN = os.getenv("CLAUDE_CODE_BIN", "claude")
 
+# 30-min absolute safety net - should never hit this normally
+_SAFETY_NET_TIMEOUT = int(os.getenv("IS_BRAIN_TIMEOUT", "1800"))
+
 
 async def check_auth() -> dict[str, Any]:
     """Check Claude Code authentication status."""
@@ -52,6 +55,7 @@ async def run_research(
     past_research: list[dict] | None = None,
     user_preferences: dict | None = None,
     on_event: Any = None,  # async callable(dict) for streaming tool call events
+    available_nodes: list[dict] | None = None,  # healthy+enabled nodes for prompt
 ) -> dict[str, Any]:
     """Run a research query via Claude Code subprocess.
 
@@ -68,6 +72,7 @@ async def run_research(
         max_branches=max_branches,
         past_research=past_research,
         user_preferences=user_preferences,
+        available_nodes=available_nodes,
     )
 
     # Use stream-json for real-time tool call events + checkpointing
@@ -83,14 +88,25 @@ async def run_research(
         cmd.extend(["--allowedTools", "mcp__info-broker-mcp__*"])
 
     log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
-    timeout = int(os.getenv("IS_BRAIN_TIMEOUT", "300"))
+
+    # Build env — refresh ANTHROPIC_API_KEY from DB (core_settings) if available,
+    # to handle OAuth token expiry without container restart.
+    spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
+    try:
+        from app.routers.v3.db import fetch_one
+        row = fetch_one("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
+        if row and row["value"]:
+            spawn_env["ANTHROPIC_API_KEY"] = row["value"]
+    except Exception:
+        pass
 
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env={**os.environ, "CLAUDE_CODE_HEADLESS": "1"},
+            env=spawn_env,
+            limit=10 * 1024 * 1024,  # 10MB buffer — Claude Code emits large JSON lines
         )
 
         # Read stdout line-by-line for streaming events + checkpointing
@@ -121,7 +137,14 @@ async def run_research(
                             if on_event:
                                 await on_event(tc)
                         elif content.get("type") == "tool_result":
-                            tc = {"tool": "", "status": "done", "id": content.get("tool_use_id", "")}
+                            tool_result_data = content.get("content", "")
+                            # Truncate large results for WS transport
+                            preview = str(tool_result_data)[:2000] if tool_result_data else ""
+                            tc = {
+                                "type": "tool_result",
+                                "tool_use_id": content.get("tool_use_id", ""),
+                                "preview": preview,
+                            }
                             if on_event:
                                 await on_event(tc)
 
@@ -130,11 +153,14 @@ async def run_research(
                     result_line = line
 
         try:
-            await asyncio.wait_for(_read_lines(), timeout=timeout)
+            await asyncio.wait_for(_read_lines(), timeout=_SAFETY_NET_TIMEOUT)
         except asyncio.TimeoutError:
             timed_out = True
-            log.warning("IS Brain: timed out after %ds, killing process", timeout)
-            proc.kill()
+            log.warning("IS Brain: hit %d-min safety limit, terminating", _SAFETY_NET_TIMEOUT // 60)
+            proc.terminate()  # graceful terminate, not kill
+            await asyncio.sleep(5)
+            if proc.returncode is None:
+                proc.kill()
 
         await proc.wait()
 
@@ -145,7 +171,7 @@ async def run_research(
                 parsed = _parse_stream_result(result_line)
                 parsed.setdefault("gaps", []).append("Research timed out — partial results")
                 return parsed
-            return _error_result(f"Research timed out after {timeout}s")
+            return _error_result(f"Research timed out after {_SAFETY_NET_TIMEOUT}s")
 
         if proc.returncode != 0:
             stderr_out = ""
@@ -181,6 +207,32 @@ def _parse_stream_result(line: str) -> dict[str, Any]:
     return _parse_output(line)
 
 
+_ERROR_PATTERNS = [
+    "blocked", "403 forbidden", "404 not found", "422 unprocessable",
+    "not configured", "api key", "api_key", "permission error",
+    "authentication", "timed out", "connection refused", "rate limit",
+    "rate_limit", "access denied", "unauthorized", "quota exceeded",
+    "requires full access", "token is not valid", "user was not found",
+]
+
+
+def _classify_finding(finding: dict) -> dict:
+    """Detect error findings that the brain mistakenly scored as high-confidence."""
+    title = (finding.get("title") or "").lower()
+    content = (finding.get("content") or "").lower()
+    combined = f"{title} {content}"
+
+    is_error = any(p.lower() in combined for p in _ERROR_PATTERNS)
+    if is_error:
+        finding["finding_type"] = "error"
+        finding["confidence"] = 0
+        finding["error_flagged"] = True
+    else:
+        finding.setdefault("finding_type", "result")
+        finding["error_flagged"] = False
+    return finding
+
+
 def _parse_output(raw: str) -> dict[str, Any]:
     """Parse Claude Code JSON output into research results."""
     try:
@@ -201,7 +253,10 @@ def _parse_output(raw: str) -> dict[str, Any]:
         try:
             research = json.loads(text)
             if isinstance(research, dict) and "findings" in research:
-                log.info("IS Brain: parsed structured output with %d findings", len(research["findings"]))
+                research["findings"] = [_classify_finding(f) for f in research["findings"]]
+                error_count = sum(1 for f in research["findings"] if f.get("error_flagged"))
+                log.info("IS Brain: parsed structured output with %d findings (%d errors filtered)",
+                         len(research["findings"]), error_count)
                 return research
             log.info("IS Brain: parsed JSON but no 'findings' key, keys=%s",
                      list(research.keys()) if isinstance(research, dict) else type(research))
