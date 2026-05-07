@@ -194,7 +194,7 @@ class AnalyzerNode:
             "model": {
                 "type": "string",
                 "title": "Model",
-                "default": "claude-haiku-4-5-20251001",
+                "default": "claude-opus-4-6",
             },
             "context_prompt": {
                 "type": "string",
@@ -207,7 +207,7 @@ class AnalyzerNode:
 
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         min_confidence = int(config.get("min_confidence", 50))
-        model = config.get("model", "claude-haiku-4-5-20251001")
+        model = config.get("model", "claude-opus-4-6")
         context_prompt = config.get("context_prompt", "")
 
         # Separate errors from valid findings
@@ -336,7 +336,7 @@ class AnalyzerNode:
         }
 
 
-async def _call_llm(prompt: str, model: str = "claude-haiku-4-5-20251001") -> str:
+async def _call_llm(prompt: str, model: str = "claude-opus-4-6") -> str:
     """Call Claude API for analysis. Uses the anthropic SDK (same pattern as summarizer.py)."""
     import os
 
