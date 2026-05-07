@@ -1255,7 +1255,7 @@ export default function ResultsPanel() {
         {activeTab === 'Pipeline' && <PipelineTabContent />}
 
         {activeRunId && (
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div key={activeRunId} style={{ flex: 1, overflowY: 'auto' }}>
             <PipelineRunResults
               runId={activeRunId}
               onNavigateRun={(newRunId) => setActiveTab(`run:${newRunId}`)}
