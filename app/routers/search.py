@@ -32,11 +32,11 @@ def search(req: SearchRequest, _: str = Depends(require_api_key)):
         port=int(os.getenv("QDRANT_PORT", "6333")),
     )
     try:
-        hits = client.search(
+        hits = client.query_points(
             collection_name="linkedin_profiles",
-            query_vector=vector,
+            query=vector,
             limit=req.limit,
-        )
+        ).points
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"qdrant failure: {e}") from e
 

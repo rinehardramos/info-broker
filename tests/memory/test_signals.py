@@ -49,7 +49,9 @@ def test_semantic_signal_returns_memory_results():
     }
 
     mock_client = MagicMock()
-    mock_client.search.return_value = [hit1, hit2]
+    query_resp = MagicMock()
+    query_resp.points = [hit1, hit2]
+    mock_client.query_points.return_value = query_resp
 
     with patch("app.memory.signals._get_qdrant_client", return_value=mock_client), \
          patch("app.memory.signals._embed_text", return_value=[0.1] * 768):
@@ -243,7 +245,9 @@ def test_skill_signal_returns_memory_results():
     }
 
     mock_client = MagicMock()
-    mock_client.search.return_value = [hit1, hit2]
+    query_resp = MagicMock()
+    query_resp.points = [hit1, hit2]
+    mock_client.query_points.return_value = query_resp
 
     with patch("app.memory.signals._get_qdrant_client", return_value=mock_client), \
          patch("app.memory.signals._embed_text", return_value=[0.1] * 768):
@@ -265,7 +269,9 @@ def test_skill_signal_returns_memory_results():
 def test_skill_signal_returns_empty_on_exception():
     """When Qdrant raises an exception, skill_search returns [] without re-raising."""
     mock_client = MagicMock()
-    mock_client.search.side_effect = RuntimeError("Qdrant unavailable")
+    query_resp = MagicMock()
+    query_resp.points = []
+    mock_client.query_points.side_effect = RuntimeError("Qdrant unavailable")
 
     with patch("app.memory.signals._get_qdrant_client", return_value=mock_client), \
          patch("app.memory.signals._embed_text", return_value=[0.1] * 768):

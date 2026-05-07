@@ -45,12 +45,12 @@ class QdrantSearchNode:
                     host=os.getenv("QDRANT_HOST", "localhost"),
                     port=int(os.getenv("QDRANT_PORT", "6335")),
                 )
-                hits = client.search(
+                hits = client.query_points(
                     collection_name=collection,
-                    query_vector=vector,
+                    query=vector,
                     limit=limit,
                     with_payload=True,
-                )
+                ).points
                 return [h.payload for h in hits if h.payload]
             except Exception:
                 return []

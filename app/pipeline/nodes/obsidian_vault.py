@@ -93,11 +93,11 @@ def _qdrant_search(query: str, collection: str, top_k: int) -> list[dict]:
         client = QdrantClient(host=host, port=port)
 
         vector = embed_text(query)
-        hits = client.search(
+        hits = client.query_points(
             collection_name=collection,
-            query_vector=vector,
+            query=vector,
             limit=top_k,
-        )
+        ).points
         return [
             {
                 "title": h.payload.get("title", h.payload.get("vault_path", "")),

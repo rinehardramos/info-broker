@@ -114,12 +114,12 @@ def semantic_search(query: str, limit: int = 10) -> list[dict]:
         from llm_providers import embed_text
         vector = embed_text(query)
         client = _client()
-        hits = client.search(
+        hits = client.query_points(
             collection_name=COLLECTION,
-            query_vector=vector,
+            query=vector,
             limit=limit,
             with_payload=True,
-        )
+        ).points
         return [h.payload for h in hits if h.payload]
     except Exception as exc:
         log.warning("Qdrant semantic_search failed: %s", exc)

@@ -60,12 +60,12 @@ async def semantic_search(query: str, limit: int = 50) -> list[MemoryResult]:
     try:
         vector = _embed_text(query)
         client = _get_qdrant_client()
-        hits = client.search(
+        hits = client.query_points(
             collection_name=_RESEARCH_MEMORY_COLLECTION,
-            query_vector=vector,
+            query=vector,
             limit=limit,
             with_payload=True,
-        )
+        ).points
         results: list[MemoryResult] = []
         for hit in hits:
             payload: dict[str, Any] = hit.payload or {}
@@ -303,15 +303,15 @@ async def skill_search(query: str, limit: int = 5) -> list[MemoryResult]:
         from qdrant_client.models import Filter, FieldCondition, MatchValue
         client = _get_qdrant_client()
         vector = _embed_text(query)
-        hits = client.search(
+        hits = client.query_points(
             collection_name="research_memory",
-            query_vector=vector,
+            query=vector,
             query_filter=Filter(must=[
                 FieldCondition(key="type", match=MatchValue(value="skill")),
             ]),
             limit=limit,
             with_payload=True,
-        )
+        ).points
         return [
             MemoryResult(
                 ref=str(h.id),
