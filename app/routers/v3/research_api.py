@@ -170,7 +170,7 @@ async def analyze_findings(body: dict, user: dict = Depends(get_current_user)):
         "min_confidence": body.get("min_confidence", 50),
         "context_prompt": body.get("context_prompt", ""),
         "query": body.get("query", ""),
-        "model": body.get("model", "claude-opus-4-6"),
+        "model": body.get("model", ""),  # empty = use reasoning_model() from settings
     }
     ctx = RunContext(
         user_id=str(user["id"]),

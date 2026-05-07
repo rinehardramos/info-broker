@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from app.llm_models import general_model
 from app.pipeline.nodes.base import RunContext
 
 
@@ -49,7 +50,7 @@ class AiScoringNode:
 
         criteria = config.get("criteria", "")
         score_field = config.get("score_field", "ai_score")
-        model = config.get("model", "claude-haiku-4-5-20251001")
+        model = config.get("model") or general_model()
         threshold = int(config.get("threshold", 50))
 
         if not inputs:

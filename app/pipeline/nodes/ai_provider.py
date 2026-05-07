@@ -6,7 +6,7 @@ import re
 from app.pipeline.nodes.base import RunContext
 
 _DEFAULT_MODELS = {
-    "claude": "claude-haiku-4-5-20251001",
+    "claude": "claude-sonnet-4-6",
     "openai": "gpt-4o-mini",
     "openrouter": "openai/gpt-4o-mini",
     "gemini": "gemini-1.5-flash",

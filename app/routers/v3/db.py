@@ -445,6 +445,10 @@ INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES
 INSERT INTO relationship_types (name, display_name, from_types, to_types) VALUES ('participated_in', 'Participated In', ARRAY['person', 'organization'], ARRAY['event', 'campaign', 'geopolitical_event']) ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO graph_materializer_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- LLM model tier defaults
+INSERT INTO core_settings (key, value, is_secret) VALUES ('llm.reasoning_model', 'claude-opus-4-6', false) ON CONFLICT (key) DO NOTHING;
+INSERT INTO core_settings (key, value, is_secret) VALUES ('llm.general_model', 'claude-sonnet-4-6', false) ON CONFLICT (key) DO NOTHING;
 """
 # Default credentials: admin / admin
 # Change the password via the DB after first login.

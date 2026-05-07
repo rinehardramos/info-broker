@@ -7,6 +7,7 @@ import json
 import logging
 import re
 
+from app.llm_models import reasoning_model
 from app.pipeline.nodes.base import RunContext
 
 log = logging.getLogger(__name__)
@@ -207,7 +208,7 @@ class AnalyzerNode:
 
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         min_confidence = int(config.get("min_confidence", 50))
-        model = config.get("model", "claude-opus-4-6")
+        model = config.get("model") or reasoning_model()
         context_prompt = config.get("context_prompt", "")
 
         # Separate errors from valid findings
@@ -336,11 +337,14 @@ class AnalyzerNode:
         }
 
 
-async def _call_llm(prompt: str, model: str = "claude-opus-4-6") -> str:
+async def _call_llm(prompt: str, model: str = "") -> str:
     """Call Claude API for analysis. Uses the anthropic SDK (same pattern as summarizer.py)."""
     import os
 
     import anthropic
+
+    if not model:
+        model = reasoning_model()
 
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:

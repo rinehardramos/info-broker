@@ -7,6 +7,8 @@ import json
 import logging
 import re
 
+from app.llm_models import reasoning_model
+
 from app.pipeline.nodes.base import RunContext
 
 log = logging.getLogger(__name__)
@@ -114,7 +116,7 @@ class FinancialProjectionsNode:
             "model": {
                 "type": "string",
                 "title": "Model",
-                "default": "claude-haiku-4-5-20251001",
+                "default": "claude-opus-4-6",
             },
             "time_horizon": {
                 "type": "string",
@@ -130,7 +132,7 @@ class FinancialProjectionsNode:
         self, config: dict, inputs: list[dict], context: RunContext
     ) -> list[dict]:
         projection_type = config.get("projection_type", "revenue_forecast")
-        model = config.get("model", "claude-haiku-4-5-20251001")
+        model = config.get("model") or reasoning_model()
         time_horizon = config.get("time_horizon", "12 months")
 
         findings_text = _format_findings(inputs)
@@ -167,7 +169,7 @@ class FinancialProjectionsNode:
         }]
 
 
-async def _call_llm(prompt: str, model: str = "claude-haiku-4-5-20251001") -> str:
+async def _call_llm(prompt: str, model: str = "claude-opus-4-6") -> str:
     """Call Claude API for financial projections analysis."""
     import os
 

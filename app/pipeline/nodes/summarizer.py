@@ -7,6 +7,7 @@ import json
 import logging
 import os
 
+from app.llm_models import general_model
 from app.pipeline.nodes.base import RunContext
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class SummarizerNode:
             "model": {
                 "type": "string",
                 "title": "Model",
-                "default": "claude-haiku-4-5-20251001",
+                "default": "claude-sonnet-4-6",
             },
             "instructions": {
                 "type": "string",
@@ -81,7 +82,7 @@ class SummarizerNode:
             return []
 
         provider = config.get("provider", "claude")
-        model = config.get("model", "claude-haiku-4-5-20251001")
+        model = config.get("model") or general_model()
         instructions = config.get("instructions", "Summarize all findings into a coherent report.")
         max_items = int(config.get("max_input_items", 50))
         output_field = config.get("output_field", "summary")
