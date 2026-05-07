@@ -162,14 +162,14 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
             pdf.set_font("Helvetica", "", 9)
             name = ent.get("name", "")
             etype = ent.get("type", "")
-            pdf.cell(0, 6, f"  - {name}" + (f" ({etype})" if etype else ""), ln=True)
+            pdf.cell(0, 6, _safe(f"  - {name}" + (f" ({etype})" if etype else "")), ln=True)
             break
 
         for ent in analysis.get("entities", [])[1:]:
             name = ent.get("name", "")
             etype = ent.get("type", "")
             pdf.set_font("Helvetica", "", 9)
-            pdf.cell(0, 6, f"  - {name}" + (f" ({etype})" if etype else ""), ln=True)
+            pdf.cell(0, 6, _safe(f"  - {name}" + (f" ({etype})" if etype else "")), ln=True)
 
         if analysis.get("relationships"):
             pdf.ln(2)
@@ -180,7 +180,7 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
                 frm = rel.get("from", rel.get("from_entity", ""))
                 to = rel.get("to", rel.get("to_entity", ""))
                 rtype = rel.get("type", rel.get("relationship_type", ""))
-                pdf.cell(0, 6, f"  - {frm} --[{rtype}]--> {to}", ln=True)
+                pdf.cell(0, 6, _safe(f"  - {frm} --[{rtype}]--> {to}"), ln=True)
 
         insights = analysis.get("insights", analysis.get("key_insights", []))
         if insights:
@@ -278,6 +278,11 @@ def _generate_excel(findings: list[dict], analysis: dict | None, output_path: st
         df_insights.to_excel(writer, sheet_name="Insights", index=False)
 
 
+def _safe(text: str) -> str:
+    """Replace non-latin1 chars for fpdf2 Helvetica."""
+    return str(text).encode("latin-1", errors="replace").decode("latin-1")
+
+
 def _trunc(text: str, max_len: int) -> str:
-    text = str(text)
+    text = _safe(str(text))
     return text[:max_len - 3] + "..." if len(text) > max_len else text
