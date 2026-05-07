@@ -14,7 +14,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_REASONING = "claude-opus-4-7"
+_DEFAULT_REASONING = "claude-opus-4-6"
 _DEFAULT_GENERAL = "claude-sonnet-4-6"
 
 # In-memory cache (refreshed on each call — DB reads are cheap)
