@@ -367,18 +367,19 @@ async def _call_llm(prompt: str, model: str = "") -> str:
             else:
                 spawn_env.pop("ANTHROPIC_API_KEY", None)
 
+            # Pipe prompt via stdin to avoid shell arg length limits
             proc = await asyncio.create_subprocess_exec(
-                claude_bin, "-p", prompt,
+                claude_bin,
                 "--output-format", "text",
                 "--model", model,
                 "--max-turns", "1",
-                "--no-input",
                 "--bare",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.PIPE,
                 env=spawn_env,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+            stdout, stderr = await asyncio.wait_for(proc.communicate(input=prompt.encode()), timeout=120)
             if proc.returncode == 0 and stdout:
                 result = stdout.decode().strip()
                 log.info("Analyzer: Claude Code returned %d chars", len(result))
