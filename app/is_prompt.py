@@ -173,7 +173,20 @@ _STATIC_TOOLS = """\
 - run_hunter_io(domain, company) — email finder for company domains (Hunter.io)
 - run_whois_lookup(domain) — WHOIS domain registration info
 - run_google_news(query, max_results) — Google News search for recent articles
-- run_shodan_search(query, target) — Shodan internet infrastructure search"""
+- run_shodan_search(query, target) — Shodan internet infrastructure search
+- run_smtp_verifier(email) — verify email existence via SMTP RCPT TO probing
+- run_email_enumerator(first_name, last_name, providers) — generate + verify candidate emails from name
+- run_hibp_lookup(email) — check email against HaveIBeenPwned breach database
+- run_reverse_lookup(query, query_type) — reverse lookup email/phone/username to find linked identities
+- run_username_enumerator(username) — check username existence across 9+ platforms
+- run_phone_osint(phone) — phone number reconnaissance (carrier, line type, region)
+- run_messaging_check(phone, username) — check Telegram/WhatsApp/Signal presence
+- run_pep_sanctions_screen(name) — screen against PEP and sanctions lists [SENTINEL]
+- run_adverse_media(name) — systematic negative news monitoring (fraud/corruption/scandal)
+- run_exif_extractor(file_url) — extract GPS, timestamps, device info from images
+- run_document_search(query, filetypes) — Google Dorking for documents (PDF, DOCX)
+- run_face_search(image_url) — reverse facial recognition search
+- run_crypto_tracer(wallet_address) — blockchain wallet analysis [SENTINEL]"""
 
 
 def _build_tools_section(available_nodes: list[dict] | None) -> str:
