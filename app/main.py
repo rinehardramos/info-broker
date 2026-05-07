@@ -113,6 +113,8 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("v3 DB migration skipped: %s", exc)
 
+    os.makedirs("/tmp/exports", exist_ok=True)
+
     # Start graph materializer background task
     import asyncio as _aio
     try:
@@ -169,6 +171,7 @@ from app.routers.v3.nodes_api import router as v3_nodes_router  # noqa: E402
 from app.routers.v3.research_api import router as v3_research_router  # noqa: E402
 from app.routers.v3.knowledge_api import router as v3_knowledge_router  # noqa: E402
 from app.routers.v3.admin_api import router as v3_admin_router  # noqa: E402
+from app.routers.v3.exports import router as v3_exports_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -183,3 +186,4 @@ app.include_router(v3_nodes_router)
 app.include_router(v3_research_router)
 app.include_router(v3_knowledge_router)
 app.include_router(v3_admin_router)
+app.include_router(v3_exports_router)

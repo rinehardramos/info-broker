@@ -294,3 +294,8 @@ export const getDashboardMetrics = () =>
 
 export const getToolStats = () =>
   api.get<{ tool_name: string; total_calls: number; succeeded: number; failed: number; avg_duration_ms: number; last_used: string }[]>('/v3/admin/tools/stats').then(r => r.data)
+
+// --- Exports ---
+
+export const exportResearch = (runId: string, format: 'pdf' | 'csv' | 'xlsx') =>
+  api.post<{ filename: string; url: string }>(`/v3/exports/research/${runId}`, { format, include_analysis: true }).then(r => r.data)

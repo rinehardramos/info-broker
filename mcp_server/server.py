@@ -130,6 +130,13 @@ async def run_summarizer(
 
 
 @mcp.tool()
+async def export_research(run_id: str, format: str = "pdf") -> str:
+    """Export research results as PDF, CSV, or Excel file. Returns download URL."""
+    result = await api_call("POST", f"/v3/exports/research/{run_id}", json={"format": format, "include_analysis": True})
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
 async def run_web_crawl(
     urls: str,
     max_pages: int = 10,

@@ -68,6 +68,9 @@ class NodeRegistry:
         from app.pipeline.nodes.sec_edgar import SecEdgarNode
         from app.pipeline.nodes.glassdoor_reviews import GlassdoorReviewsNode
         from app.pipeline.nodes.maven_gumroad import MavenGumroadNode
+        from app.pipeline.nodes.export_pdf import ExportPdfNode
+        from app.pipeline.nodes.export_csv import ExportCsvNode
+        from app.pipeline.nodes.export_excel import ExportExcelNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -84,5 +87,6 @@ class NodeRegistry:
             StripeMarketplaceNode(), FinancialProjectionsNode(),
             WaybackMachineNode(), FtcFoiaNode(), IbpapNode(), PolishKrsNode(),
             SecEdgarNode(), GlassdoorReviewsNode(), MavenGumroadNode(),
+            ExportPdfNode(), ExportCsvNode(), ExportExcelNode(),
         ]:
             cls.register(node)

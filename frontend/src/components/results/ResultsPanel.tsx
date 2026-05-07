@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
 import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail } from '../../api/pipelines'
-import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback } from '../../api/v3'
+import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback, exportResearch } from '../../api/v3'
 import { ResearchFlow } from './ResearchFlow'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
-import { Sparkles, ArrowDownToLine, Save, ThumbsUp, ThumbsDown, RefreshCw, RotateCcw, Layers, Loader2 } from 'lucide-react'
+import { Sparkles, ArrowDownToLine, Save, ThumbsUp, ThumbsDown, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
 
 // Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | `run:${string}`
@@ -379,6 +379,8 @@ function ResearchResults({
   const [analyzing, setAnalyzing] = useState(!!initAnalyzing)
   const [analysis, setAnalysis] = useState<any>(initAnalysis)
   const [feedback, setFeedback] = useState<Record<number, number>>({})
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -447,6 +449,20 @@ function ResearchResults({
       console.error('Analysis failed:', err)
       if (runId) _analyzingRuns.delete(runId)
       if (mountedRef.current) setAnalyzing(false)
+    }
+  }
+
+  const handleExport = async (format: 'pdf' | 'csv' | 'xlsx') => {
+    if (!runId) return
+    setExporting(true)
+    setExportOpen(false)
+    try {
+      const result = await exportResearch(runId, format)
+      window.open(result.url, '_blank')
+    } catch (err) {
+      console.error('Export failed:', err)
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -817,6 +833,52 @@ function ResearchResults({
                     ? <><Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</>
                     : <><span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Save size={12} /> Save Pipeline</span></>}
               </button>
+            )}
+
+            {/* Export dropdown */}
+            {runId && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => setExportOpen(prev => !prev)}
+                  disabled={exporting}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    background: '#34d39922', border: '1px solid #34d39955', color: '#34d399',
+                    fontSize: 11, fontWeight: 600, padding: '6px 14px', borderRadius: 6,
+                    cursor: exporting ? 'not-allowed' : 'pointer',
+                    opacity: exporting ? 0.5 : 1,
+                  }}
+                >
+                  {exporting ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={12} />}
+                  Export
+                </button>
+                {exportOpen && (
+                  <div
+                    style={{
+                      position: 'absolute', top: '100%', left: 0, marginTop: 4, zIndex: 50,
+                      background: 'var(--panel2)', border: '1px solid var(--border)', borderRadius: 6,
+                      minWidth: 140, boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                    }}
+                  >
+                    {(['pdf', 'csv', 'xlsx'] as const).map(fmt => (
+                      <button
+                        key={fmt}
+                        onClick={() => handleExport(fmt)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          fontSize: 11, color: 'var(--text)', padding: '8px 12px', textAlign: 'left',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--panel)' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'none' }}
+                      >
+                        {fmt === 'pdf' ? <FileText size={12} /> : <FileSpreadsheet size={12} />}
+                        {fmt.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
