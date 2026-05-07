@@ -333,6 +333,32 @@ CREATE TABLE IF NOT EXISTS mcp_tool_calls (
 CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_session_id ON mcp_tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_status ON mcp_tool_calls(status);
 CREATE INDEX IF NOT EXISTS idx_mcp_tool_calls_created_at ON mcp_tool_calls(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS research_skills (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id            UUID REFERENCES pipeline_runs(id),
+    query             TEXT NOT NULL,
+    entity_type       VARCHAR(64),
+    keywords          TEXT[] DEFAULT '{}',
+    tool_sequence     TEXT[] NOT NULL DEFAULT '{}',
+    pipeline          JSONB,
+    branch_pattern    JSONB DEFAULT '{}',
+    findings_count    INT DEFAULT 0,
+    quality_score     FLOAT DEFAULT 0.0,
+    error_rate        FLOAT DEFAULT 0.0,
+    entities_found    INT DEFAULT 0,
+    tool_calls        INT DEFAULT 0,
+    duration_seconds  INT DEFAULT 0,
+    estimated_cost_usd FLOAT DEFAULT 0.0,
+    efficiency        FLOAT DEFAULT 0.0,
+    times_suggested   INT DEFAULT 0,
+    times_adopted     INT DEFAULT 0,
+    last_suggested_at TIMESTAMPTZ,
+    disabled          BOOLEAN DEFAULT false,
+    created_at        TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_skills_quality ON research_skills (quality_score DESC);
+CREATE INDEX IF NOT EXISTS idx_skills_entity ON research_skills (entity_type);
 """
 
 
