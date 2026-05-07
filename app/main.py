@@ -101,6 +101,11 @@ async def lifespan(app: FastAPI):
         se_ensure_qdrant()
     except Exception as exc:
         _log.warning("Qdrant search_results setup: %s", exc)
+    try:
+        from app.memory.collection import ensure_research_memory_collection
+        ensure_research_memory_collection()
+    except Exception as exc:
+        _log.warning("research_memory collection setup: %s", exc)
 
     from app.routers.v3.db import run_migrations as v3_migrate
     try:

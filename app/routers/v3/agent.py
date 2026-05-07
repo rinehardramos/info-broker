@@ -198,6 +198,13 @@ async def _run_is_research(
              json.dumps(suggested_pipeline) if suggested_pipeline else None),
         )
 
+        # Index findings to research_memory for multi-signal retrieval
+        try:
+            from app.memory.writer import index_research_findings
+            await index_research_findings(run_id, query, result.get("findings", []))
+        except Exception as exc:
+            log.warning("Memory indexing failed (non-fatal): %s", exc)
+
         # Deduplicate plugin suggestions against existing nodes
         from app.pipeline.nodes import NodeRegistry
         NodeRegistry.auto_discover()

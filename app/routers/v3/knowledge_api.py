@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import fetch_all, fetch_one
 
@@ -253,3 +254,26 @@ def get_timeline(
         """,
         tuple(params),
     )
+
+
+# ---------------------------------------------------------------------------
+# Memory search
+# ---------------------------------------------------------------------------
+
+
+@router.post("/memory/search")
+async def search_memory_endpoint(body: dict, _key: str = Depends(require_api_key)):
+    """Multi-signal fused memory search."""
+    from app.memory.retriever import fused_retrieve
+    query = body.get("query", "")
+    limit = body.get("limit", 20)
+    results = await fused_retrieve(query, limit=limit)
+    return [
+        {
+            "ref": r.ref, "title": r.title, "content": r.content[:500],
+            "source": r.source, "score": r.score, "run_id": r.run_id,
+            "entity_refs": r.entity_refs, "observed_at": r.observed_at,
+            "user_score": r.user_score, "signals": r.signals,
+        }
+        for r in results
+    ]

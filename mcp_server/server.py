@@ -643,6 +643,17 @@ async def run_maven_gumroad(
 
 
 @mcp.tool()
+async def search_memory(query: str, limit: int = 10) -> str:
+    """Search info-broker's memory using multi-signal fusion.
+
+    Combines semantic similarity, keyword matching, knowledge graph
+    entities, temporal awareness, and user feedback scores.
+    """
+    result = await api_call("POST", "/v3/knowledge/memory/search", json={"query": query, "limit": limit})
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
 async def get_research_by_id(run_id: str) -> str:
     """Fetch a specific research trail by its run ID.
 
