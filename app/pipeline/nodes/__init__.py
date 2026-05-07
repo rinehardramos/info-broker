@@ -72,6 +72,15 @@ class NodeRegistry:
         from app.pipeline.nodes.hibp_lookup import HibpLookupNode
         from app.pipeline.nodes.reverse_lookup import ReverseLookupNode
         from app.pipeline.nodes.email_enumerator import EmailEnumeratorNode
+        from app.pipeline.nodes.username_enumerator import UsernameEnumeratorNode
+        from app.pipeline.nodes.phone_osint import PhoneOsintNode
+        from app.pipeline.nodes.messaging_check import MessagingCheckNode
+        from app.pipeline.nodes.pep_sanctions_screen import PepSanctionsScreenNode
+        from app.pipeline.nodes.adverse_media import AdverseMediaNode
+        from app.pipeline.nodes.exif_extractor import ExifExtractorNode
+        from app.pipeline.nodes.document_search import DocumentSearchNode
+        from app.pipeline.nodes.face_search import FaceSearchNode
+        from app.pipeline.nodes.crypto_tracer import CryptoTracerNode
         from app.pipeline.nodes.export_pdf import ExportPdfNode
         from app.pipeline.nodes.export_csv import ExportCsvNode
         from app.pipeline.nodes.export_excel import ExportExcelNode
@@ -93,6 +102,9 @@ class NodeRegistry:
             SecEdgarNode(), GlassdoorReviewsNode(), MavenGumroadNode(),
             ExportPdfNode(), ExportCsvNode(), ExportExcelNode(),
             SmtpVerifierNode(), HibpLookupNode(), ReverseLookupNode(),
-            EmailEnumeratorNode(),
+            EmailEnumeratorNode(), UsernameEnumeratorNode(), PhoneOsintNode(),
+            MessagingCheckNode(), PepSanctionsScreenNode(), AdverseMediaNode(),
+            ExifExtractorNode(), DocumentSearchNode(), FaceSearchNode(),
+            CryptoTracerNode(),
         ]:
             cls.register(node)
