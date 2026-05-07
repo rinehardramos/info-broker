@@ -352,15 +352,31 @@ async def _call_llm(prompt: str, model: str = "") -> str:
     claude_bin = shutil.which("claude") or "/usr/local/bin/claude"
     if os.path.isfile(claude_bin):
         try:
+            # Build env — use fresh key from DB, strip stale OAuth tokens
+            spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
+            fresh_key = ""
+            try:
+                from app.routers.v3.db import fetch_one as _fetch
+                _row = _fetch("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
+                if _row and _row["value"] and "REDACTED" not in _row["value"]:
+                    fresh_key = _row["value"]
+            except Exception:
+                pass
+            if fresh_key:
+                spawn_env["ANTHROPIC_API_KEY"] = fresh_key
+            else:
+                spawn_env.pop("ANTHROPIC_API_KEY", None)
+
             proc = await asyncio.create_subprocess_exec(
                 claude_bin, "-p", prompt,
                 "--output-format", "text",
                 "--model", model,
                 "--max-turns", "1",
                 "--no-input",
+                "--bare",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, "CLAUDE_CODE_HEADLESS": "1"},
+                env=spawn_env,
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
             if proc.returncode == 0 and stdout:
