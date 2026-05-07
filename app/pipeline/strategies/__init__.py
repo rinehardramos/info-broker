@@ -1,4 +1,9 @@
-"""Investigation strategy modules — seed strategies per entity type."""
+"""Investigation strategy modules — seed strategies per entity type.
+
+Primary entry point: ``compile_strategy(entity_type)`` which returns
+the seed strategy merged with learned overlays from the DB.
+Use ``get_strategy(entity_type)`` for seed-only access.
+"""
 from __future__ import annotations
 
 _STRATEGIES: dict[str, str] = {}
