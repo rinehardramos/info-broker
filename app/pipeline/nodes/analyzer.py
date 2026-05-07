@@ -363,13 +363,16 @@ async def _call_llm(prompt: str, model: str = "") -> str:
     from app.llm_models import general_model
 
     loop = asyncio.get_running_loop()
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, max_retries=0)
 
-    # Retry with exponential backoff on rate limits, fallback to general model
+    # Retry with exponential backoff on rate limits, fallback to cheaper models
     models_to_try = [model]
     fallback = general_model()
     if fallback != model:
         models_to_try.append(fallback)
+    # Last resort: haiku has highest rate limits
+    if "haiku" not in model and "haiku" not in fallback:
+        models_to_try.append("claude-haiku-4-5-20251001")
 
     for current_model in models_to_try:
         for attempt in range(3):
