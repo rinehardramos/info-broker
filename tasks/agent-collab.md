@@ -4,6 +4,8 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
+- [2026-05-06] - [Claude/software-developer] - [MemoryResult model + RRF fusion algorithm (TDD)] - [app/memory/__init__.py, app/memory/models.py, app/memory/rrf.py, tests/memory/__init__.py, tests/memory/test_models.py, tests/memory/test_rrf.py]
+- [2026-05-06] - [Claude/software-developer] - [Create stripe_marketplace and financial_projections pipeline nodes] - [app/pipeline/nodes/stripe_marketplace.py, app/pipeline/nodes/financial_projections.py, app/pipeline/nodes/__init__.py, mcp_server/server.py]
 - [2026-05-06] - [Claude/software-developer] - [Create Intelligence Analyzer pipeline node: multi-stage entity extraction, relationship mapping, and synthesis with map-reduce for large datasets] - [app/pipeline/nodes/analyzer.py, app/pipeline/nodes/__init__.py, tests/pipeline/nodes/test_analyzer.py]
 - [2026-05-06] - [Claude/software-developer] - [Frontend plugin health dashboard + streaming tool results UI: NodeHealth settings section, is.tool_result streaming counter in AgentChat, grey out unhealthy nodes in PipelineBuilder] - [frontend/src/api/v3.ts, frontend/src/pages/Settings.tsx, frontend/src/components/agent/AgentChat.tsx, frontend/src/components/pipeline/StepList.tsx, frontend/src/components/pipeline/PipelineBuilder.tsx]
 - [2026-05-06] - [Claude/software-developer] - [Create 4 pipeline node plugins: clutch_goodfirms, linkedin_profile, apify_mcp, web_search_fetch] - [app/pipeline/nodes/clutch_goodfirms.py, app/pipeline/nodes/linkedin_profile.py, app/pipeline/nodes/apify_mcp.py, app/pipeline/nodes/web_search_fetch.py, app/pipeline/nodes/__init__.py]
