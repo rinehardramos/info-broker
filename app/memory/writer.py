@@ -78,6 +78,7 @@ async def index_research_findings(
             "user_score": 0,
             "entity_refs": [],
             "observed_at": finding.get("observed_at"),
+            "tier": "hot",
         }
         items.append((i, embed_input, payload))
 

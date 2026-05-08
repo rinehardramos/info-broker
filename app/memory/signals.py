@@ -205,6 +205,7 @@ async def temporal_search(
                 FROM entity_observations
                 WHERE value ILIKE %(pattern)s
                   AND observed_at BETWEEN %(from_dt)s AND %(to_dt)s
+                  AND tier IN ('hot', 'warm')
                 ORDER BY observed_at DESC
                 LIMIT %(limit)s
             """
@@ -220,6 +221,7 @@ async def temporal_search(
                        confidence, observed_at, source_run_id
                 FROM entity_observations
                 WHERE value ILIKE %(pattern)s
+                  AND tier IN ('hot', 'warm')
                 ORDER BY observed_at DESC
                 LIMIT %(limit)s
             """

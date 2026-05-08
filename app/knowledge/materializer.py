@@ -47,6 +47,7 @@ class GraphMaterializer:
                        observed_at, created_at
                 FROM entity_observations
                 WHERE created_at > %s
+                  AND tier IN ('hot', 'warm')
                 ORDER BY created_at ASC
                 """,
                 (checkpoint,),
@@ -57,6 +58,7 @@ class GraphMaterializer:
                 SELECT entity_ref, entity_type, attribute, value, confidence,
                        observed_at, created_at
                 FROM entity_observations
+                WHERE tier IN ('hot', 'warm')
                 ORDER BY created_at ASC
                 """
             )

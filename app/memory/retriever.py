@@ -21,6 +21,26 @@ log = logging.getLogger(__name__)
 _SIGNAL_NAMES = ["semantic", "bm25", "entity", "temporal", "feedback"]
 
 
+def _track_access(run_ids: list[str]) -> None:
+    """Batch-update last_accessed_at for accessed observations (1-hour debounce)."""
+    if not run_ids:
+        return
+    try:
+        from app.routers.v3.db import execute
+        # Update entity_observations linked to these run_ids
+        # Only update if last_accessed_at is null or >1 hour ago (debounce)
+        placeholders = ",".join(["%s"] * len(run_ids))
+        execute(
+            f"""UPDATE entity_observations
+                SET last_accessed_at = now()
+                WHERE source_run_id IN ({placeholders})
+                  AND (last_accessed_at IS NULL OR last_accessed_at < now() - interval '1 hour')""",
+            tuple(run_ids),
+        )
+    except Exception:
+        pass  # Non-critical, don't break retrieval
+
+
 async def fused_retrieve(
     query: str,
     limit: int = 20,
@@ -62,7 +82,12 @@ async def fused_retrieve(
         k=60,
         signal_names=_SIGNAL_NAMES,
     )
-    return fused[:limit]
+    results = fused[:limit]
+
+    # Track access for lifecycle management
+    _track_access([r.run_id for r in results if r.run_id])
+
+    return results
 
 
 async def fused_retrieve_with_skills(
