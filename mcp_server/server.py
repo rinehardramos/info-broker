@@ -661,6 +661,24 @@ async def search_memory(query: str, limit: int = 10) -> str:
 
 
 @mcp.tool()
+async def curate_knowledge() -> str:
+    """Get knowledge graph curation status -- contradictions and stale observations.
+
+    Returns total counts, unresolved contradictions, and active stale flags.
+    Use this to assess knowledge graph quality before research.
+    """
+    stats = await api_call("GET", "/v3/knowledge/curation/stats")
+    contradictions = await api_call("GET", "/v3/knowledge/contradictions", params={"status": "needs_review", "limit": 10})
+    stale = await api_call("GET", "/v3/knowledge/stale", params={"status": "stale", "limit": 10})
+    result = {
+        **(stats if isinstance(stats, dict) else {}),
+        "recent_contradictions": contradictions[:10] if isinstance(contradictions, list) else [],
+        "recent_stale": stale[:10] if isinstance(stale, list) else [],
+    }
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
 async def get_research_by_id(run_id: str) -> str:
     """Fetch a specific research trail by its run ID.
 
