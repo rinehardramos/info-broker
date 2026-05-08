@@ -146,6 +146,15 @@ async def _run_is_research(
         "run_id": run_id, "message": query,
     })
 
+    # Update DB status to running so pipeline_runs reflects the active state
+    try:
+        execute(
+            "UPDATE pipeline_runs SET status = 'running' WHERE id = %s",
+            (run_id,),
+        )
+    except Exception:
+        pass
+
     try:
         from app.is_brain import run_research
 
