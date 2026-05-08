@@ -91,13 +91,25 @@ const STATUS_COLORS: Record<string, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
+// Module-level cache survives component unmount/remount
+const _flowCache = new Map<string, FlowState>()
+
 interface Props {
   /** If provided, only show flow for this run. Otherwise show latest. */
   runId?: string
 }
 
 export function ResearchFlow({ runId: filterRunId }: Props) {
-  const [flows, setFlows] = useState<Map<string, FlowState>>(new Map())
+  const [flows, _setFlows] = useState<Map<string, FlowState>>(() => new Map(_flowCache))
+  // Wrapper that updates both state and cache
+  const setFlows = (updater: (prev: Map<string, FlowState>) => Map<string, FlowState>) => {
+    _setFlows(prev => {
+      const next = updater(prev)
+      // Sync cache
+      for (const [k, v] of next) _flowCache.set(k, v)
+      return next
+    })
+  }
 
   const handleEvent = useCallback((event: WsEvent) => {
     if (event.type === 'intelligent_search.started' && event.run_id) {
