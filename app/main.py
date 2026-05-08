@@ -151,6 +151,29 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
+from starlette.middleware.cors import CORSMiddleware  # noqa: E402
+import os as _cors_os  # noqa: E402
+
+_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+]
+# Allow additional origins from env (comma-separated)
+_extra = _cors_os.getenv("CORS_ALLOWED_ORIGINS", "")
+if _extra:
+    _CORS_ORIGINS.extend(o.strip() for o in _extra.split(",") if o.strip())
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.ngrok-free\.(app|dev)",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 @app.get("/healthz", tags=["health"])
 def healthz() -> dict:
