@@ -66,7 +66,7 @@ async def index_research_findings(
     for i, finding in enumerate(valid):
         title = finding.get("title") or ""
         content = finding.get("content") or ""
-        embed_input = title + "\n" + content
+        embed_input = (title + "\n" + content)[:2000]  # nomic-embed-text has token limits
         payload: dict[str, Any] = {
             "run_id": run_id,
             "query": query,

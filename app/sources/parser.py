@@ -134,22 +134,29 @@ def parse_csv(file_path: str, filename: str) -> list[dict]:
     ]
 
     # --- Row group findings ---
-    chunk_size = 20
+    # Adaptive chunk size: larger chunks for big files to cap total findings
+    chunk_size = 50 if row_count > 500 else (30 if row_count > 200 else 20)
+    max_row_findings = 100  # cap to avoid 500+ findings for huge files
+    row_findings_count = 0
     for start_idx in range(0, row_count, chunk_size):
+        if row_findings_count >= max_row_findings:
+            break
         end_idx = min(start_idx + chunk_size, row_count)
         chunk_df = df.iloc[start_idx:end_idx]
         start_label = start_idx + 1
         end_label = end_idx
         context = f"rows {start_label}-{end_label}"
         table = _df_to_markdown(chunk_df)
+        content = f"[File: {filename} | {context}]\n{table}"
         findings.append(
             {
                 "title": f"{filename} - {context}",
-                "content": f"[File: {filename} | {context}]\n{table}",
+                "content": content[:2000],  # truncate for embedding limits
                 "source": "file_upload",
                 "confidence": 85,
             }
         )
+        row_findings_count += 1
 
     return findings
 
