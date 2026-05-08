@@ -172,7 +172,9 @@ def parse_excel(file_path: str, filename: str) -> list[dict]:
     Returns:
         List of finding dicts across all sheets.
     """
-    sheets: dict[str, pd.DataFrame] = pd.read_excel(file_path, sheet_name=None)
+    ext = os.path.splitext(filename)[1].lower()
+    engine = "xlrd" if ext == ".xls" else "openpyxl"
+    sheets: dict[str, pd.DataFrame] = pd.read_excel(file_path, sheet_name=None, engine=engine)
     findings: list[dict] = []
 
     for sheet_name, df in sheets.items():

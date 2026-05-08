@@ -510,15 +510,34 @@ def test_parse_file_routes_xlsx():
         os.unlink(path)
 
 
+def _write_xls(sheets: dict) -> str:
+    """Write a legacy .xls (BIFF8) file using xlwt and return the temp path."""
+    import xlwt
+
+    workbook = xlwt.Workbook()
+    for sheet_name, rows in sheets.items():
+        sheet = workbook.add_sheet(sheet_name)
+        if not rows:
+            continue
+        headers = list(rows[0].keys())
+        for col_idx, header in enumerate(headers):
+            sheet.write(0, col_idx, header)
+        for row_idx, row in enumerate(rows, start=1):
+            for col_idx, header in enumerate(headers):
+                sheet.write(row_idx, col_idx, row.get(header, ""))
+    fh = tempfile.NamedTemporaryFile(suffix=".xls", delete=False)
+    fh.close()
+    workbook.save(fh.name)
+    return fh.name
+
+
 def test_parse_file_routes_xls_same_as_xlsx():
-    path = _write_xlsx({"Sheet1": [{"a": 1}]})
-    xls_path = path.replace(".xlsx", ".xls")
-    os.rename(path, xls_path)
+    path = _write_xls({"Sheet1": [{"a": 1}]})
     try:
-        findings = parse_file(xls_path, "data.xls")
+        findings = parse_file(path, "data.xls")
         assert len(findings) >= 1
     finally:
-        os.unlink(xls_path)
+        os.unlink(path)
 
 
 def test_parse_file_routes_pdf():
