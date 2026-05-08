@@ -120,24 +120,30 @@ test('info-broker full feature demo', async ({ page }) => {
   await wait(3000)
 
   // ── 12. NAVIGATE TO KNOWLEDGE GRAPH ──────────────────────────────────────
-  const kgLink = page.locator('[href*="knowledge"], text=Knowledge').first()
-  if (await kgLink.isVisible()) {
-    await kgLink.click()
-    await wait(3000)
-    await page.mouse.wheel(0, 200)
-    await wait(2000)
-  }
+  await page.goto('/knowledge')
+  await wait(3000)
+  await page.mouse.wheel(0, 200)
+  await wait(2000)
 
-  // ── 13. NAVIGATE TO SETTINGS ─────────────────────────────────────────────
-  const settingsLink = page.locator('[href*="settings"], text=Settings').first()
-  if (await settingsLink.isVisible()) {
-    await settingsLink.click()
-    await wait(3000)
-    await page.mouse.wheel(0, 200)
-    await wait(2000)
-  }
+  // ── 13. NAVIGATE TO LIVE PROCESSES ───────────────────────────────────────
+  await page.goto('/admin/processes')
+  await wait(3000)
+  await page.mouse.wheel(0, 200)
+  await wait(2000)
 
-  // ── 14. NAVIGATE BACK TO AGENT ───────────────────────────────────────────
+  // ── 14. NAVIGATE TO PLUGINS ──────────────────────────────────────────────
+  await page.goto('/plugins')
+  await wait(3000)
+  await page.mouse.wheel(0, 300)
+  await wait(2000)
+
+  // ── 15. NAVIGATE TO SETTINGS ─────────────────────────────────────────────
+  await page.goto('/settings')
+  await wait(3000)
+  await page.mouse.wheel(0, 200)
+  await wait(2000)
+
+  // ── 16. NAVIGATE BACK TO AGENT ───────────────────────────────────────────
   await page.goto('/')
   await wait(3000)
 
