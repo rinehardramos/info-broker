@@ -33,3 +33,51 @@ def classify_query(query: str) -> str:
                 return category
 
     return "person"  # Default: Retrieval
+
+
+# ---------------------------------------------------------------------------
+# Complexity scoring signals — (score_delta, list[signal_substrings])
+# ---------------------------------------------------------------------------
+_COMPLEXITY_SIGNALS: list[tuple[int, list[str]]] = [
+    (-2, ["email of", "phone of", "address of"]),
+    (-1, ["what is", "find ", "look up", "who is"]),
+    (+2, ["vs", "versus", "compare "]),
+    (+2, ["investigate", "analyze", "research ", "root cause"]),
+    (+3, ["and also", " and "]),
+    (+1, ["why ", "because"]),
+    (+1, ["predict", "forecast", "what will"]),
+]
+
+
+def classify_complexity(query: str) -> tuple[str, int]:
+    """Score *query* for research complexity and return a (tier, score) pair.
+
+    Scoring rules
+    -------------
+    - Single entity markers ("email of", "phone of", "address of")  -2 each
+    - Simple lookup verbs ("what is", "find ", "look up", "who is") -1 each
+    - Multi-entity/comparison ("vs", "versus", "compare ")          +2 each
+    - Open-ended verbs ("investigate", "analyze", "research ")      +2 each
+    - Multi-domain conjunctions ("and also", " and ")               +3 each
+    - Causal ("why ", "root cause", "because")                      +1 each
+    - Predictive ("predict", "forecast", "what will")               +1 each
+    - Long query (> 50 words)                                        +1
+
+    Returns ``("simple", score)`` when score <= 0, ``("complex", score)`` otherwise.
+    """
+    if not query:
+        return ("simple", 0)
+
+    q = query.lower().strip()
+    score = 0
+
+    for delta, signals in _COMPLEXITY_SIGNALS:
+        for signal in signals:
+            if signal in q:
+                score += delta
+
+    if len(q.split()) > 50:
+        score += 1
+
+    tier = "simple" if score <= 0 else "complex"
+    return (tier, score)
