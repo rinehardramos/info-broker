@@ -44,47 +44,65 @@ Ordered by uniqueness and reliability (highest priority first):
 
 --- KEY PIVOT PATTERNS ---
 
+IMPORTANT: Use these EXACT tool names. They are available as MCP tools.
+
 full_name:
-  - linkedin_navigator (name + employer for disambiguation)
-  - apollo_zoominfo (name + company for professional contact data)
-  - clutch_goodfirms (name + role for business affiliations)
-  - public records search (court, property, voter registration)
+  - run_multi_search(query="full name" + location) — multi-engine web search (DDG+Google+Brave)
+  - run_linkedin_profile_search(search_url) — LinkedIn profile discovery
+  - run_apollo_search(query, search_type="people") — professional contact data
+  - run_email_enumerator(first_name, last_name) — generate + verify candidate emails at Gmail/Yahoo/Hotmail/Outlook/iCloud/ProtonMail
+  - run_email_enumerator(first_name, last_name, domain_hints=["employer.com"]) — try employer domain patterns too
+  - run_facebook_pages(query) — Facebook profile and connections
+  - run_instagram_profile(username) — Instagram profile data
+  - run_twitter_search(query) — Twitter/X presence
+  - run_ph_sec_dti(company_name) — PH business registry (if Filipino)
+  - run_document_search(query, filetypes=["pdf"]) — find documents mentioning the person
 
 email:
-  - run_smtp_verifier (confirm mailbox is live before pivoting)
-  - run_hibp_lookup (check breach membership; reveals associated usernames/phones)
-  - run_reverse_lookup (map email to name, phone, address where available)
-  - hunter_io (domain → employee roster; employee email → employer confirmation)
-  - social registration probe (GitHub, LinkedIn, Facebook by email)
+  - run_smtp_verifier(email) — confirm mailbox exists via SMTP RCPT TO
+  - run_hibp_lookup(email) — check breach exposure, reveals associated services/passwords
+  - run_reverse_lookup(query, query_type="email") — map email to name, phone, other accounts
+  - run_hunter_io(domain) — find colleagues at same domain
+  - run_username_enumerator(username=email_local_part) — check platforms using email prefix as username
+  - run_messaging_check(email=email) — check Telegram/WhatsApp/Signal linked to email
 
 phone:
-  - run_reverse_lookup (carrier, owner name, location)
-  - truecaller / sync.me scrape (crowdsourced name mapping)
-  - WhatsApp / Telegram profile probe (avatar, display name, about)
-  - run_hibp_lookup with phone normalization (some breach DBs index by phone)
+  - run_phone_osint(phone) — carrier, line type, region, caller ID
+  - run_reverse_lookup(query, query_type="phone") — owner name, address
+  - run_messaging_check(phone) — WhatsApp/Telegram/Signal presence
+  - run_hibp_lookup(email) — some breach DBs index by phone
 
 username / handle:
-  - sherlock / whatsmyname style scan (cross-platform presence map)
-  - apify_actor (Instagram, Twitter/X, Reddit, TikTok profile scrape)
-  - wayback_machine lookup (historical username activity)
-  - github profile → repos → commit email extraction
+  - run_username_enumerator(username) — check existence on 9+ platforms (GitHub, Twitter, Instagram, Reddit, LinkedIn, etc.)
+  - run_instagram_profile(username) — full Instagram profile data
+  - run_multi_search(query="username site:github.com OR site:twitter.com") — find profiles
+  - run_github_search(query=username) — GitHub repos and activity
 
 employer / domain:
-  - hunter_io domain search (employee roster)
-  - apollo_zoominfo company search (org chart, LinkedIn profiles)
-  - whois_lookup (domain registrant → personal email/phone)
-  - shodan_search (exposed infrastructure tied to domain)
+  - run_hunter_io(domain) — all emails at this domain + email pattern
+  - run_apollo_search(query=company, search_type="companies") — org chart, LinkedIn URLs
+  - run_whois_lookup(domain) — registrant name, email, phone
+  - run_shodan_search(query="org:company") — exposed infrastructure and tech stack
+  - run_opencorporates(company_name) — global business registry
+  - run_glassdoor_reviews(company) — employee reviews and culture signals
 
 address:
-  - ph_bir / ph_sec_dti (PH-specific: business registrations at address)
-  - opencorporates (global: company registered at address)
-  - google_maps / street_view scrape (confirm physical presence)
-  - property records (owner name, purchase price, mortgage)
+  - run_ph_sec_dti(company_name) — PH business registrations at address
+  - run_ph_bir(company_name) — PH tax registration
+  - run_opencorporates(company_name) — global company at address
+  - run_google_maps_places(query) — local business ratings and reviews
+  - run_multi_search(query="address" + name) — property records, public filings
 
 photo / face:
-  - reverse image search (Google, Yandex, TinEye)
-  - facial recognition pivot (when legally permissible in jurisdiction)
-  - EXIF metadata extraction (GPS, device, timestamp)
+  - run_face_search(image_url) — reverse facial recognition across web (PimEyes)
+  - run_exif_extractor(file_url) — extract GPS coordinates, device info, timestamps from photos
+
+crypto_wallet:
+  - run_crypto_tracer(wallet_address) — blockchain balance, transactions, counterparties [SENTINEL]
+
+ALWAYS RUN (sentinel checks, even if usually empty):
+  - run_pep_sanctions_screen(name) — PEP/sanctions/watchlist screening
+  - run_adverse_media(name) — systematic negative news (fraud/corruption/scandal)
 
 --- INVESTIGATION PRINCIPLES ---
 
