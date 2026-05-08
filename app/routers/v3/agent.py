@@ -335,6 +335,49 @@ async def _run_is_research(
         except Exception as exc:
             log.warning("Completeness/deception analysis failed (non-fatal): %s", exc)
 
+        # Corroboration tracking + temporal decay + ACH conflict resolution + PIR coverage
+        try:
+            from app.pipeline.fusion.classification import track_corroboration
+            from app.pipeline.fusion.decay import apply_decay_to_findings
+            from app.pipeline.fusion.ach import detect_conflicts, build_ach_matrix, evaluate_hypotheses
+            from app.pipeline.fusion.pir import decompose_query_to_pirs, map_findings_to_pirs, generate_coverage_report
+
+            raw_findings = result.get("findings", [])
+            entity_type = result.get("entity_type", "person")
+
+            # Corroboration: enrich findings with cross-source confirmation
+            corroborated = track_corroboration(raw_findings)
+            multi_source = [f for f in corroborated if f.get("corroboration_level") == "multi_source"]
+
+            # Decay: apply temporal confidence degradation
+            decayed = apply_decay_to_findings(raw_findings)
+
+            # ACH: detect and resolve conflicting findings
+            conflicts = detect_conflicts(raw_findings)
+            ach_results = []
+            for conflict in conflicts[:3]:  # Max 3 conflicts to analyze
+                matrix = build_ach_matrix(conflict["hypotheses"], conflict["evidence"])
+                ach_result = evaluate_hypotheses(matrix)
+                ach_results.append({
+                    "dimension": conflict["dimension"],
+                    "winner": ach_result.winner,
+                    "confidence": ach_result.confidence,
+                })
+
+            # PIR: decompose query into intelligence requirements and assess coverage
+            pirs = decompose_query_to_pirs(query, entity_type)
+            mapped_pirs = map_findings_to_pirs(pirs, raw_findings)
+            pir_report = generate_coverage_report(mapped_pirs)
+
+            log.info(
+                "Intelligence analysis: %d multi-source findings, %d conflicts resolved, PIR coverage %.0f%%",
+                len(multi_source),
+                len(ach_results),
+                pir_report.get("overall_coverage", 0) * 100,
+            )
+        except Exception as exc:
+            log.warning("Intelligence analysis failed (non-fatal): %s", exc)
+
         # Create procedural memory skill
         try:
             from app.memory.skills import create_skill_from_run
