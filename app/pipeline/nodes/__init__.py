@@ -89,6 +89,12 @@ class NodeRegistry:
         from app.pipeline.nodes.github_search import GithubSearchNode
         from app.pipeline.nodes.openalex_search import OpenAlexSearchNode
         from app.pipeline.nodes.semantic_scholar import SemanticScholarNode
+        from app.pipeline.nodes.tmdb_search import TmdbSearchNode
+        from app.pipeline.nodes.tavily_search import TavilySearchNode
+        from app.pipeline.nodes.exa_search import ExaSearchNode
+        from app.pipeline.nodes.google_maps_places import GoogleMapsPlacesNode
+        from app.pipeline.nodes.ph_fda_lto import PhFdaLtoNode
+        from app.pipeline.nodes.mcp_registry_search import MCPRegistrySearchNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -114,5 +120,7 @@ class NodeRegistry:
             MultiSearchNode(),
             SerperSearchNode(), GithubSearchNode(),
             OpenAlexSearchNode(), SemanticScholarNode(),
+            TmdbSearchNode(), TavilySearchNode(), ExaSearchNode(),
+            GoogleMapsPlacesNode(), PhFdaLtoNode(), MCPRegistrySearchNode(),
         ]:
             cls.register(node)
