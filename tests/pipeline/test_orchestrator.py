@@ -23,7 +23,8 @@ def test_classify_explanation_why():
     assert classify_query("Why is our database performance degrading?") == "explanation"
 
 def test_classify_explanation_root_cause():
-    assert classify_query("Root cause analysis of the outage") == "explanation"
+    # "root cause" now routes to the specific root_cause_analysis variant
+    assert classify_query("Root cause analysis of the outage") == "root_cause_analysis"
 
 def test_classify_explanation_diagnose():
     assert classify_query("Diagnose why conversion rates dropped") == "explanation"
@@ -53,5 +54,6 @@ def test_classify_empty():
     assert classify_query("") == "person"
 
 def test_classify_case_insensitive():
-    assert classify_query("BUILD a new product") == "generation"
+    # "new product" now routes to the specific product_innovation variant
+    assert classify_query("BUILD a new product") == "product_innovation"
     assert classify_query("WHY did this happen") == "explanation"

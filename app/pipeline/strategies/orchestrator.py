@@ -18,6 +18,17 @@ _CATEGORY_SIGNALS: list[tuple[str, list[str]]] = [
                        "research papers", "journal articles", "google scholar"]),
     ("lead",          ["find leads", "lead generation", "prospect list", "contact list",
                        "outreach", "sales leads", "prospecting", "build a prospect"]),
+    # --- Specific knowledge-category variants (checked before broad categories) ---
+    ("root_cause_analysis",  ["root cause", "5 whys", "fishbone", "incident analysis"]),
+    ("systems_analysis",     ["feedback loop", "system dynamics", "leverage point"]),
+    ("systematic_review",    ["systematic review", "meta-analysis", "literature review", "prisma"]),
+    ("strategic_assessment", ["swot", "five forces", "pestle", "strategic analysis"]),
+    ("decision_analysis",    ["decision matrix", "which option", "trade-off analysis", "choose between"]),
+    ("product_innovation",   ["new product", "product design", "user needs"]),
+    ("scientific_discovery", ["hypothesis", "experiment", "discover", "scientific"]),
+    ("engineering_rd",       ["trl", "prototype", "readiness level", "engineering design"]),
+    ("technology_forecast",  ["technology radar", "tech trend", "emerging tech"]),
+    ("market_forecast",      ["market size", "tam", "market growth", "demand forecast"]),
     # --- Generic person / knowledge signals ---
     ("person", ["profile "]),
     ("generation", ["build a ", "create a ", "design a ", "invent ", "develop a ", "make a new ", "implement a "]),

@@ -23,6 +23,20 @@ def _load_strategies() -> None:
     from app.pipeline.strategies.researcher import STRATEGY as RS, ENTITY_TYPE as RT2
     from app.pipeline.strategies.company import STRATEGY as CS, ENTITY_TYPE as CT
     from app.pipeline.strategies.due_diligence import STRATEGY as DDS, ENTITY_TYPE as DDT
+    # Generation variants
+    from app.pipeline.strategies.product_innovation import STRATEGY as PRIS, ENTITY_TYPE as PRIT
+    from app.pipeline.strategies.scientific_discovery import STRATEGY as SCDS, ENTITY_TYPE as SCDT
+    from app.pipeline.strategies.engineering_rd import STRATEGY as ERDS, ENTITY_TYPE as ERDT
+    # Prediction variants
+    from app.pipeline.strategies.technology_forecast import STRATEGY as TFCS, ENTITY_TYPE as TFCT
+    from app.pipeline.strategies.market_forecast import STRATEGY as MFCS, ENTITY_TYPE as MFCT
+    # Explanation variants
+    from app.pipeline.strategies.root_cause_analysis import STRATEGY as RCAS, ENTITY_TYPE as RCAT
+    from app.pipeline.strategies.systems_analysis import STRATEGY as SYAS, ENTITY_TYPE as SYAT
+    # Synthesis variants
+    from app.pipeline.strategies.systematic_review import STRATEGY as SYRS, ENTITY_TYPE as SYRT
+    from app.pipeline.strategies.strategic_assessment import STRATEGY as STAS, ENTITY_TYPE as STAT
+    from app.pipeline.strategies.decision_analysis import STRATEGY as DAS, ENTITY_TYPE as DAT
     _STRATEGIES[PT] = PS
     _STRATEGIES[GT] = GS
     _STRATEGIES[ET] = ES
@@ -32,3 +46,13 @@ def _load_strategies() -> None:
     _STRATEGIES[RT2] = RS
     _STRATEGIES[CT] = CS
     _STRATEGIES[DDT] = DDS
+    _STRATEGIES[PRIT] = PRIS
+    _STRATEGIES[SCDT] = SCDS
+    _STRATEGIES[ERDT] = ERDS
+    _STRATEGIES[TFCT] = TFCS
+    _STRATEGIES[MFCT] = MFCS
+    _STRATEGIES[RCAT] = RCAS
+    _STRATEGIES[SYAT] = SYAS
+    _STRATEGIES[SYRT] = SYRS
+    _STRATEGIES[STAT] = STAS
+    _STRATEGIES[DAT] = DAS
