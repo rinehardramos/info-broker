@@ -85,6 +85,10 @@ class NodeRegistry:
         from app.pipeline.nodes.export_csv import ExportCsvNode
         from app.pipeline.nodes.export_excel import ExportExcelNode
         from app.pipeline.nodes.multi_search import MultiSearchNode
+        from app.pipeline.nodes.serper_search import SerperSearchNode
+        from app.pipeline.nodes.github_search import GithubSearchNode
+        from app.pipeline.nodes.openalex_search import OpenAlexSearchNode
+        from app.pipeline.nodes.semantic_scholar import SemanticScholarNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -108,5 +112,7 @@ class NodeRegistry:
             ExifExtractorNode(), DocumentSearchNode(), FaceSearchNode(),
             CryptoTracerNode(),
             MultiSearchNode(),
+            SerperSearchNode(), GithubSearchNode(),
+            OpenAlexSearchNode(), SemanticScholarNode(),
         ]:
             cls.register(node)
