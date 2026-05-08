@@ -28,7 +28,7 @@ export default function AgentChat() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
-  const [useIntelligentSearch, setUseIntelligentSearch] = useState(false)
+  const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
   const bottomRef               = useRef<HTMLDivElement>(null)
   const uploadZoneRef           = useRef<FileUploadZoneHandle>(null)
