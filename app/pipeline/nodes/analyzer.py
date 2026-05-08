@@ -352,28 +352,31 @@ async def _call_llm(prompt: str, model: str = "") -> str:
     claude_bin = shutil.which("claude") or "/usr/local/bin/claude"
     if os.path.isfile(claude_bin):
         try:
-            # Build env — use fresh key from DB, strip stale OAuth tokens
+            # Build env — only use stable API keys, strip expired OAuth tokens
             spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
             fresh_key = ""
             try:
                 from app.routers.v3.db import fetch_one as _fetch
                 _row = _fetch("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
-                if _row and _row["value"] and "REDACTED" not in _row["value"]:
+                if _row and _row["value"] and _row["value"].startswith("sk-ant-api"):
                     fresh_key = _row["value"]
             except Exception:
                 pass
+            if not fresh_key:
+                env_key = os.getenv("ANTHROPIC_API_KEY", "")
+                if env_key.startswith("sk-ant-api"):
+                    fresh_key = env_key
             if fresh_key:
                 spawn_env["ANTHROPIC_API_KEY"] = fresh_key
             else:
                 spawn_env.pop("ANTHROPIC_API_KEY", None)
 
             # Pipe prompt via stdin to avoid shell arg length limits
+            cmd_args = [claude_bin, "--output-format", "text", "--model", model, "--max-turns", "1"]
+            if fresh_key:
+                cmd_args.append("--bare")
             proc = await asyncio.create_subprocess_exec(
-                claude_bin,
-                "--output-format", "text",
-                "--model", model,
-                "--max-turns", "1",
-                "--bare",
+                *cmd_args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.PIPE,
