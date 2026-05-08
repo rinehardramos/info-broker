@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
+log = logging.getLogger(__name__)
+
 # Category signal words, checked in priority order.
 # NOTE: specific entity-type signals come before generic "person" signals so
 # that queries like "Due diligence on Acme Corp" resolve to "due_diligence",
@@ -230,3 +235,165 @@ def transform_selectors(
         results.append({**f, "type": new_type})
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# LLM-based sub-strategy classifier
+# ---------------------------------------------------------------------------
+
+async def _classify_substrategy_llm(prompt: str) -> str:
+    """Call the LLM to select a sub-strategy name.
+
+    Uses Claude Code CLI as primary, Anthropic API as fallback, general_model.
+    Returns the raw LLM response text, or empty string on failure.
+    """
+    import os
+    import shutil
+
+    from app.llm_models import general_model
+
+    model = general_model()
+
+    # Primary: Claude Code CLI
+    claude_bin = shutil.which("claude") or "/usr/local/bin/claude"
+    if os.path.isfile(claude_bin):
+        try:
+            spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
+            fresh_key = ""
+            try:
+                from app.routers.v3.db import fetch_one as _fetch
+                _row = _fetch("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
+                if _row and _row["value"] and _row["value"].startswith("sk-ant-api"):
+                    fresh_key = _row["value"]
+            except Exception:
+                pass
+            if not fresh_key:
+                env_key = os.getenv("ANTHROPIC_API_KEY", "")
+                if env_key.startswith("sk-ant-api"):
+                    fresh_key = env_key
+            if fresh_key:
+                spawn_env["ANTHROPIC_API_KEY"] = fresh_key
+            else:
+                spawn_env.pop("ANTHROPIC_API_KEY", None)
+
+            cmd_args = [claude_bin, "--output-format", "text", "--model", model, "--max-turns", "1"]
+            if fresh_key:
+                cmd_args.append("--bare")
+            proc = await asyncio.create_subprocess_exec(
+                *cmd_args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.PIPE,
+                env=spawn_env,
+            )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=prompt.encode()), timeout=60
+            )
+            if proc.returncode == 0 and stdout:
+                return stdout.decode().strip()
+            log.warning("SubstrategyClassifier: Claude Code exit %s, falling back to API", proc.returncode)
+        except asyncio.TimeoutError:
+            log.warning("SubstrategyClassifier: Claude Code timed out, falling back to API")
+        except Exception as exc:
+            log.warning("SubstrategyClassifier: Claude Code failed (%s), falling back to API", exc)
+
+    # Fallback: Anthropic API SDK
+    import anthropic
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        try:
+            from app.routers.v3.db import fetch_one
+            row = fetch_one("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
+            if row:
+                api_key = row["value"]
+        except Exception:
+            pass
+
+    if not api_key:
+        log.warning("SubstrategyClassifier: no Claude Code and no API key, returning empty")
+        return ""
+
+    loop = asyncio.get_running_loop()
+    client = anthropic.Anthropic(api_key=api_key, max_retries=0)
+    fallback_model = general_model()
+    for current_model in [model, fallback_model]:
+        try:
+            response = await loop.run_in_executor(
+                None,
+                lambda m=current_model: client.messages.create(
+                    model=m,
+                    max_tokens=64,
+                    messages=[{"role": "user", "content": prompt}],
+                ),
+            )
+            return response.content[0].text
+        except Exception as exc:
+            log.warning("SubstrategyClassifier: API model %s failed: %s", current_model, exc)
+
+    return ""
+
+
+async def classify_substrategy(category: str, query: str) -> str:
+    """Select the most specific sub-strategy for *query* within *category*.
+
+    Loads available sub-strategies from the domain registry, builds a prompt,
+    calls the LLM, validates the response, and returns the sub-strategy name.
+    Returns "none" when no sub-strategies exist, query is empty, the LLM fails,
+    or the LLM returns an unrecognised name.
+
+    Args:
+        category: Research category key (e.g. "retrieval", "explanation").
+        query:    The research query string.
+
+    Returns:
+        A sub-strategy name from the registry, or "none".
+    """
+    from app.pipeline.strategies.domains.registry import list_substrategies
+
+    if not query:
+        return "none"
+
+    substrategies = list_substrategies(category)
+    if not substrategies:
+        return "none"
+
+    valid_names = {s["name"] for s in substrategies}
+
+    # Build the sub-strategy lines for the prompt
+    lines = [f'- {s["name"]}: {s["description"]}' for s in substrategies]
+    lines.append("- none: Use the base category strategy (no domain specialization needed)")
+    substrategy_block = "\n".join(lines)
+
+    prompt = (
+        "Select the most specific research sub-strategy for this query.\n"
+        "\n"
+        f"Category: {category}\n"
+        f"Query: {query}\n"
+        "\n"
+        "Available sub-strategies:\n"
+        f"{substrategy_block}\n"
+        "\n"
+        'Return ONLY the sub-strategy name (e.g., "due_diligence" or "none"). No explanation.'
+    )
+
+    try:
+        raw = await _classify_substrategy_llm(prompt)
+    except Exception as exc:
+        log.warning("classify_substrategy: LLM call failed (%s), returning 'none'", exc)
+        return "none"
+
+    # Extract the first token / word that looks like a snake_case name
+    import re
+    match = re.search(r"\b([a-z][a-z0-9_]*)\b", raw.strip().lower())
+    if not match:
+        return "none"
+
+    candidate = match.group(1)
+    if candidate == "none":
+        return "none"
+    if candidate in valid_names:
+        return candidate
+
+    log.debug("classify_substrategy: LLM returned unknown name %r, returning 'none'", candidate)
+    return "none"
