@@ -84,6 +84,7 @@ class NodeRegistry:
         from app.pipeline.nodes.export_pdf import ExportPdfNode
         from app.pipeline.nodes.export_csv import ExportCsvNode
         from app.pipeline.nodes.export_excel import ExportExcelNode
+        from app.pipeline.nodes.multi_search import MultiSearchNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -106,5 +107,6 @@ class NodeRegistry:
             MessagingCheckNode(), PepSanctionsScreenNode(), AdverseMediaNode(),
             ExifExtractorNode(), DocumentSearchNode(), FaceSearchNode(),
             CryptoTracerNode(),
+            MultiSearchNode(),
         ]:
             cls.register(node)

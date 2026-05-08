@@ -85,3 +85,8 @@ def test_execute_with_ddg_only():
 def test_execute_no_query_error():
     results = _arun(MultiSearchNode().execute({}, [], CTX))
     assert results[0].get("error")
+
+def test_multi_search_registered():
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+    assert NodeRegistry.get("multi_search").node_type == "multi_search"

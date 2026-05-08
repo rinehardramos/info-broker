@@ -205,7 +205,8 @@ _STATIC_TOOLS = """\
 - run_document_search(query, filetypes) — Google Dorking for documents (PDF, DOCX)
 - run_face_search(image_url) — reverse facial recognition search
 - run_crypto_tracer(wallet_address) — blockchain wallet analysis [SENTINEL]
-- query_uploaded_data(query, filename, limit) — search indexed uploaded file content (CSV/Excel/PDF/DOCX/TXT rows and sections)"""
+- query_uploaded_data(query, filename, limit) — search indexed uploaded file content (CSV/Excel/PDF/DOCX/TXT rows and sections)
+- run_multi_search(query, engines, max_results) — multi-engine web search (DDG+Google+Brave+Exa) with cross-engine consensus ranking"""
 
 
 def _build_tools_section(available_nodes: list[dict] | None) -> str:
