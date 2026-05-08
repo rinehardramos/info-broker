@@ -99,18 +99,41 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
         formData.append('file', file)
         const res = await api.post('/v3/sources/upload', formData)
         const serverSource = res.data
+        const sourceId = serverSource.source_id ?? serverSource.id ?? tempId
 
         applyUpdate(prev =>
           prev.map(s =>
             s.id === tempId
               ? {
-                  id: serverSource.id ?? tempId,
+                  id: sourceId,
                   filename: serverSource.filename ?? file.name,
                   status: 'processing' as SourceStatus,
                 }
               : s,
           ),
         )
+
+        // Poll until indexed/failed (WS events may be missed)
+        if (sourceId && !sourceId.startsWith('upload-')) {
+          const poll = setInterval(async () => {
+            try {
+              const check = await api.get(`/v3/sources/${sourceId}`)
+              const s = check.data
+              if (s.status === 'indexed' || s.status === 'failed') {
+                clearInterval(poll)
+                applyUpdate(prev =>
+                  prev.map(src =>
+                    src.id === sourceId
+                      ? { ...src, status: mapApiStatus(s.status), findingsCount: s.findings_count }
+                      : src,
+                  ),
+                )
+              }
+            } catch { clearInterval(poll) }
+          }, 2000)
+          // Safety: stop polling after 5 min
+          setTimeout(() => clearInterval(poll), 300_000)
+        }
       } catch {
         applyUpdate(prev =>
           prev.map(s =>
