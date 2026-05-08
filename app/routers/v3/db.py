@@ -281,6 +281,12 @@ CREATE INDEX IF NOT EXISTS idx_relationship_obs_from_entity ON relationship_obse
 CREATE INDEX IF NOT EXISTS idx_relationship_obs_to_entity ON relationship_observations(to_entity_ref);
 CREATE INDEX IF NOT EXISTS idx_relationship_obs_created_at ON relationship_observations(created_at);
 
+ALTER TABLE entity_observations ADD COLUMN IF NOT EXISTS tier VARCHAR(8) DEFAULT 'hot';
+ALTER TABLE entity_observations ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_entity_obs_tier ON entity_observations(tier);
+ALTER TABLE relationship_observations ADD COLUMN IF NOT EXISTS tier VARCHAR(8) DEFAULT 'hot';
+ALTER TABLE relationship_observations ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ;
+
 CREATE TABLE IF NOT EXISTS entity_aliases (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     canonical_ref VARCHAR(512) NOT NULL,
