@@ -4,9 +4,21 @@
 from __future__ import annotations
 
 # Category signal words, checked in priority order.
-# NOTE: "profile " is listed before generation signals so that queries like
-# "Build a complete profile of Jane Smith" resolve to "person", not "generation".
+# NOTE: specific entity-type signals come before generic "person" signals so
+# that queries like "Due diligence on Acme Corp" resolve to "due_diligence",
+# not "person".  "profile " is kept before generation signals so that
+# "Build a complete profile of Jane Smith" still resolves to "person".
 _CATEGORY_SIGNALS: list[tuple[str, list[str]]] = [
+    # --- Specific Retrieval variants (checked before generic person) ---
+    ("due_diligence", ["due diligence", "kyc", "aml", "compliance check", "background check",
+                       "risk assessment", "sanctions", "pep screen", "know your customer"]),
+    ("company",       ["company profile", "competitor", "market analysis", "business registry",
+                       "company investigation", "corporate profile", "company lookup"]),
+    ("researcher",    ["papers", "publications", "academic", "citations", "scholar",
+                       "research papers", "journal articles", "google scholar"]),
+    ("lead",          ["find leads", "lead generation", "prospect list", "contact list",
+                       "outreach", "sales leads", "prospecting", "build a prospect"]),
+    # --- Generic person / knowledge signals ---
     ("person", ["profile "]),
     ("generation", ["build a ", "create a ", "design a ", "invent ", "develop a ", "make a new ", "implement a "]),
     ("explanation", ["why ", "root cause", "diagnose", "how does", "explain why", "what caused", "debug"]),
