@@ -701,6 +701,37 @@ async def ask_user(question: str, run_id: str, options: list[str] = []) -> str:
 
 
 @mcp.tool()
+async def query_uploaded_data(query: str, filename: str = "", limit: int = 20) -> str:
+    """Search through uploaded file data (CSV, Excel, PDF, DOCX, TXT).
+
+    Use this to find specific rows, sections, or content within files the user has uploaded.
+    The data has been indexed and you can search by any column value, keyword, or phrase.
+
+    Args:
+        query: What to search for in the file data (e.g., "distributors in Manila", "Class III devices")
+        filename: Optional - filter to a specific file
+        limit: Max results to return (default 20)
+    """
+    result = await api_call("POST", "/v3/knowledge/memory/search", json={
+        "query": query,
+        "limit": limit * 3,  # over-fetch so we have enough after filtering
+    })
+    if isinstance(result, list):
+        file_results = [
+            r for r in result
+            if r.get("source_tool") == "file_upload"
+            or "file_upload" in str(r.get("source_tool", ""))
+        ]
+        if filename:
+            file_results = [
+                r for r in file_results
+                if filename.lower() in str(r.get("title", "")).lower()
+            ]
+        return json.dumps(file_results[:limit], default=str)
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
 async def get_research_by_id(run_id: str) -> str:
     """Fetch a specific research trail by its run ID.
 

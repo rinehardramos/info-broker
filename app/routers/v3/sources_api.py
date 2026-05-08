@@ -37,11 +37,29 @@ async def _process_source(source_id: str, user_id: str, file_path: str, filename
 
         await index_research_findings(source_id, filename, findings)
 
-        manifest = {
+        # Build enhanced manifest with schema info extracted from findings
+        manifest: dict = {
             "findings_count": len(findings),
             "token_count": token_count,
             "filename": filename,
         }
+        # Extract column names and sample rows from the schema finding (CSV/Excel)
+        schema_finding = next(
+            (f for f in findings if "Schema" in f.get("title", "")), None
+        )
+        if schema_finding:
+            # Parse column names from content lines like "- **col**: dtype"
+            import re as _re
+            content = schema_finding.get("content", "")
+            cols = _re.findall(r"\*\*(.+?)\*\*:", content)
+            if cols:
+                manifest["columns"] = cols
+            # Include first data-row finding as sample
+            data_finding = next(
+                (f for f in findings if "rows 1-" in f.get("title", "")), None
+            )
+            if data_finding:
+                manifest["sample_rows_preview"] = data_finding.get("content", "")[:500]
 
         execute(
             "UPDATE research_sources SET status='indexed', findings_count=%s, token_count=%s, manifest=%s WHERE id=%s",
@@ -153,6 +171,39 @@ def get_source(source_id: str, user: dict = Depends(get_current_user)) -> dict:
     if not row:
         raise HTTPException(status_code=404, detail="Source not found")
     return row
+
+
+@router.post("/{source_id}/query")
+async def query_source_data(
+    source_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """Search within an uploaded file's indexed content."""
+    row = fetch_one(
+        "SELECT id FROM research_sources WHERE id = %s AND user_id = %s",
+        (source_id, str(user["id"])),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    from app.memory.retriever import fused_retrieve
+
+    query = body.get("query", "")
+    limit = int(body.get("limit", 20))
+
+    results = await fused_retrieve(query, limit=limit * 3)
+    filtered = [r for r in results if r.run_id == source_id]
+
+    return [
+        {
+            "title": r.title,
+            "content": r.content[:2000],
+            "score": r.score,
+            "source_tool": r.source_tool,
+        }
+        for r in filtered[:limit]
+    ]
 
 
 @router.delete("/{source_id}")

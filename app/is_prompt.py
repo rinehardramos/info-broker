@@ -26,6 +26,8 @@ QUERY: {query}
 {research_plan}
 
 {user_sources}
+When the user has uploaded files, use the query_uploaded_data tool to search through the actual data.
+Do not rely only on the manifest — query specific columns, values, or keywords to analyze the dataset.
 
 ## AVAILABLE MCP TOOLS (use these!)
 {tools_section}
@@ -202,7 +204,8 @@ _STATIC_TOOLS = """\
 - run_exif_extractor(file_url) — extract GPS, timestamps, device info from images
 - run_document_search(query, filetypes) — Google Dorking for documents (PDF, DOCX)
 - run_face_search(image_url) — reverse facial recognition search
-- run_crypto_tracer(wallet_address) — blockchain wallet analysis [SENTINEL]"""
+- run_crypto_tracer(wallet_address) — blockchain wallet analysis [SENTINEL]
+- query_uploaded_data(query, filename, limit) — search indexed uploaded file content (CSV/Excel/PDF/DOCX/TXT rows and sections)"""
 
 
 def _build_tools_section(available_nodes: list[dict] | None) -> str:

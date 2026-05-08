@@ -15,3 +15,4 @@ class MemoryResult:
     observed_at: str | None = None
     user_score: int = 0   # -1/0/+1
     signals: dict[str, float] = field(default_factory=dict)
+    source_tool: str = ""  # original source tool, e.g. "file_upload"

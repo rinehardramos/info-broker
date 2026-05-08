@@ -271,9 +271,10 @@ async def search_memory_endpoint(body: dict, _key: str = Depends(require_api_key
     return [
         {
             "ref": r.ref, "title": r.title, "content": r.content[:500],
-            "source": r.source, "score": r.score, "run_id": r.run_id,
-            "entity_refs": r.entity_refs, "observed_at": r.observed_at,
-            "user_score": r.user_score, "signals": r.signals,
+            "source": r.source, "source_tool": r.source_tool, "score": r.score,
+            "run_id": r.run_id, "entity_refs": r.entity_refs,
+            "observed_at": r.observed_at, "user_score": r.user_score,
+            "signals": r.signals,
         }
         for r in results
     ]

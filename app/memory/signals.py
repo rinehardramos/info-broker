@@ -78,6 +78,7 @@ async def semantic_search(query: str, limit: int = 50) -> list[MemoryResult]:
                     score=hit.score,
                     run_id=payload.get("run_id"),
                     entity_refs=payload.get("entity_refs") or [],
+                    source_tool=payload.get("source_tool", ""),
                 )
             )
         return results

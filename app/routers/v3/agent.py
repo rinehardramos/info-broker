@@ -219,7 +219,7 @@ async def _run_is_research(
                         summary = manifest.get("summary", "")
                         if summary:
                             parts.append(f"Summary: {summary}")
-                        parts.append("Content indexed in research memory — available via your search tools.\n")
+                        parts.append("Content indexed in research memory — use query_uploaded_data to search it.\n")
                     else:
                         # Large file: manifest only
                         parts.append(f"[File: {fname} | {ftype} | {fcount} findings | {tokens} tokens]")
@@ -229,7 +229,7 @@ async def _run_is_research(
                         columns = manifest.get("columns")
                         if columns:
                             parts.append(f"Columns: {', '.join(columns[:15])}")
-                        parts.append("This file has been indexed in your research memory. Search for specific details using your tools.\n")
+                        parts.append("This file has been indexed in your research memory. Use query_uploaded_data to search specific rows, values, or keywords.\n")
 
                 user_sources = "\n".join(parts)
         except Exception as exc:
