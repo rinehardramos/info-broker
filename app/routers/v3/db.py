@@ -298,6 +298,46 @@ CREATE TABLE IF NOT EXISTS graph_materializer_state (
     relationships_processed INT DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS kg_contradictions (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_ref        VARCHAR(512) NOT NULL,
+    attribute         VARCHAR(128) NOT NULL,
+    value_a           TEXT NOT NULL,
+    value_b           TEXT NOT NULL,
+    confidence_a      INT DEFAULT 50,
+    confidence_b      INT DEFAULT 50,
+    observed_at_a     TIMESTAMPTZ,
+    observed_at_b     TIMESTAMPTZ,
+    source_run_a      UUID,
+    source_run_b      UUID,
+    observation_id_a  UUID,
+    observation_id_b  UUID,
+    winner            TEXT,
+    status            VARCHAR(32) NOT NULL DEFAULT 'auto_resolved',
+    resolved_by       VARCHAR(64) DEFAULT 'system',
+    resolved_at       TIMESTAMPTZ DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_contradictions_entity ON kg_contradictions(entity_ref);
+CREATE INDEX IF NOT EXISTS idx_contradictions_status ON kg_contradictions(status);
+CREATE INDEX IF NOT EXISTS idx_contradictions_created ON kg_contradictions(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS kg_stale_flags (
+    id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_ref     VARCHAR(512) NOT NULL,
+    attribute      VARCHAR(128) NOT NULL,
+    current_value  TEXT,
+    observation_id UUID,
+    observed_at    TIMESTAMPTZ,
+    ttl_days       INT NOT NULL,
+    status         VARCHAR(32) NOT NULL DEFAULT 'stale',
+    flagged_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    dismissed_by   VARCHAR(64),
+    dismissed_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_stale_entity ON kg_stale_flags(entity_ref);
+CREATE INDEX IF NOT EXISTS idx_stale_status ON kg_stale_flags(status);
+
 CREATE TABLE IF NOT EXISTS mcp_sessions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     caller_identity VARCHAR(256) NOT NULL,
