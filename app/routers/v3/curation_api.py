@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
@@ -194,6 +194,51 @@ def dismiss_stale_flag(
 # ---------------------------------------------------------------------------
 # Stats
 # ---------------------------------------------------------------------------
+
+
+@router.post("/curation/resolve-batch")
+async def resolve_contradictions(
+    body: dict = {},
+    user: dict = Depends(get_current_user),
+):
+    """Batch-resolve needs_review contradictions via LLM."""
+    from app.knowledge.llm_curator import resolve_contradictions_batch
+    limit = body.get("limit", 10)
+    result = await resolve_contradictions_batch(limit)
+    return result
+
+
+@router.get("/curation/suggestions")
+def list_suggestions(
+    status: str | None = None,
+    limit: int = Query(50, ge=1, le=500),
+    user: dict = Depends(get_current_user),
+) -> list:
+    """List curation suggestions with optional status filter."""
+    clauses = ["1=1"]
+    params = []
+    if status:
+        clauses.append("status = %s")
+        params.append(status)
+    params.append(limit)
+    return fetch_all(
+        f"SELECT * FROM kg_curation_suggestions WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT %s",
+        tuple(params),
+    )
+
+
+@router.post("/curation/suggestions/{suggestion_id}/accept")
+def accept_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
+    """Mark a curation suggestion as accepted."""
+    execute("UPDATE kg_curation_suggestions SET status = 'accepted' WHERE id = %s", (suggestion_id,))
+    return {"status": "accepted"}
+
+
+@router.post("/curation/suggestions/{suggestion_id}/dismiss")
+def dismiss_suggestion(suggestion_id: str, user: dict = Depends(get_current_user)):
+    """Mark a curation suggestion as dismissed."""
+    execute("UPDATE kg_curation_suggestions SET status = 'dismissed' WHERE id = %s", (suggestion_id,))
+    return {"status": "dismissed"}
 
 
 @router.get("/curation/stats")

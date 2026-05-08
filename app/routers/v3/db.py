@@ -347,6 +347,17 @@ CREATE TABLE IF NOT EXISTS kg_stale_flags (
 CREATE INDEX IF NOT EXISTS idx_stale_entity ON kg_stale_flags(entity_ref);
 CREATE INDEX IF NOT EXISTS idx_stale_status ON kg_stale_flags(status);
 
+CREATE TABLE IF NOT EXISTS kg_curation_suggestions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_ref VARCHAR(512),
+    suggestion_type VARCHAR(32),
+    suggestion TEXT NOT NULL,
+    priority VARCHAR(16) DEFAULT 'medium',
+    status VARCHAR(32) DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_curation_suggestions_status ON kg_curation_suggestions(status);
+
 CREATE TABLE IF NOT EXISTS research_sources (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
