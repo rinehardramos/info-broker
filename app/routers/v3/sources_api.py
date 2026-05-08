@@ -133,7 +133,7 @@ async def upload_source(
     }
 
 
-@router.get("/")
+@router.get("")
 def list_sources(user: dict = Depends(get_current_user)) -> list[dict]:
     """List all sources for the authenticated user."""
     rows = fetch_all(

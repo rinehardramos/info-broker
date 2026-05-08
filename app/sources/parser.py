@@ -165,6 +165,9 @@ def parse_excel(file_path: str, filename: str) -> list[dict]:
       Schema finding: "{filename} - {sheet_name} Schema"
       Row findings:   "{filename} - {sheet_name} rows {start}-{end}"
 
+    Also handles HTML-as-XLS files (common web export format where an HTML
+    table is saved with a .xls extension).
+
     Args:
         file_path: Absolute path to the Excel file on disk.
         filename: Original filename (used in titles and content prefixes).
@@ -172,9 +175,29 @@ def parse_excel(file_path: str, filename: str) -> list[dict]:
     Returns:
         List of finding dicts across all sheets.
     """
-    ext = os.path.splitext(filename)[1].lower()
-    engine = "xlrd" if ext == ".xls" else "openpyxl"
-    sheets: dict[str, pd.DataFrame] = pd.read_excel(file_path, sheet_name=None, engine=engine)
+    from pathlib import Path
+
+    ext = Path(filename).suffix.lower()
+
+    # Detect HTML-as-Excel (common web export format)
+    try:
+        with open(file_path, "rb") as f:
+            head = f.read(100)
+        is_html = b"<html" in head.lower() or b"<table" in head.lower()
+    except Exception:
+        is_html = False
+
+    if is_html:
+        dfs = pd.read_html(file_path)
+        sheets: dict[str, pd.DataFrame] = {f"Table {i + 1}": df for i, df in enumerate(dfs)}
+    else:
+        engine = "xlrd" if ext == ".xls" else "openpyxl"
+        try:
+            sheets = pd.read_excel(file_path, sheet_name=None, engine=engine)
+        except Exception:
+            # Fallback: file may be HTML despite extension
+            dfs = pd.read_html(file_path)
+            sheets = {f"Table {i + 1}": df for i, df in enumerate(dfs)}
     findings: list[dict] = []
 
     for sheet_name, df in sheets.items():
