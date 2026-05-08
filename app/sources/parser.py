@@ -195,16 +195,28 @@ def parse_excel(file_path: str, filename: str) -> list[dict]:
         is_html = False
 
     if is_html:
-        dfs = pd.read_html(file_path)
-        sheets: dict[str, pd.DataFrame] = {f"Table {i + 1}": df for i, df in enumerate(dfs)}
+        dfs = pd.read_html(file_path, header=0)
+        sheets: dict[str, pd.DataFrame] = {}
+        for i, df in enumerate(dfs):
+            # If columns are just integers (0,1,2...), the real headers are likely
+            # in the first data row. Promote first row to header.
+            if all(isinstance(c, (int, float)) for c in df.columns):
+                df.columns = [str(v).strip() if pd.notna(v) else f"col_{j}" for j, v in enumerate(df.iloc[0])]
+                df = df.iloc[1:].reset_index(drop=True)
+            sheets[f"Table {i + 1}"] = df
     else:
         engine = "xlrd" if ext == ".xls" else "openpyxl"
         try:
             sheets = pd.read_excel(file_path, sheet_name=None, engine=engine)
         except Exception:
             # Fallback: file may be HTML despite extension
-            dfs = pd.read_html(file_path)
-            sheets = {f"Table {i + 1}": df for i, df in enumerate(dfs)}
+            dfs = pd.read_html(file_path, header=0)
+            sheets = {}
+            for i, df in enumerate(dfs):
+                if all(isinstance(c, (int, float)) for c in df.columns):
+                    df.columns = [str(v).strip() if pd.notna(v) else f"col_{j}" for j, v in enumerate(df.iloc[0])]
+                    df = df.iloc[1:].reset_index(drop=True)
+                sheets[f"Table {i + 1}"] = df
     findings: list[dict] = []
 
     for sheet_name, df in sheets.items():
