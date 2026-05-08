@@ -4,6 +4,8 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
+- [2026-05-08] - [Claude/software-developer] - [Universal Research Engine Phase A Task 3: brain question/answer queue module] - [app/routers/v3/brain_questions.py, app/main.py]
+- [2026-05-08] - [Claude/software-developer] - [Universal Research Engine Phase A Task 2: add classify_complexity() to orchestrator (TDD)] - [app/pipeline/strategies/orchestrator.py, tests/pipeline/strategies/test_orchestrator_complexity.py]
 - [2026-05-08] - [Claude/software-developer] - [Memory Phase 3 Task 3: KG Curator module — contradiction detection, auto-resolution, staleness flagging (TDD)] - [app/knowledge/curator.py, tests/knowledge/test_curator.py]
 - [2026-05-08] - [Claude/software-developer] - [Memory Phase 3 Task 2: value normalizer module (TDD)] - [app/memory/value_normalizer.py, tests/memory/test_value_normalizer.py]
 - [2026-05-06] - [Claude/software-developer] - [MemoryResult model + RRF fusion algorithm (TDD)] - [app/memory/__init__.py, app/memory/models.py, app/memory/rrf.py, tests/memory/__init__.py, tests/memory/test_models.py, tests/memory/test_rrf.py]
