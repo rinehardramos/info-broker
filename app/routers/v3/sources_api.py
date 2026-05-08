@@ -176,14 +176,22 @@ def get_source(source_id: str, user: dict = Depends(get_current_user)) -> dict:
 
 @router.post("/query")
 async def query_all_sources(body: dict, _key: str = Depends(require_api_key)) -> list[dict]:
-    """Search across all uploaded file content using Qdrant filtered vector search."""
+    """Search across uploaded file content using Qdrant filtered vector search.
+
+    Body params:
+        query: search text (required)
+        filename: filter to findings from this file (substring match on title)
+        source_id: filter to findings from this upload source (exact match on run_id)
+        limit: max results (default 20, max 50)
+    """
     from qdrant_client import QdrantClient
-    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchText
     from llm_providers import embed_text
 
     query = body.get("query", "")
     limit = min(body.get("limit", 20), 50)
     filename = body.get("filename", "")
+    source_id = body.get("source_id", "")
 
     if not query:
         return []
@@ -197,8 +205,12 @@ async def query_all_sources(body: dict, _key: str = Depends(require_api_key)) ->
 
     # Filter to file_upload source only
     must_conditions = [FieldCondition(key="source_tool", match=MatchValue(value="file_upload"))]
-    if filename:
-        must_conditions.append(FieldCondition(key="title", match=MatchValue(value=filename)))
+    # Scope to a specific file by source_id (= run_id in Qdrant payload)
+    if source_id:
+        must_conditions.append(FieldCondition(key="run_id", match=MatchValue(value=source_id)))
+    # Or scope by filename substring in title
+    elif filename:
+        must_conditions.append(FieldCondition(key="title", match=MatchText(text=filename)))
 
     hits = client.query_points(
         collection_name="research_memory",

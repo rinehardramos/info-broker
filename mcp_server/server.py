@@ -701,25 +701,28 @@ async def ask_user(question: str, run_id: str, options: list[str] = []) -> str:
 
 
 @mcp.tool()
-async def query_uploaded_data(query: str, filename: str = "", limit: int = 20) -> str:
+async def query_uploaded_data(query: str, filename: str = "", source_id: str = "", limit: int = 20) -> str:
     """Search through uploaded file data (CSV, Excel, PDF, DOCX, TXT).
 
     Use this to find specific rows, sections, or content within files the user has uploaded.
     The data has been indexed and you can search by any column value, keyword, or phrase.
+    IMPORTANT: Always pass the filename to scope results to a single file.
 
     Args:
-        query: What to search for in the file data (e.g., "distributors in Manila", "Class III devices")
-        filename: Optional - filter to a specific file
+        query: What to search for (e.g., "distributors in Manila", "Class III devices")
+        filename: Filter to a specific file (e.g., "MEDICAL_DEVICE_DISTRIBUTOR.xls")
+        source_id: Filter by source upload ID (alternative to filename)
         limit: Max results to return (default 20)
     """
     result = await api_call("POST", "/v3/sources/query", json={
         "query": query,
         "filename": filename,
+        "source_id": source_id,
         "limit": limit,
     })
     if isinstance(result, list) and result:
         return json.dumps(result, default=str)
-    return json.dumps({"message": "No matching data found in uploaded files", "query": query}, default=str)
+    return json.dumps({"message": "No matching data found in uploaded files", "query": query, "filename": filename}, default=str)
 
 
 @mcp.tool()
