@@ -881,6 +881,20 @@ async def suggest_plugin(name: str, description: str, reason: str) -> str:
                 **result,
             })
 
+    # Try auto-create if enabled
+    try:
+        from app.pipeline.auto_create import auto_create_plugin
+        auto_result = await auto_create_plugin(normalized, description, reason)
+        if auto_result.get("status") == "auto_created":
+            return json.dumps({
+                "status": "auto_created",
+                "tool_name": auto_result["tool_name"],
+                "message": f"Plugin '{normalized}' was auto-created and is now available as {auto_result['tool_name']}. You can call it immediately.",
+            })
+    except Exception as exc:
+        log.warning("Auto-create attempt failed (non-fatal): %s", exc)
+        # Fall through to standard "new" flow
+
     # Truly unique — create new request
     result = await api_call(
         "POST",

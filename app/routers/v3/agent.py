@@ -372,6 +372,21 @@ async def _run_is_research(
                 (str(uuid.uuid4()), uid, json.dumps(plugin), status),
             )
 
+        # Track auto-created plugins that produced results
+        try:
+            from app.pipeline.auto_create import is_auto_create_enabled
+            if is_auto_create_enabled():
+                finding_sources = {f.get("source", "") for f in result.get("findings", [])}
+                for plugin in result.get("suggested_plugins", []):
+                    pname = (plugin.get("name") or "").lower().replace("-", "_").replace(" ", "_")
+                    if pname in finding_sources:
+                        execute(
+                            "UPDATE plugin_requests SET status = 'auto_implemented', reviewed_at = now() WHERE spec->>'name' = %s AND status = 'pending'",
+                            (pname,),
+                        )
+        except Exception as exc:
+            log.warning("Auto-create tracking failed (non-fatal): %s", exc)
+
         execute(
             "UPDATE pipeline_runs SET status = 'succeeded', finished_at = now() WHERE id = %s",
             (run_id,),
