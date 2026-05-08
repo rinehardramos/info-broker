@@ -81,22 +81,24 @@ async def run_research(
         research_plan=research_plan,
     )
 
-    # Resolve the freshest API key — DB first, then env var, then try host keychain
+    # Resolve API key — DB first, then env. Skip expired OAuth tokens.
     api_key = ""
     try:
         from app.routers.v3.db import fetch_one
         row = fetch_one("SELECT value FROM core_settings WHERE key = 'anthropic_api_key'", ())
-        if row and row["value"] and "REDACTED" not in row["value"]:
+        if row and row["value"] and "REDACTED" not in row["value"] and row["value"].startswith("sk-ant-api"):
             api_key = row["value"]
     except Exception:
         pass
     if not api_key:
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
+        env_key = os.getenv("ANTHROPIC_API_KEY", "")
+        if env_key.startswith("sk-ant-api"):
+            api_key = env_key
 
     # Use stream-json for real-time tool call events + checkpointing
     cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "stream-json", "--verbose"]
 
-    # Use --bare when any key is available (API key or OAuth token both work)
+    # Only use --bare with a real API key (not OAuth tokens which expire)
     if api_key:
         cmd.append("--bare")
 
@@ -105,15 +107,15 @@ async def run_research(
         cmd.extend(["--mcp-config", str(_MCP_CONFIG)])
         cmd.extend(["--allowedTools", "mcp__info-broker-mcp__*"])
 
-    log.info("IS Brain: spawning Claude Code for query: %s", query[:80])
+    log.info("IS Brain: spawning Claude Code (api_key=%s, bare=%s) for query: %s",
+             "yes" if api_key else "subscription", "--bare" in cmd, query[:80])
 
-    # Build spawn env with the resolved key
+    # Build spawn env — strip any stale ANTHROPIC_API_KEY so Claude Code uses subscription auth
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
     if api_key:
         spawn_env["ANTHROPIC_API_KEY"] = api_key
     else:
         spawn_env.pop("ANTHROPIC_API_KEY", None)
-        log.warning("IS Brain: no API key available — Claude Code may fail")
 
     try:
         proc = await asyncio.create_subprocess_exec(
