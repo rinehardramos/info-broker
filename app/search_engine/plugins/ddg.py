@@ -66,6 +66,42 @@ class DdgPlugin:
                 )
         return results
 
+    def search_images_sync(self, query: str, max_results: int) -> list[dict]:
+        with DDGS() as ddgs:
+            return list(ddgs.images(query, max_results=max_results))
+
+    def search_videos_sync(self, query: str, max_results: int) -> list[dict]:
+        with DDGS() as ddgs:
+            return list(ddgs.videos(query, max_results=max_results))
+
+    def search_news_sync(self, query: str, max_results: int) -> list[dict]:
+        with DDGS() as ddgs:
+            return list(ddgs.news(query, max_results=max_results))
+
+    async def search_images(self, query: str, *, max_results: int = 5) -> list[dict]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.search_images_sync, query, max_results)
+        except Exception as exc:
+            log.warning("DdgPlugin.search_images failed for query %r: %s", query, exc)
+            return []
+
+    async def search_videos(self, query: str, *, max_results: int = 5) -> list[dict]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.search_videos_sync, query, max_results)
+        except Exception as exc:
+            log.warning("DdgPlugin.search_videos failed for query %r: %s", query, exc)
+            return []
+
+    async def search_news(self, query: str, *, max_results: int = 5) -> list[dict]:
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, self.search_news_sync, query, max_results)
+        except Exception as exc:
+            log.warning("DdgPlugin.search_news failed for query %r: %s", query, exc)
+            return []
+
     def _try_scrape(self, url: str) -> str | None:
         try:
             from app.lib.ddg_fallback import scrape_url
