@@ -25,6 +25,8 @@ QUERY: {query}
 
 {research_plan}
 
+{user_sources}
+
 ## AVAILABLE MCP TOOLS (use these!)
 {tools_section}
 - get_past_research(query) — find related prior research
@@ -228,6 +230,7 @@ def build_prompt(
     strategies_section: str = "",
     entity_strategy: str = "",
     research_plan: str = "",
+    user_sources: str = "",
 ) -> str:
     """Build the full research prompt with context.
 
@@ -272,4 +275,5 @@ def build_prompt(
         strategies_section=strategies_section,
         entity_strategy=entity_strategy,
         research_plan=research_plan,
+        user_sources=user_sources,
     )

@@ -197,12 +197,51 @@ async def _run_is_research(
         complexity_type, complexity_score = classify_complexity(query)
         log.info("IS Brain: complexity=%s score=%d for query: %s", complexity_type, complexity_score, query[:80])
 
+        # Build user_sources context from uploaded files
+        user_sources = ""
+        try:
+            source_rows = fetch_all(
+                "SELECT filename, file_type, token_count, findings_count, manifest FROM research_sources WHERE user_id = %s AND status = 'indexed' ORDER BY created_at DESC",
+                (uid,),
+            )
+            if source_rows:
+                parts = ["## USER-PROVIDED SOURCES\n"]
+                for src in source_rows:
+                    manifest = src.get("manifest") or {}
+                    tokens = src.get("token_count") or 0
+                    fname = src["filename"]
+                    ftype = src["file_type"]
+                    fcount = src.get("findings_count", 0)
+
+                    if tokens < 2000:
+                        # Small file: include manifest + note that content is indexed
+                        parts.append(f"[File: {fname} | {ftype} | {fcount} findings | {tokens} tokens]")
+                        summary = manifest.get("summary", "")
+                        if summary:
+                            parts.append(f"Summary: {summary}")
+                        parts.append("Content indexed in research memory — available via your search tools.\n")
+                    else:
+                        # Large file: manifest only
+                        parts.append(f"[File: {fname} | {ftype} | {fcount} findings | {tokens} tokens]")
+                        summary = manifest.get("summary", "")
+                        if summary:
+                            parts.append(f"Summary: {summary}")
+                        columns = manifest.get("columns")
+                        if columns:
+                            parts.append(f"Columns: {', '.join(columns[:15])}")
+                        parts.append("This file has been indexed in your research memory. Search for specific details using your tools.\n")
+
+                user_sources = "\n".join(parts)
+        except Exception as exc:
+            log.warning("Failed to load user sources: %s", exc)
+
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
             on_event=_on_tool_event,
             available_nodes=healthy_nodes,
             strategies_section=strategies_section,
             entity_strategy=entity_strategy,
+            user_sources=user_sources,
         )
 
         # Check if IS brain returned an error result (no findings, error summary)
