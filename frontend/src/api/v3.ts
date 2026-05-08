@@ -299,3 +299,23 @@ export const getToolStats = () =>
 
 export const exportResearch = (runId: string, format: 'pdf' | 'csv' | 'xlsx') =>
   api.post<{ filename: string; url: string }>(`/v3/exports/research/${runId}`, { format, include_analysis: true }).then(r => r.data)
+
+// --- Scorecard ---
+
+export async function getScorecard(runId: string): Promise<any> {
+  try {
+    const { data } = await api.get(`/v3/research-trails/${runId}/scorecard`)
+    return data
+  } catch {
+    return null
+  }
+}
+
+export async function submitScorecardGrade(
+  runId: string,
+  level: 'strategy' | 'tactic' | 'technique',
+  name: string,
+  grade: string,
+): Promise<void> {
+  await api.post(`/v3/research-trails/${runId}/scorecard/grade`, { level, name, grade })
+}

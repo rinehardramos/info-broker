@@ -8,6 +8,7 @@ import { ResearchFlow } from './ResearchFlow'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
+import { InvestigationBreakdown } from './InvestigationBreakdown'
 import { Sparkles, ArrowDownToLine, Save, ThumbsUp, ThumbsDown, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
 
 // Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
@@ -670,6 +671,9 @@ function ResearchResults({
           )
         })}
       </div>
+
+      {/* Investigation Breakdown scorecard */}
+      {runId && <InvestigationBreakdown runId={runId} />}
 
       {/* Branches */}
       {trail.branches && trail.branches.length > 0 && (
