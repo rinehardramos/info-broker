@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
 import { sendMessage, getAgentPipeline, getBrainStatus } from '../../api/v3'
+import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
 
@@ -10,6 +11,14 @@ interface Message {
   role: 'user' | 'agent'
   content: string
   status?: string
+  type?: 'message' | 'question' | 'plan'
+  payload?: {
+    question?: string
+    options?: string[]
+    plan?: Record<string, unknown>
+    run_id?: string
+    verification_status?: string
+  }
 }
 
 let _msgCounter = 0
@@ -42,7 +51,13 @@ export default function AgentChat() {
       setMessages(prev =>
         prev.map(m =>
           m.id === event.job_id
-            ? { ...m, status: event.status }
+            ? {
+                ...m,
+                status: event.status,
+                ...(event.type === 'job.completed' && (event as WsEvent & { verification_status?: string }).verification_status
+                  ? { payload: { ...m.payload, verification_status: (event as WsEvent & { verification_status?: string }).verification_status } }
+                  : {}),
+              }
             : m,
         ),
       )
@@ -70,7 +85,38 @@ export default function AgentChat() {
         { id: `agent-${++_msgCounter}`, role: 'agent', content: event.message! },
       ])
     }
+    if (event.type === 'brain.question') {
+      const qEvent = event as WsEvent & { question?: string; options?: string[] }
+      setMessages(prev => [...prev, {
+        id: `q-${Date.now()}`,
+        role: 'agent',
+        content: qEvent.question ?? '',
+        type: 'question',
+        payload: { question: qEvent.question, options: qEvent.options ?? [], run_id: event.run_id },
+      }])
+    }
+    if (event.type === 'brain.plan') {
+      const pEvent = event as WsEvent & { plan?: Record<string, unknown> }
+      setMessages(prev => [...prev, {
+        id: `plan-${Date.now()}`,
+        role: 'agent',
+        content: 'Research plan ready.',
+        type: 'plan',
+        payload: { plan: pEvent.plan, run_id: event.run_id },
+      }])
+    }
   })
+
+  const [collapsedPlans, setCollapsedPlans] = useState<Record<string, boolean>>({})
+
+  const handleBrainAnswer = async (runId: string, answer: string) => {
+    await api.post('/v3/agent/brain-answer', { run_id: runId, answer })
+    setMessages(prev => [...prev, {
+      id: `a-${Date.now()}`,
+      role: 'user',
+      content: answer,
+    }])
+  }
 
   async function handleSend() {
     const text = input.trim()
@@ -163,9 +209,135 @@ export default function AgentChat() {
             Ask anything — I'll research it for you.
           </p>
         )}
-        {messages.map(m => (
-          <MessageBubble key={m.id} role={m.role} content={m.content} status={m.status} />
-        ))}
+        {messages.map(m => {
+          // Question message — distinct styling with quick-reply options
+          if (m.type === 'question') {
+            const runId = m.payload?.run_id ?? ''
+            const options = m.payload?.options ?? []
+            return (
+              <div key={m.id} style={{
+                margin: '8px 0',
+                padding: '10px 12px',
+                borderLeft: '3px solid var(--accent)',
+                background: 'var(--panel2)',
+                borderRadius: '0 8px 8px 0',
+              }}>
+                <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, marginBottom: 4 }}>
+                  ? Brain Question
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 8 }}>
+                  {m.content}
+                </div>
+                {options.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {options.map((opt: string, i: number) => (
+                      <button
+                        key={i}
+                        onClick={() => handleBrainAnswer(runId, opt)}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: '16px',
+                          border: '1px solid var(--accent)',
+                          background: 'transparent',
+                          color: 'var(--accent)',
+                          cursor: 'pointer',
+                          fontSize: '13px',
+                          marginRight: '8px',
+                          marginTop: '6px',
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // Plan message — collapsible card
+          if (m.type === 'plan') {
+            const plan = m.payload?.plan ?? {}
+            const steps = (plan.steps as Record<string, unknown>[] | undefined) ?? []
+            const isCollapsed = collapsedPlans[m.id] !== false // default collapsed
+            return (
+              <div key={m.id} style={{
+                margin: '8px 0',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                background: 'var(--panel2)',
+                overflow: 'hidden',
+              }}>
+                <button
+                  onClick={() => setCollapsedPlans(prev => ({ ...prev, [m.id]: !isCollapsed }))}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--accent)',
+                    fontSize: 11,
+                    fontWeight: 600,
+                  }}
+                >
+                  <span>Research Plan</span>
+                  <span style={{ fontSize: 10 }}>{isCollapsed ? '▶' : '▼'}</span>
+                </button>
+                {!isCollapsed && (
+                  <div style={{ padding: '0 12px 10px', fontSize: 11, color: 'var(--text)' }}>
+                    {steps.map((step: Record<string, unknown>, i: number) => (
+                      <div key={i} style={{ marginBottom: 8, paddingTop: 6, borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 2 }}>
+                          Step {i + 1} [{String(step.category ?? '')}]: {String(step.goal ?? '')}
+                        </div>
+                        {Array.isArray(step.tools) && step.tools.length > 0 && (
+                          <div style={{ color: 'var(--muted)', marginBottom: 2 }}>
+                            Tools: {(step.tools as string[]).join(', ')}
+                          </div>
+                        )}
+                        {Array.isArray(step.completeness_criteria) && step.completeness_criteria.length > 0 && (
+                          <ul style={{ margin: '2px 0 0 14px', padding: 0 }}>
+                            {(step.completeness_criteria as string[]).map((c: string, j: number) => (
+                              <li key={j} style={{ color: 'var(--muted)', listStyleType: 'disc' }}>{c}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ))}
+                    {steps.length === 0 && (
+                      <div style={{ color: 'var(--muted)', fontStyle: 'italic' }}>No steps defined.</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // Regular message — pass through to MessageBubble, with optional verification badge
+          const verificationStatus = m.payload?.verification_status
+          return (
+            <div key={m.id}>
+              <MessageBubble role={m.role} content={m.content} status={m.status} />
+              {verificationStatus && (
+                <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 4, paddingRight: 4 }}>
+                  {verificationStatus === 'PASS' && (
+                    <span style={{ fontSize: 10, color: '#4ade80', fontWeight: 600 }}>Verified</span>
+                  )}
+                  {verificationStatus === 'PASS_WITH_NOTES' && (
+                    <span style={{ fontSize: 10, color: '#facc15', fontWeight: 600 }}>Verified (with notes)</span>
+                  )}
+                  {verificationStatus === 'BLOCKED' && (
+                    <span style={{ fontSize: 10, color: '#f87171', fontWeight: 600 }}>Verification blocked</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
         <div ref={bottomRef} />
       </div>
 
