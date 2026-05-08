@@ -4,6 +4,12 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
+- [2026-05-08] - [Claude/software-developer] - [File Import Task 2: TXT and CSV file parser module (TDD)] - [app/sources/__init__.py, app/sources/parser.py, tests/sources/__init__.py, tests/sources/test_parser.py]
+- [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 7: wire scale classifier, planner, verifier into IS brain execution flow] - [app/is_prompt.py, app/is_brain.py, app/routers/v3/agent.py]
+- [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 6: rule-based finding verifier module (TDD)] - [app/pipeline/strategies/verifier.py, tests/pipeline/strategies/test_verifier.py]
+- [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 5: research plan formatter module (TDD)] - [app/pipeline/strategies/planner.py, tests/pipeline/strategies/test_planner.py]
+- [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 4: add ask_user MCP tool for brain clarification] - [mcp_server/server.py]
+- [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 2: add classify_complexity() to orchestrator (TDD)] - [app/pipeline/strategies/orchestrator.py, tests/pipeline/strategies/test_orchestrator_complexity.py]
 - [2026-05-06] - [Claude/software-developer] - [Task 5: [REDACTED:high-entropy-base64:20ch:hash=935f9396] — bridge analyzer output to event store (entity_observations, relationship_observations)] - [app/knowledge/writer.py, tests/knowledge/test_writer.py]
 - [2026-05-06] - [Claude/software-developer] - [Add context drawers to Go Deeper, Analyze, and Re-Analyze action buttons in ResultsPanel] - [frontend/src/components/results/ActionDrawer.tsx, frontend/src/components/results/ResultsPanel.tsx]
 - [2026-05-06] - [Claude/software-developer] - [IS brain error detection pre-filter: _classify_finding() + wire into _parse_output() + tests] - [app/is_brain.py, tests/test_error_filter.py]
