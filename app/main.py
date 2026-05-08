@@ -131,6 +131,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("KG curator not started: %s", exc)
 
+    # Start memory lifecycle sweep
+    try:
+        from app.memory.lifecycle import run_lifecycle_sweep
+        _aio.create_task(run_lifecycle_sweep(1800))
+    except Exception as exc:
+        _log.warning("Memory lifecycle sweep not started: %s", exc)
+
     yield
     await se_close()
 
