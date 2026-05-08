@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from collections import defaultdict
+
 # NATO Admiralty Source Reliability (A-F)
 # A = Completely Reliable, B = Usually Reliable, C = Fairly Reliable
 # D = Not Usually Reliable, E = Unreliable, F = Cannot Be Judged
@@ -73,3 +76,67 @@ def admiralty_info_credibility(corroboration_count: int) -> int:
     elif corroboration_count == 1:
         return 3
     return 6
+
+
+def track_corroboration(findings: list[dict]) -> list[dict]:
+    """Enrich findings with corroboration tracking.
+
+    For each finding, identifies how many OTHER findings from DIFFERENT sources
+    share significant content overlap (shared entities/keywords).
+
+    Adds to each finding:
+    - corroboration_count: number of unique sources confirming similar content
+    - corroboration_level: "uncorroborated" (1 source), "corroborated" (2), "multi_source" (3+)
+    - credibility: Admiralty info credibility (1-6) based on corroboration
+    """
+    if not findings:
+        return []
+
+    _STOP = {
+        "this", "that", "with", "from", "they", "their", "have", "been",
+        "were", "which", "about", "would", "could", "should", "found",
+        "search", "result",
+    }
+
+    def _extract_tokens(text: str) -> set[str]:
+        words = re.findall(r'\b[a-zA-Z0-9@._-]{4,}\b', text.lower())
+        return {w for w in words if w not in _STOP}
+
+    indexed = []
+    for f in findings:
+        text = (f.get("title", "") + " " + f.get("content", "")).strip()
+        tokens = _extract_tokens(text)
+        source = f.get("source", f.get("source_tool", "unknown"))
+        indexed.append({"finding": f, "tokens": tokens, "source": source})
+
+    results = []
+    for i, item in enumerate(indexed):
+        corroborating_sources: set[str] = set()
+        for j, other in enumerate(indexed):
+            if i == j:
+                continue
+            if other["source"] == item["source"]:
+                continue  # Same source doesn't count
+            overlap = item["tokens"] & other["tokens"]
+            # High-specificity tokens (emails, domains) count as corroboration on their own.
+            # Generic tokens require at least 3 to reduce false positives.
+            high_spec = {t for t in overlap if "@" in t or t.count(".") >= 1}
+            if len(overlap) >= 3 or len(high_spec) >= 1:
+                corroborating_sources.add(other["source"])
+
+        count = len(corroborating_sources) + 1  # +1 for self
+        if count >= 3:
+            level = "multi_source"
+        elif count == 2:
+            level = "corroborated"
+        else:
+            level = "uncorroborated"
+
+        results.append({
+            **item["finding"],
+            "corroboration_count": count,
+            "corroboration_level": level,
+            "credibility": admiralty_info_credibility(count),
+        })
+
+    return results
