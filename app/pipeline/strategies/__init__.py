@@ -56,3 +56,22 @@ def _load_strategies() -> None:
     _STRATEGIES[SYRT] = SYRS
     _STRATEGIES[STAT] = STAS
     _STRATEGIES[DAT] = DAS
+
+    # Also register all sub-strategies discovered via the domains registry.
+    # This populates _STRATEGIES with domain sub-strategy names so callers
+    # using get_strategy("company") also resolve via the registry's STRATEGY text.
+    _load_registry_strategies()
+
+def _load_registry_strategies() -> None:
+    """Load all sub-strategies from the domains registry into _STRATEGIES."""
+    try:
+        from app.pipeline.strategies.domains.registry import _get_registry
+        registry = _get_registry()
+        for _category, entries in registry.items():
+            for name, entry in entries.items():
+                # Only register if not already present (flat imports take precedence)
+                if name not in _STRATEGIES:
+                    _STRATEGIES[name] = entry["strategy"]
+    except Exception:
+        # Registry load is best-effort; flat imports already covered core strategies
+        pass
