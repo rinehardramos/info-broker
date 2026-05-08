@@ -83,6 +83,7 @@ async def index_research_findings(
 
     # Embed all texts in parallel — _embed_text is synchronous so use threads.
     vectors: dict[int, list[float]] = {}
+    failed_count = 0
     with ThreadPoolExecutor(max_workers=_EMBED_WORKERS) as pool:
         future_to_idx = {
             pool.submit(_embed_text, embed_input): idx
@@ -90,11 +91,21 @@ async def index_research_findings(
         }
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
-            vectors[idx] = future.result()
+            try:
+                vectors[idx] = future.result()
+            except Exception as exc:
+                failed_count += 1
+                if failed_count <= 3:
+                    log.warning("Embed failed for finding %d: %s", idx, exc)
 
-    # Assemble PointStructs in original order.
+    if failed_count:
+        log.warning("Embedding: %d/%d findings failed, indexing %d", failed_count, len(items), len(vectors))
+
+    # Assemble PointStructs for successfully embedded findings.
     points: list[PointStruct] = []
     for i, _embed_input, payload in items:
+        if i not in vectors:
+            continue  # skip findings that failed to embed
         point_id = str(uuid.uuid5(NAMESPACE, f"{run_id}:{i}"))
         points.append(PointStruct(id=point_id, vector=vectors[i], payload=payload))
 
