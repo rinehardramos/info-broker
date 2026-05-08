@@ -23,6 +23,8 @@ QUERY: {query}
 
 {context_section}
 
+{research_plan}
+
 ## AVAILABLE MCP TOOLS (use these!)
 {tools_section}
 - get_past_research(query) — find related prior research
@@ -86,6 +88,18 @@ For each branch, explore recursively up to depth {max_depth}:
 ### DELIVER
 When all branches are resolved (fruit, dead end, or budget exhausted):
 Output the structured JSON result (see OUTPUT FORMAT below).
+
+## CLARIFICATION (for complex queries)
+
+Before starting research, assess whether the query is ambiguous or multi-faceted.
+If so, use the ask_user tool to ask 1-3 focused questions:
+- What specific aspect to focus on?
+- What is the intended use of this research?
+- Any constraints (geography, time period, budget)?
+
+Keep questions concise. Provide 3-4 options when possible.
+Do NOT ask more than 3 questions total.
+After receiving answers, proceed with your research plan.
 
 ## BUDGET
 - Max depth: {max_depth} levels deep per branch
@@ -213,6 +227,7 @@ def build_prompt(
     available_nodes: list[dict] | None = None,
     strategies_section: str = "",
     entity_strategy: str = "",
+    research_plan: str = "",
 ) -> str:
     """Build the full research prompt with context.
 
@@ -256,4 +271,5 @@ def build_prompt(
         tools_section=tools_section,
         strategies_section=strategies_section,
         entity_strategy=entity_strategy,
+        research_plan=research_plan,
     )

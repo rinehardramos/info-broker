@@ -58,6 +58,7 @@ async def run_research(
     available_nodes: list[dict] | None = None,  # healthy+enabled nodes for prompt
     strategies_section: str = "",  # procedural memory strategies for the prompt
     entity_strategy: str = "",  # entity-specific strategy block for the prompt
+    research_plan: str = "",  # formatted plan string for prompt injection
 ) -> dict[str, Any]:
     """Run a research query via Claude Code subprocess.
 
@@ -77,6 +78,7 @@ async def run_research(
         available_nodes=available_nodes,
         strategies_section=strategies_section,
         entity_strategy=entity_strategy,
+        research_plan=research_plan,
     )
 
     # Resolve the freshest API key — DB first, then env var, then try host keychain

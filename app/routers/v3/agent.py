@@ -187,10 +187,15 @@ async def _run_is_research(
             log.debug("Skill retrieval failed (non-fatal): %s", exc)
 
         # Load entity investigation strategy — auto-classify query to strategy
-        from app.pipeline.strategies.orchestrator import classify_query
+        from app.pipeline.strategies.orchestrator import classify_query, classify_complexity
         from app.pipeline.strategies.compiler import compile_strategy
+        from app.pipeline.strategies.planner import format_plan_for_prompt, format_clarification_for_prompt  # noqa: F401
         research_category = classify_query(query)
         entity_strategy = await compile_strategy(research_category)
+
+        # Classify complexity so the IS brain can decide whether to clarify
+        complexity_type, complexity_score = classify_complexity(query)
+        log.info("IS Brain: complexity=%s score=%d for query: %s", complexity_type, complexity_score, query[:80])
 
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
@@ -208,17 +213,27 @@ async def _run_is_research(
         if is_error:
             raise RuntimeError(result["summary"])
 
+        # Verify findings quality
+        from app.pipeline.strategies.verifier import verify_findings
+        verification = verify_findings(result.get("findings", []))
+        log.info("IS Brain: verification status=%s issues=%d", verification["status"], len(verification.get("issues", [])))
+
         suggested_pipeline = result.get("pipeline")
+        trail_id = str(uuid.uuid4())
         execute(
             """INSERT INTO research_trails
                 (id, user_id, run_id, query, entity_type, trail, findings, tool_calls, suggested_pipeline)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-            (str(uuid.uuid4()), uid, run_id, query,
+            (trail_id, uid, run_id, query,
              result.get("entity_type", "unknown"),
              json.dumps(result.get("tree", {})),
              json.dumps(result.get("findings", [])),
              result.get("tree", {}).get("total_branches", 0),
              json.dumps(suggested_pipeline) if suggested_pipeline else None),
+        )
+        execute(
+            "UPDATE research_trails SET verification_status = %s WHERE run_id = %s",
+            (verification["status"], run_id),
         )
 
         # Index findings to research_memory for multi-signal retrieval
@@ -324,6 +339,7 @@ async def _run_is_research(
             "type": "job.completed", "job_id": run_id, "status": "succeeded",
             "run_id": run_id,
             "message": f"{summary[:200]}{'...' if len(summary) > 200 else ''} ({findings_count} findings)",
+            "verification_status": verification["status"],
         })
         # Also notify Live panel's pipeline section
         await push_event(uid, {
