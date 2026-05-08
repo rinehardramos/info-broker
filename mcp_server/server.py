@@ -679,6 +679,28 @@ async def curate_knowledge() -> str:
 
 
 @mcp.tool()
+async def ask_user(question: str, run_id: str, options: list[str] = []) -> str:
+    """Ask the user a clarifying question before proceeding with research.
+
+    Use this when the research query is ambiguous or multi-faceted.
+    The question is displayed in the chat UI. If options are provided,
+    they appear as quick-reply buttons. The tool blocks until the user responds.
+
+    Args:
+        question: The clarifying question to ask
+        run_id: The current research run ID (from your context)
+        options: Optional list of suggested answers shown as buttons
+    """
+    result = await api_call("POST", "/v3/agent/brain-question", json={
+        "run_id": run_id,
+        "question": question,
+        "options": options,
+        "uid": "",  # uid is resolved server-side from session
+    })
+    return result.get("answer", "") if isinstance(result, dict) else str(result)
+
+
+@mcp.tool()
 async def get_research_by_id(run_id: str) -> str:
     """Fetch a specific research trail by its run ID.
 
