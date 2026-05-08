@@ -341,6 +341,23 @@ CREATE TABLE IF NOT EXISTS kg_stale_flags (
 CREATE INDEX IF NOT EXISTS idx_stale_entity ON kg_stale_flags(entity_ref);
 CREATE INDEX IF NOT EXISTS idx_stale_status ON kg_stale_flags(status);
 
+CREATE TABLE IF NOT EXISTS research_sources (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    run_id          UUID,
+    filename        TEXT NOT NULL,
+    file_type       VARCHAR(16) NOT NULL,
+    file_size_bytes INT,
+    token_count     INT,
+    findings_count  INT DEFAULT 0,
+    s3_key          TEXT,
+    manifest        JSONB,
+    status          VARCHAR(32) NOT NULL DEFAULT 'processing',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_research_sources_user ON research_sources(user_id);
+CREATE INDEX IF NOT EXISTS idx_research_sources_status ON research_sources(status);
+
 CREATE TABLE IF NOT EXISTS mcp_sessions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     caller_identity VARCHAR(256) NOT NULL,

@@ -4,6 +4,7 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
+- [2026-05-08] - [Claude/software-developer] - [File Import Task 1: add pdfplumber, python-docx deps and research_sources schema] - [pyproject.toml, uv.lock, app/routers/v3/db.py]
 - [2026-05-08] - [Claude/software-developer] - [Universal Research Engine Phase A Task 3: brain question/answer queue module] - [app/routers/v3/brain_questions.py, app/main.py]
 - [2026-05-08] - [Claude/software-developer] - [Universal Research Engine Phase A Task 2: add classify_complexity() to orchestrator (TDD)] - [app/pipeline/strategies/orchestrator.py, tests/pipeline/strategies/test_orchestrator_complexity.py]
 - [2026-05-08] - [Claude/software-developer] - [Memory Phase 3 Task 3: KG Curator module — contradiction detection, auto-resolution, staleness flagging (TDD)] - [app/knowledge/curator.py, tests/knowledge/test_curator.py]
