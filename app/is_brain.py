@@ -58,6 +58,7 @@ async def run_research(
     available_nodes: list[dict] | None = None,  # healthy+enabled nodes for prompt
     strategies_section: str = "",  # procedural memory strategies for the prompt
     entity_strategy: str = "",  # entity-specific strategy block for the prompt
+    techniques_section: str = "",  # technique catalog for the prompt
     research_plan: str = "",  # formatted plan string for prompt injection
     user_sources: str = "",  # user-uploaded file context for prompt injection
 ) -> dict[str, Any]:
@@ -79,6 +80,7 @@ async def run_research(
         available_nodes=available_nodes,
         strategies_section=strategies_section,
         entity_strategy=entity_strategy,
+        techniques_section=techniques_section,
         research_plan=research_plan,
         user_sources=user_sources,
     )

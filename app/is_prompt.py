@@ -37,6 +37,7 @@ Do not rely only on the manifest — query specific columns, values, or keywords
 - suggest_plugin(name, description, reason) — request a new tool you don't have yet
 
 {entity_strategy}
+{techniques_section}
 {strategies_section}
 ## YOUR WORKFLOW
 
@@ -233,6 +234,7 @@ def build_prompt(
     available_nodes: list[dict] | None = None,
     strategies_section: str = "",
     entity_strategy: str = "",
+    techniques_section: str = "",
     research_plan: str = "",
     user_sources: str = "",
 ) -> str:
@@ -278,6 +280,7 @@ def build_prompt(
         tools_section=tools_section,
         strategies_section=strategies_section,
         entity_strategy=entity_strategy,
+        techniques_section=techniques_section,
         research_plan=research_plan,
         user_sources=user_sources,
     )

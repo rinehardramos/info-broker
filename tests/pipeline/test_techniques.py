@@ -43,3 +43,24 @@ def test_negative_screening_technique_exists():
     neg = next((t for t in TECHNIQUES if "screening" in t["name"] or "negative" in t["name"]), None)
     assert neg is not None
     assert "pep_sanctions_screen" in neg["tool_sequence"]
+
+
+from app.is_prompt import build_prompt
+
+def test_build_prompt_includes_techniques():
+    prompt = build_prompt(
+        query="test",
+        techniques_section="## TECHNIQUES\nUse these tools.",
+    )
+    assert "## TECHNIQUES" in prompt
+
+def test_techniques_between_strategy_and_workflow():
+    prompt = build_prompt(
+        query="test",
+        entity_strategy="=== STRATEGY ===",
+        techniques_section="=== TECHNIQUES ===",
+    )
+    strat_pos = prompt.index("=== STRATEGY ===")
+    tech_pos = prompt.index("=== TECHNIQUES ===")
+    workflow_pos = prompt.index("YOUR WORKFLOW")
+    assert strat_pos < tech_pos < workflow_pos

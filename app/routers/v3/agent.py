@@ -193,6 +193,10 @@ async def _run_is_research(
         research_category = classify_query(query)
         entity_strategy = await compile_strategy(research_category)
 
+        # Load technique catalog
+        from app.pipeline.techniques import format_techniques_for_prompt
+        techniques_section = format_techniques_for_prompt()
+
         # Classify complexity so the IS brain can decide whether to clarify
         complexity_type, complexity_score = classify_complexity(query)
         log.info("IS Brain: complexity=%s score=%d for query: %s", complexity_type, complexity_score, query[:80])
@@ -241,6 +245,7 @@ async def _run_is_research(
             available_nodes=healthy_nodes,
             strategies_section=strategies_section,
             entity_strategy=entity_strategy,
+            techniques_section=techniques_section,
             user_sources=user_sources,
         )
 
