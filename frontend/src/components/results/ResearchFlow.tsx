@@ -37,12 +37,28 @@ interface FlowState {
 // Constants
 // ---------------------------------------------------------------------------
 
-const NODE_W = 150
-const NODE_H = 52
-const GAP_X = 60
-const GAP_Y = 16
-const ROOT_W = 100
-const ROOT_H = 40
+// Base sizes — scale down as node count grows
+const _BASE_NODE_W = 140
+const _BASE_NODE_H = 48
+const _BASE_GAP_X = 40
+const _BASE_GAP_Y = 12
+const _BASE_ROOT_W = 90
+const _BASE_ROOT_H = 36
+
+function getScale(nodeCount: number) {
+  if (nodeCount <= 5) return 1
+  if (nodeCount <= 15) return 0.75
+  if (nodeCount <= 30) return 0.55
+  return 0.4
+}
+
+// These are recalculated per-render via useMemo, but we keep module-level defaults for non-flow code
+let NODE_W = _BASE_NODE_W
+let NODE_H = _BASE_NODE_H
+let GAP_X = _BASE_GAP_X
+let GAP_Y = _BASE_GAP_Y
+let ROOT_W = _BASE_ROOT_W
+let ROOT_H = _BASE_ROOT_H
 
 const TOOL_COLORS: Record<string, string> = {
   // Search tools (blue)
@@ -335,6 +351,20 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
 // ---------------------------------------------------------------------------
 
 function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
+  // Dynamic sizing based on node count
+  const s = getScale(nodes.length)
+  const nw = Math.round(_BASE_NODE_W * s)
+  const nh = Math.round(_BASE_NODE_H * s)
+  const gx = Math.round(_BASE_GAP_X * s)
+  const gy = Math.round(_BASE_GAP_Y * s)
+  const rw = Math.round(_BASE_ROOT_W * s)
+  const rh = Math.round(_BASE_ROOT_H * s)
+  const fontSize = Math.max(7, Math.round(9 * s))
+  const fontSizeSm = Math.max(6, Math.round(8 * s))
+
+  // Update module-level vars so edge calculations use correct sizes
+  NODE_W = nw; NODE_H = nh; GAP_X = gx; GAP_Y = gy; ROOT_W = rw; ROOT_H = rh
+
   // Build tree layout: group by depth, root "BRAIN" at left
   const byDepth: Record<number, FlowNode[]> = {}
   for (const n of nodes) {
@@ -345,27 +375,27 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
 
   // Position root node
   const totalNodes = nodes.length
-  const rootX = 16
-  const rootY = 16
+  const rootX = 12
+  const rootY = 12
 
   // Position tool call nodes by depth column
   const positions: Record<string, { x: number; y: number }> = {}
-  positions['brain'] = { x: rootX, y: rootY + Math.max(0, (totalNodes - 1) * (NODE_H + GAP_Y) / 2 - ROOT_H / 2) }
+  positions['brain'] = { x: rootX, y: rootY + Math.max(0, (totalNodes - 1) * (nh + gy) / 2 - rh / 2) }
 
   depths.forEach((d, di) => {
     const layer = byDepth[d]
     layer.forEach((node, ni) => {
       positions[node.id] = {
-        x: rootX + ROOT_W + GAP_X + di * (NODE_W + GAP_X),
-        y: 16 + ni * (NODE_H + GAP_Y),
+        x: rootX + rw + gx + di * (nw + gx),
+        y: 12 + ni * (nh + gy),
       }
     })
   })
 
-  const maxX = Math.max(rootX + ROOT_W, ...Object.values(positions).map(p => p.x + NODE_W))
-  const maxY = Math.max(rootY + ROOT_H, ...Object.values(positions).map(p => p.y + NODE_H))
-  const svgW = maxX + 24
-  const svgH = maxY + 24
+  const maxX = Math.max(rootX + rw, ...Object.values(positions).map(p => p.x + nw))
+  const maxY = Math.max(rootY + rh, ...Object.values(positions).map(p => p.y + nh))
+  const svgW = maxX + 16
+  const svgH = maxY + 16
 
   return (
     <svg width="100%" height="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ background: '#0a0e14', borderRadius: 6, minHeight: 200 }}>
@@ -383,10 +413,10 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         const parentPos = node.parentId ? positions[node.parentId] : positions['brain']
         const childPos = positions[node.id]
         if (!parentPos || !childPos) return null
-        const x1 = node.parentId ? parentPos.x + NODE_W : parentPos.x + ROOT_W
-        const y1 = node.parentId ? parentPos.y + NODE_H / 2 : parentPos.y + ROOT_H / 2
+        const x1 = node.parentId ? parentPos.x + nw : parentPos.x + rw
+        const y1 = node.parentId ? parentPos.y + nh / 2 : parentPos.y + rh / 2
         const x2 = childPos.x
-        const y2 = childPos.y + NODE_H / 2
+        const y2 = childPos.y + nh / 2
         const isRunning = node.status === 'running'
         return (
           <path
@@ -407,10 +437,10 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         const pos = positions['brain']
         return (
           <g>
-            <rect x={pos.x} y={pos.y} width={ROOT_W} height={ROOT_H} rx={20} fill="#1e293b" stroke="#a78bfa" strokeWidth={2} />
-            <text x={pos.x + ROOT_W / 2} y={pos.y + 16} textAnchor="middle" fill="#a78bfa" fontSize={9} fontWeight={700}>BRAIN</text>
-            <text x={pos.x + ROOT_W / 2} y={pos.y + 28} textAnchor="middle" fill="#94a3b8" fontSize={8}>
-              {query.slice(0, 14)}{query.length > 14 ? '...' : ''}
+            <rect x={pos.x} y={pos.y} width={rw} height={rh} rx={rh / 2} fill="#1e293b" stroke="#a78bfa" strokeWidth={1.5} />
+            <text x={pos.x + rw / 2} y={pos.y + rh * 0.4} textAnchor="middle" fill="#a78bfa" fontSize={fontSize} fontWeight={700}>BRAIN</text>
+            <text x={pos.x + rw / 2} y={pos.y + rh * 0.72} textAnchor="middle" fill="#94a3b8" fontSize={fontSizeSm}>
+              {query.slice(0, Math.round(14 * s))}{query.length > Math.round(14 * s) ? '...' : ''}
             </text>
           </g>
         )
@@ -427,22 +457,22 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
           <g key={node.id}>
             <rect
               x={pos.x} y={pos.y}
-              width={NODE_W} height={NODE_H}
-              rx={6}
+              width={nw} height={nh}
+              rx={4}
               fill="#1e293b"
               stroke={node.status === 'running' ? '#facc15' : statusColor}
-              strokeWidth={1.5}
+              strokeWidth={1}
             />
             {/* Tool name */}
-            <text x={pos.x + 8} y={pos.y + 14} fill={color} fontSize={9} fontWeight={700}>
-              {node.tool.replace(/^run_/, '').replace(/_/g, ' ')}
+            <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={color} fontSize={fontSize} fontWeight={700}>
+              {node.tool.replace(/^run_/, '').replace(/_/g, ' ').slice(0, Math.round(18 * s))}
             </text>
             {/* Params preview */}
-            <text x={pos.x + 8} y={pos.y + 26} fill="#94a3b8" fontSize={8}>
-              {paramStr.slice(0, 20)}{paramStr.length > 20 ? '...' : ''}
+            <text x={pos.x + 6} y={pos.y + nh * 0.55} fill="#94a3b8" fontSize={fontSizeSm}>
+              {paramStr.slice(0, Math.round(20 * s))}{paramStr.length > Math.round(20 * s) ? '...' : ''}
             </text>
             {/* Status + result count */}
-            <text x={pos.x + 8} y={pos.y + 40} fill={statusColor} fontSize={8} fontWeight={600}>
+            <text x={pos.x + 6} y={pos.y + nh * 0.82} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
               {node.status === 'running'
                 ? '\u23F3 running...'
                 : node.status === 'succeeded'
