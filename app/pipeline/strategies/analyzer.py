@@ -81,12 +81,16 @@ def determine_overlay_type(yield_rate: float, findings_count: int) -> str | None
     return None
 
 
-async def analyze_run_pivots(run_id: str, query: str, result: dict[str, Any]) -> list[dict]:
+async def analyze_run_pivots(
+    run_id: str, query: str, result: dict[str, Any], entity_type: str = "person"
+) -> list[dict]:
     """
     Main entry point. Analyze tool calls from a research run,
     map to pivot patterns, generate overlay signals, upsert to DB.
+
+    For person entities the static PIVOT_TOOL_MAP path is used (proven, no LLM call).
+    For all other categories, tool calls are classified via LLM.
     """
-    entity_type = result.get("entity_type", "person")
     tree = result.get("tree", {})
     branches = tree.get("branches", [])
 
@@ -96,30 +100,50 @@ async def analyze_run_pivots(run_id: str, query: str, result: dict[str, Any]) ->
 
     overlays: list[dict] = []
 
-    for branch in branches:
-        tool_name = branch.get("tool", "")
-        result_count = int(branch.get("result_count", 0))
+    if entity_type == "person":
+        # Existing static path — unchanged, no LLM involved
+        for branch in branches:
+            tool_name = branch.get("tool", "")
+            result_count = int(branch.get("result_count", 0))
 
-        if not tool_name:
-            continue
+            if not tool_name:
+                continue
 
-        selector_type, pivot_pattern = map_tool_to_pivot(tool_name)
-        yield_rate = calculate_yield_rate(result_count, 1)  # 1 call per branch entry
-        overlay_type = determine_overlay_type(yield_rate, result_count)
+            selector_type, pivot_pattern = map_tool_to_pivot(tool_name)
+            yield_rate = calculate_yield_rate(result_count, 1)  # 1 call per branch entry
+            overlay_type = determine_overlay_type(yield_rate, result_count)
 
-        if overlay_type is None:
-            continue
+            if overlay_type is None:
+                continue
 
-        overlay = {
-            "entity_type": entity_type,
-            "selector_type": selector_type,
-            "pivot_pattern": pivot_pattern,
-            "overlay_type": overlay_type,
-            "yield_rate": yield_rate,
-            "run_count": 1,
-        }
-        overlays.append(overlay)
-        _upsert_overlay(overlay)
+            overlay = {
+                "entity_type": entity_type,
+                "selector_type": selector_type,
+                "pivot_pattern": pivot_pattern,
+                "overlay_type": overlay_type,
+                "yield_rate": yield_rate,
+                "run_count": 1,
+            }
+            overlays.append(overlay)
+            _upsert_overlay(overlay)
+    else:
+        # LLM classification path for non-person categories
+        classified = await classify_tool_calls_llm(entity_type, query, branches)
+        for item in classified:
+            findings_count = item.get("findings_count", 0)
+            yield_rate = calculate_yield_rate(findings_count, 1)
+            overlay_type = determine_overlay_type(item.get("yield_rate", yield_rate), findings_count)
+            if overlay_type:
+                overlay = {
+                    "entity_type": entity_type,
+                    "selector_type": item["selector_type"],
+                    "pivot_pattern": item["pivot_pattern"],
+                    "overlay_type": overlay_type,
+                    "yield_rate": item.get("yield_rate", yield_rate),
+                    "run_count": 1,
+                }
+                overlays.append(overlay)
+                _upsert_overlay(overlay)
 
     return overlays
 

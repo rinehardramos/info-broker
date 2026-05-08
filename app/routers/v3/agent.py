@@ -346,7 +346,7 @@ async def _run_is_research(
         # Analyze pivot patterns for strategy overlay learning
         try:
             from app.pipeline.strategies.analyzer import analyze_run_pivots
-            await analyze_run_pivots(run_id, query, result)
+            await analyze_run_pivots(run_id, query, result, entity_type=research_category)
         except Exception as exc:
             log.warning("Pivot analysis failed (non-fatal): %s", exc)
 
