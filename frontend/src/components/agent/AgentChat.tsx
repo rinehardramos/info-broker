@@ -5,6 +5,7 @@ import { sendMessage, getAgentPipeline, getBrainStatus } from '../../api/v3'
 import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
+import FileUploadZone, { type FileUploadZoneHandle } from '../chat/FileUploadZone'
 
 interface Message {
   id: string
@@ -30,6 +31,7 @@ export default function AgentChat() {
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(false)
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
   const bottomRef               = useRef<HTMLDivElement>(null)
+  const uploadZoneRef           = useRef<FileUploadZoneHandle>(null)
 
   const { data: activePipeline } = useQuery({
     queryKey: ['agentPipeline'],
@@ -104,6 +106,21 @@ export default function AgentChat() {
         type: 'plan',
         payload: { plan: pEvent.plan, run_id: event.run_id },
       }])
+    }
+    if (event.type === 'source.indexed') {
+      const sEvent = event as WsEvent & { source_id?: string; findings_count?: number }
+      if (sEvent.source_id) {
+        uploadZoneRef.current?.updateSource(sEvent.source_id, {
+          status: 'indexed',
+          findingsCount: sEvent.findings_count,
+        })
+      }
+    }
+    if (event.type === 'source.failed') {
+      const sEvent = event as WsEvent & { source_id?: string }
+      if (sEvent.source_id) {
+        uploadZoneRef.current?.updateSource(sEvent.source_id, { status: 'failed' })
+      }
     }
   })
 
@@ -342,6 +359,7 @@ export default function AgentChat() {
       </div>
 
       <div className="px-3 py-2" style={{ borderTop: '1px solid var(--border)' }}>
+        <FileUploadZone ref={uploadZoneRef} />
         <textarea
           placeholder="Ask info-broker… (Enter to send)"
           value={input}
