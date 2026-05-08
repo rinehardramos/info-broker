@@ -191,7 +191,17 @@ async def _run_is_research(
         from app.pipeline.strategies.compiler import compile_strategy
         from app.pipeline.strategies.planner import format_plan_for_prompt, format_clarification_for_prompt  # noqa: F401
         research_category = classify_query(query)
-        entity_strategy = await compile_strategy(research_category)
+
+        # Classify sub-strategy
+        substrategy = "none"
+        try:
+            from app.pipeline.strategies.orchestrator import classify_substrategy
+            substrategy = await classify_substrategy(research_category, query)
+            log.info("IS Brain: substrategy=%s for category=%s", substrategy, research_category)
+        except Exception as exc:
+            log.warning("Sub-strategy classification failed: %s", exc)
+
+        entity_strategy = await compile_strategy(research_category, substrategy=substrategy)
 
         # Load technique catalog
         from app.pipeline.techniques import format_techniques_for_prompt

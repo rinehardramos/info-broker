@@ -17,9 +17,16 @@ CATEGORY_SELECTORS: dict[str, list[str]] = {
 _FALLBACK = "person"
 
 
-def get_selectors(entity_type: str) -> list[str]:
+def get_selectors(entity_type: str, substrategy: str | None = None) -> list[str]:
     """Return the selector list for *entity_type*.
 
+    If substrategy is provided, returns the domain-specific selector list
+    when available, falling back to the base category selectors.
     Falls back to the ``person`` selector list for unknown categories.
     """
+    if substrategy and substrategy != "none":
+        from app.pipeline.strategies.domains.registry import get_substrategy_selectors
+        sels = get_substrategy_selectors(entity_type, substrategy)
+        if sels:
+            return sels
     return CATEGORY_SELECTORS.get(entity_type, CATEGORY_SELECTORS[_FALLBACK])

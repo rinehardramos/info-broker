@@ -9,13 +9,30 @@ from app.pipeline.strategies import get_strategy
 log = logging.getLogger(__name__)
 
 
-async def compile_strategy(entity_type: str) -> str:
-    """Load seed strategy + DB overlays, merge into final strategy text."""
-    seed = get_strategy(entity_type)
+async def compile_strategy(entity_type: str, substrategy: str | None = None) -> str:
+    """Load seed strategy + DB overlays, merge into final strategy text.
+
+    If substrategy is provided, loads the domain-specific sub-strategy
+    instead of the base category strategy.
+    """
+    if substrategy and substrategy != "none":
+        from app.pipeline.strategies.domains.registry import get_substrategy
+        seed = get_substrategy(entity_type, substrategy)
+        if not seed:
+            seed = get_strategy(entity_type)  # fallback to base
+    else:
+        seed = get_strategy(entity_type)
+
     if not seed:
         return ""
 
-    overlays = _fetch_overlays(entity_type)
+    # For overlays, use substrategy name if available (fine-grained learning)
+    overlay_key = substrategy if (substrategy and substrategy != "none") else entity_type
+    overlays = _fetch_overlays(overlay_key)
+    if not overlays:
+        # Also check base category overlays as fallback
+        if overlay_key != entity_type:
+            overlays = _fetch_overlays(entity_type)
     if not overlays:
         return seed
 

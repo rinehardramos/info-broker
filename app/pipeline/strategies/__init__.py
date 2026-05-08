@@ -8,7 +8,12 @@ from __future__ import annotations
 
 _STRATEGIES: dict[str, str] = {}
 
-def get_strategy(entity_type: str) -> str:
+def get_strategy(entity_type: str, substrategy: str | None = None) -> str:
+    if substrategy and substrategy != "none":
+        from app.pipeline.strategies.domains.registry import get_substrategy
+        text = get_substrategy(entity_type, substrategy)
+        if text:
+            return text
     if not _STRATEGIES:
         _load_strategies()
     return _STRATEGIES.get(entity_type, "")
