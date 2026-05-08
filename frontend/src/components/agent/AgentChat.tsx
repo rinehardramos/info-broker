@@ -5,27 +5,23 @@ import { sendMessage, getAgentPipeline, getBrainStatus } from '../../api/v3'
 import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
+import { useChatStore, type Message } from '../../stores/chatStore'
 import FileUploadZone, { type FileUploadZoneHandle } from '../chat/FileUploadZone'
-
-interface Message {
-  id: string
-  role: 'user' | 'agent'
-  content: string
-  status?: string
-  type?: 'message' | 'question' | 'plan'
-  payload?: {
-    question?: string
-    options?: string[]
-    plan?: Record<string, unknown>
-    run_id?: string
-    verification_status?: string
-  }
-}
 
 let _msgCounter = 0
 
 export default function AgentChat() {
-  const [messages, setMessages] = useState<Message[]>([])
+  const chatMessages = useChatStore(s => s.messages)
+  const setChatMessages = useChatStore(s => s.setMessages)
+  // Wrap setMessages to support functional updater pattern (prev => newArr)
+  const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    if (typeof updater === 'function') {
+      setChatMessages(updater(useChatStore.getState().messages))
+    } else {
+      setChatMessages(updater)
+    }
+  }
+  const messages = chatMessages
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
