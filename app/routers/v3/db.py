@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS research_trails (
     suggested_pipeline JSONB,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS scorecard JSONB;
 
 CREATE TABLE IF NOT EXISTS finding_feedback (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

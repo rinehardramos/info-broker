@@ -397,6 +397,25 @@ async def _run_is_research(
         except Exception as exc:
             log.warning("Intelligence analysis failed (non-fatal): %s", exc)
 
+        # Build strategy scorecard
+        try:
+            from app.pipeline.fusion.scorecard import build_scorecard
+            scorecard = build_scorecard(
+                trail=result.get("tree", {}),
+                findings=result.get("findings", []),
+                completeness_pct=completeness.get("coverage_pct", 0.0) if 'completeness' in dir() else 0.0,
+                entity_type=result.get("entity_type", "person"),
+            )
+            # Persist scorecard to research_trails
+            from app.routers.v3.db import execute as db_exec
+            db_exec(
+                "UPDATE research_trails SET scorecard = %s WHERE run_id = %s",
+                (json.dumps(scorecard), run_id),
+            )
+            log.info("Scorecard: strategy=%s, %d tactics", scorecard["strategy"]["auto_grade"], len(scorecard["tactics"]))
+        except Exception as exc:
+            log.warning("Scorecard build failed (non-fatal): %s", exc)
+
         # Create procedural memory skill
         try:
             from app.memory.skills import create_skill_from_run

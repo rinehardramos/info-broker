@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
@@ -86,6 +86,64 @@ def list_research_trails(
             (limit,),
         )
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Scorecard
+# ---------------------------------------------------------------------------
+
+
+@router.get("/research-trails/{run_id}/scorecard")
+def get_scorecard(run_id: str, _key: str = Depends(require_api_key)):
+    """Get the scorecard for a research run."""
+    row = fetch_one(
+        "SELECT scorecard FROM research_trails WHERE run_id = %s",
+        (run_id,),
+    )
+    if not row or not row.get("scorecard"):
+        raise HTTPException(status_code=404, detail="No scorecard for this run")
+    return row["scorecard"]
+
+
+@router.post("/research-trails/{run_id}/scorecard/grade")
+def submit_scorecard_grade(run_id: str, body: dict, user: dict = Depends(get_current_user)):
+    """Submit a user grade for a strategy, tactic, or technique."""
+    level = body.get("level")  # "strategy", "tactic", "technique"
+    name = body.get("name")    # tactic name or tool name
+    grade = body.get("grade")  # "A"-"F"
+
+    if not level or not grade or grade not in "ABCDEF":
+        raise HTTPException(status_code=400, detail="level and grade (A-F) required")
+
+    # Fetch current scorecard
+    row = fetch_one("SELECT scorecard FROM research_trails WHERE run_id = %s", (run_id,))
+    if not row or not row.get("scorecard"):
+        raise HTTPException(status_code=404, detail="No scorecard for this run")
+
+    scorecard = row["scorecard"]
+
+    # Apply user grade
+    if level == "strategy":
+        scorecard["strategy"]["user_grade"] = grade
+    elif level == "tactic":
+        for tactic in scorecard.get("tactics", []):
+            if tactic["name"] == name or tactic.get("selector_type") == name:
+                tactic["user_grade"] = grade
+                break
+    elif level == "technique":
+        for tactic in scorecard.get("tactics", []):
+            for tech in tactic.get("techniques", []):
+                if tech["tool"] == name:
+                    tech["user_grade"] = grade
+                    break
+
+    # Persist updated scorecard
+    execute(
+        "UPDATE research_trails SET scorecard = %s WHERE run_id = %s",
+        (json.dumps(scorecard), run_id),
+    )
+
+    return {"status": "ok", "level": level, "name": name, "grade": grade}
 
 
 # ---------------------------------------------------------------------------
