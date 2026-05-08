@@ -11,6 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
 
@@ -171,6 +172,52 @@ def get_source(source_id: str, user: dict = Depends(get_current_user)) -> dict:
     if not row:
         raise HTTPException(status_code=404, detail="Source not found")
     return row
+
+
+@router.post("/query")
+async def query_all_sources(body: dict, _key: str = Depends(require_api_key)) -> list[dict]:
+    """Search across all uploaded file content using Qdrant filtered vector search."""
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    from llm_providers import embed_text
+
+    query = body.get("query", "")
+    limit = min(body.get("limit", 20), 50)
+    filename = body.get("filename", "")
+
+    if not query:
+        return []
+
+    client = QdrantClient(
+        host=os.getenv("QDRANT_HOST", "localhost"),
+        port=int(os.getenv("QDRANT_PORT", "6333")),
+    )
+
+    vector = embed_text(query)
+
+    # Filter to file_upload source only
+    must_conditions = [FieldCondition(key="source_tool", match=MatchValue(value="file_upload"))]
+    if filename:
+        must_conditions.append(FieldCondition(key="title", match=MatchValue(value=filename)))
+
+    hits = client.query_points(
+        collection_name="research_memory",
+        query=vector,
+        query_filter=Filter(must=must_conditions),
+        limit=limit,
+        with_payload=True,
+    ).points
+
+    return [
+        {
+            "title": (h.payload or {}).get("title", ""),
+            "content": (h.payload or {}).get("content", "")[:2000],
+            "score": round(h.score, 4),
+            "source_tool": (h.payload or {}).get("source_tool", ""),
+            "run_id": (h.payload or {}).get("run_id", ""),
+        }
+        for h in hits
+    ]
 
 
 @router.post("/{source_id}/query")

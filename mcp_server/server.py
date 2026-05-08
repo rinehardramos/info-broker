@@ -712,23 +712,14 @@ async def query_uploaded_data(query: str, filename: str = "", limit: int = 20) -
         filename: Optional - filter to a specific file
         limit: Max results to return (default 20)
     """
-    result = await api_call("POST", "/v3/knowledge/memory/search", json={
+    result = await api_call("POST", "/v3/sources/query", json={
         "query": query,
-        "limit": limit * 3,  # over-fetch so we have enough after filtering
+        "filename": filename,
+        "limit": limit,
     })
-    if isinstance(result, list):
-        file_results = [
-            r for r in result
-            if r.get("source_tool") == "file_upload"
-            or "file_upload" in str(r.get("source_tool", ""))
-        ]
-        if filename:
-            file_results = [
-                r for r in file_results
-                if filename.lower() in str(r.get("title", "")).lower()
-            ]
-        return json.dumps(file_results[:limit], default=str)
-    return json.dumps(result, default=str)
+    if isinstance(result, list) and result:
+        return json.dumps(result, default=str)
+    return json.dumps({"message": "No matching data found in uploaded files", "query": query}, default=str)
 
 
 @mcp.tool()
