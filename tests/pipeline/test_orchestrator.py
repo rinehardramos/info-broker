@@ -1,5 +1,5 @@
 """Tests for research query orchestrator."""
-from app.pipeline.strategies.orchestrator import classify_query
+from app.pipeline.strategies.orchestrator import classify_query, classify_query_sequence, transform_selectors
 
 def test_classify_retrieval_investigate():
     assert classify_query("Investigate John Doe's background") == "person"
@@ -57,3 +57,55 @@ def test_classify_case_insensitive():
     # "new product" now routes to the specific product_innovation variant
     assert classify_query("BUILD a new product") == "product_innovation"
     assert classify_query("WHY did this happen") == "explanation"
+
+
+# ---------------------------------------------------------------------------
+# Cross-category transition tests
+# ---------------------------------------------------------------------------
+
+def test_classify_sequence_single():
+    seq = classify_query_sequence("Find John Doe's email")
+    assert seq == ["person"]  # Single category
+
+def test_classify_sequence_compound_build():
+    seq = classify_query_sequence("Build a cure for cancer")
+    assert len(seq) >= 2
+    assert "generation" in seq or "product_innovation" in seq or "scientific_discovery" in seq
+
+def test_classify_sequence_compound_why_and_fix():
+    seq = classify_query_sequence("Why is our system slow and how to fix it?")
+    assert len(seq) >= 2
+    # Should have explanation + generation
+    has_explanation = any(s in seq for s in ["explanation", "root_cause_analysis"])
+    has_generation = any(s in seq for s in ["generation", "product_innovation", "engineering_rd"])
+    assert has_explanation or has_generation
+
+def test_classify_sequence_compound_review_and_predict():
+    seq = classify_query_sequence("What is the state of AI and where is it going?")
+    assert len(seq) >= 2
+
+def test_transform_selectors_retrieval_to_generation():
+    findings = [
+        {"type": "finding", "content": "Existing CRISPR therapy achieves 40% response rate"},
+    ]
+    transformed = transform_selectors(findings, from_category="person", to_category="generation")
+    assert any(t["type"] == "prior_art" for t in transformed)
+
+def test_transform_selectors_explanation_to_generation():
+    findings = [
+        {"type": "root_cause", "content": "Tumor microenvironment suppresses T cells"},
+    ]
+    transformed = transform_selectors(findings, from_category="explanation", to_category="generation")
+    assert any(t["type"] == "constraint" for t in transformed)
+
+def test_transform_selectors_generation_to_explanation():
+    findings = [
+        {"type": "candidate_solution", "content": "Use engineered T cells with TGF-B resistance"},
+    ]
+    transformed = transform_selectors(findings, from_category="generation", to_category="explanation")
+    assert any(t["type"] == "hypothesis" for t in transformed)
+
+def test_transform_selectors_no_change_same_category():
+    findings = [{"type": "finding", "content": "test"}]
+    transformed = transform_selectors(findings, from_category="person", to_category="person")
+    assert transformed[0]["type"] == "finding"  # Unchanged

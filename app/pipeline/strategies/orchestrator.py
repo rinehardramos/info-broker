@@ -104,3 +104,129 @@ def classify_complexity(query: str) -> tuple[str, int]:
 
     tier = "simple" if score <= 0 else "complex"
     return (tier, score)
+
+
+# ---------------------------------------------------------------------------
+# Cross-category transition protocol
+# ---------------------------------------------------------------------------
+
+# Compound query patterns: keywords that indicate multi-category intent
+_COMPOUND_PATTERNS: list[tuple[str, list[str]]] = [
+    # "Build/Create X" with research context → Synthesis/Retrieval + Generation
+    (r"(?:build|create|design|develop)\s+.*(?:cure|solution|system|tool|product)",
+     ["synthesis", "generation"]),
+    # "Why X and how to fix" → Explanation + Generation
+    (r"why\s+.*(?:and|then)\s+(?:how|fix|solve|improve)",
+     ["explanation", "generation"]),
+    # "State of X and where going" → Synthesis + Prediction
+    (r"(?:state of|status of|current)\s+.*(?:where|future|going|next|trend)",
+     ["synthesis", "prediction"]),
+    # "Should we X" → Retrieval + Synthesis
+    (r"should\s+we\s+.*(?:acquire|invest|buy|choose|adopt)",
+     ["person", "synthesis"]),
+    # "Analyze X and recommend" → Synthesis + Generation
+    (r"(?:analyze|assess)\s+.*(?:recommend|suggest|propose)",
+     ["synthesis", "generation"]),
+]
+
+# Selector type transformation map: (from_category, to_category) → type mappings
+_SELECTOR_TRANSFORMS: dict[tuple[str, str], dict[str, str]] = {
+    # Retrieval → Generation: findings become prior art
+    ("person", "generation"): {"finding": "prior_art", "entity": "constraint"},
+    ("company", "generation"): {"finding": "prior_art", "entity": "constraint"},
+    ("lead", "generation"): {"finding": "prior_art"},
+    # Retrieval → Synthesis: findings become evidence
+    ("person", "synthesis"): {"finding": "evidence", "entity": "study"},
+    ("company", "synthesis"): {"finding": "evidence"},
+    # Synthesis → Generation: gaps become problems
+    ("synthesis", "generation"): {"finding": "prior_art", "gap": "problem_statement", "claim": "constraint"},
+    # Explanation → Generation: causes become constraints
+    ("explanation", "generation"): {"root_cause": "constraint", "finding": "prior_art", "cause": "constraint"},
+    ("root_cause_analysis", "generation"): {"root_cause": "constraint", "finding": "prior_art"},
+    # Generation → Explanation: solutions become hypotheses
+    ("generation", "explanation"): {"candidate_solution": "hypothesis", "finding": "evidence"},
+    ("product_innovation", "explanation"): {"candidate_solution": "hypothesis"},
+    # Prediction → Generation: forecasts become constraints
+    ("prediction", "generation"): {"forecast": "constraint", "trend": "constraint", "finding": "prior_art"},
+}
+
+
+def _get_broad_category(specific: str) -> str:
+    """Map a specific strategy to its broad category."""
+    _MAP = {
+        "person": "person", "lead": "person", "researcher": "person",
+        "company": "person", "due_diligence": "person",
+        "generation": "generation", "product_innovation": "generation",
+        "scientific_discovery": "generation", "engineering_rd": "generation",
+        "prediction": "prediction", "technology_forecast": "prediction",
+        "market_forecast": "prediction",
+        "explanation": "explanation", "root_cause_analysis": "explanation",
+        "systems_analysis": "explanation",
+        "synthesis": "synthesis", "systematic_review": "synthesis",
+        "strategic_assessment": "synthesis", "decision_analysis": "synthesis",
+    }
+    return _MAP.get(specific, specific)
+
+
+def classify_query_sequence(query: str) -> list[str]:
+    """Classify a query into a sequence of categories for compound research tasks.
+
+    Returns a list of category keys. Single-category queries return a 1-element list.
+    Compound queries return 2+ categories in execution order.
+    """
+    import re
+
+    q = query.lower().strip()
+
+    # Check compound patterns first
+    for pattern, categories in _COMPOUND_PATTERNS:
+        if re.search(pattern, q, re.IGNORECASE):
+            # Resolve each category hint to what classify_query would return for
+            # a representative query, keeping the hint as-is when it already is
+            # a valid broad category key.
+            resolved = []
+            for cat_hint in categories:
+                if cat_hint in ("synthesis", "generation", "explanation", "prediction", "person"):
+                    resolved.append(cat_hint)
+                else:
+                    resolved.append(classify_query(cat_hint))
+            return resolved
+
+    # Fall back to single category
+    return [classify_query(query)]
+
+
+def transform_selectors(
+    findings: list[dict],
+    from_category: str,
+    to_category: str,
+) -> list[dict]:
+    """Transform selector types when transitioning between research categories.
+
+    Maps finding types from the source category to appropriate types in the
+    target category. E.g., a "finding" from Retrieval becomes "prior_art" in Generation.
+    """
+    if from_category == to_category:
+        return findings  # No transformation needed
+
+    # Look up exact transformation map first
+    transform_map = _SELECTOR_TRANSFORMS.get((from_category, to_category), {})
+
+    # Fall back to broad-category mapping when no exact match exists
+    if not transform_map:
+        broad_from = _get_broad_category(from_category)
+        broad_to = _get_broad_category(to_category)
+        if broad_from != broad_to:
+            transform_map = _SELECTOR_TRANSFORMS.get((broad_from, broad_to), {})
+
+    if not transform_map:
+        # Default: safe pass-through with "finding" → "prior_art"
+        transform_map = {"finding": "prior_art"}
+
+    results = []
+    for f in findings:
+        original_type = f.get("type", "finding")
+        new_type = transform_map.get(original_type, original_type)
+        results.append({**f, "type": new_type})
+
+    return results
