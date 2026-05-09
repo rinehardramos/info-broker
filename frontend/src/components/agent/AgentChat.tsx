@@ -148,6 +148,9 @@ export default function AgentChat() {
         { id: result.job_id, role: 'agent', content: `Research started…`, status: 'pending' },
       ])
       setActiveJobId(result.job_id)
+      // Auto-switch ResultsPanel to this run's tab
+      const { setCol1Content } = useSessionStore.getState()
+      setCol1Content({ type: 'pipeline_run', runId: result.job_id })
     } catch {
       setMessages(prev => [
         ...prev,

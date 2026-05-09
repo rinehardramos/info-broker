@@ -83,42 +83,34 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   // ══════════════════════════════════════════════════════════════════════════
   // 4. WATCH RESEARCH GRAPH BUILD IN REAL-TIME
   // ══════════════════════════════════════════════════════════════════════════
+  // The run tab auto-switches — just wait and watch the ResearchFlow graph
   await subtitle(page, 'IS Brain spawning — recursive tree search with 50+ MCP tools', 4000)
+  await wait(10000) // Watch graph build
 
-  // Wait for run tab to appear
-  await expect(async () => {
-    const count = await page.locator('text=/Research:|competitive|memory/i').count()
-    expect(count).toBeGreaterThan(0)
-  }).toPass({ timeout: 30_000 })
-
-  // Click latest run tab to see the graph
-  const runTab = page.locator('text=/Research:|Agent Default/').last()
-  if (await runTab.isVisible()) {
-    await runTab.click()
-    await wait(2000)
-  }
+  await subtitle(page, 'Strategy: Competitive Intelligence sub-strategy selected via LLM', 5000)
+  await wait(10000)
 
   await subtitle(page, 'Live Research Flow — tool calls stream as a DAG graph', 5000)
+  await wait(8000)
+
+  await subtitle(page, 'Selectors: competitor, market_position, product_offering, pricing_strategy', 5000)
+  await wait(8000)
+
+  await subtitle(page, 'Techniques: DDG search → web crawl → entity extraction → relationship mapping', 5000)
+  await wait(8000)
+
+  // Scroll to see more of the graph as it grows
+  await page.mouse.wheel(0, 300)
+  await wait(4000)
+  await page.mouse.wheel(0, 300)
+  await wait(4000)
+
+  await subtitle(page, 'Auto-scaling graph — nodes shrink as the research tree grows deeper', 4000)
   await wait(5000)
 
-  // Show the graph building for an extended period
-  await subtitle(page, 'Strategy: Person Investigation + Competitive Intelligence sub-strategy', 5000)
-  await wait(8000)
-
-  await subtitle(page, 'Selectors: company names, founder profiles, funding data, benchmarks', 5000)
-  await wait(8000)
-
-  await subtitle(page, 'Techniques: DDG search, web crawl, LinkedIn, SEC filings, Google News', 5000)
-  await wait(8000)
-
-  // Scroll to see more of the graph if it extends
-  await page.mouse.wheel(0, 200)
+  // Scroll back up to see the full graph
+  await page.mouse.wheel(0, -600)
   await wait(3000)
-  await page.mouse.wheel(0, 200)
-  await wait(3000)
-
-  await subtitle(page, 'Auto-scaling graph — nodes shrink as the tree grows deeper', 4000)
-  await wait(5000)
 
   // ══════════════════════════════════════════════════════════════════════════
   // 5. WAIT FOR RESEARCH TO COMPLETE
@@ -140,11 +132,19 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   await wait(2000)
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 6. SHOW RESEARCH RESULTS — scroll through findings
+  // 6. SHOW RESEARCH RESULTS — scroll through ALL sections
   // ══════════════════════════════════════════════════════════════════════════
   await subtitle(page, 'Research complete — browsing findings with confidence scores', 4000)
+  // Findings with confidence scores
   await page.mouse.wheel(0, 400)
   await wait(3000)
+  await page.mouse.wheel(0, 400)
+  await wait(3000)
+  await page.mouse.wheel(0, 400)
+  await wait(3000)
+
+  // Investigation Breakdown / Scorecard section
+  await subtitle(page, 'Investigation Breakdown — per-category scorecard with weighted signals', 4000)
   await page.mouse.wheel(0, 400)
   await wait(3000)
   await page.mouse.wheel(0, 400)
@@ -154,7 +154,7 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   // 7. ANALYZE — entity extraction + relationship mapping
   // ══════════════════════════════════════════════════════════════════════════
   // Scroll back up to find Analyze button
-  await page.mouse.wheel(0, -1200)
+  await page.mouse.wheel(0, -2000)
   await wait(2000)
 
   const analyzeBtn = page.locator('text=/Analyze|Re-Analyze/').first()
@@ -165,7 +165,10 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
     await subtitle(page, 'Analysis complete — entities, relationships, insights extracted', 4000)
   }
 
-  // Scroll to see analysis results
+  // Analysis section — entities, relationships, insights
+  await subtitle(page, 'Analysis section — extracted entities, relationships, strategic insights', 4000)
+  await page.mouse.wheel(0, 400)
+  await wait(3000)
   await page.mouse.wheel(0, 400)
   await wait(3000)
   await page.mouse.wheel(0, 400)
@@ -190,7 +193,17 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   await wait(2000)
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 10. LIVE PROCESSES PAGE
+  // 10. PERFORMANCE DASHBOARD
+  // ══════════════════════════════════════════════════════════════════════════
+  await page.goto('/performance')
+  await wait(2000)
+  await subtitle(page, 'Performance Dashboard — pipeline throughput, latency, and cost metrics', 4000)
+  await wait(3000)
+  await page.mouse.wheel(0, 400)
+  await wait(2000)
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 11. LIVE PROCESSES PAGE
   // ══════════════════════════════════════════════════════════════════════════
   await page.goto('/admin/processes')
   await wait(2000)
@@ -198,7 +211,7 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   await wait(3000)
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 11. PLUGINS PAGE
+  // 12. PLUGINS PAGE
   // ══════════════════════════════════════════════════════════════════════════
   await page.goto('/plugins')
   await wait(2000)
@@ -210,7 +223,7 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   await wait(2000)
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 12. SETTINGS PAGE
+  // 13. SETTINGS PAGE
   // ══════════════════════════════════════════════════════════════════════════
   await page.goto('/settings')
   await wait(2000)
@@ -218,7 +231,7 @@ test('info-broker full feature demo — HD with subtitles', async ({ page }) => 
   await wait(3000)
 
   // ══════════════════════════════════════════════════════════════════════════
-  // 13. BACK TO AGENT — final view
+  // 14. BACK TO AGENT — final view
   // ══════════════════════════════════════════════════════════════════════════
   await page.goto('/')
   await wait(2000)
