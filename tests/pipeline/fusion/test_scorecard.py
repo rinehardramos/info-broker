@@ -1,6 +1,7 @@
 """Tests for strategy scorecard engine."""
 from app.pipeline.fusion.scorecard import (
     build_scorecard, auto_grade_technique, auto_grade_tactic, auto_grade_strategy,
+    grade_comment_technique, grade_comment_tactic, grade_comment_strategy,
 )
 
 
@@ -120,3 +121,46 @@ def test_build_scorecard_groups_by_tactic():
     # They should be grouped into the same tactic
     email_tactics = [t for t in scorecard["tactics"] if t["selector_type"] == "email"]
     assert len(email_tactics) <= 1  # Should be grouped, not duplicated
+
+
+def test_grade_comment_technique_a():
+    c = grade_comment_technique("run_hibp_lookup", "A", 5, None)
+    assert "effective" in c.lower() or "prioritize" in c.lower()
+
+
+def test_grade_comment_technique_f():
+    c = grade_comment_technique("run_instagram_profile", "F", 0, "HTTP 403")
+    assert "FAILED" in c or "failed" in c.lower()
+    assert "403" in c
+
+
+def test_grade_comment_tactic_good():
+    c = grade_comment_tactic("email_investigation", "A", 0.8, ["A", "B"])
+    assert "effective" in c.lower()
+
+
+def test_grade_comment_tactic_bad():
+    c = grade_comment_tactic("social_mapping", "F", 0.0, ["F", "F"])
+    assert "failed" in c.lower()
+
+
+def test_grade_comment_strategy_good():
+    c = grade_comment_strategy("person", "B", 0.7, [])
+    assert "coverage" in c.lower()
+
+
+def test_grade_comment_strategy_gaps():
+    c = grade_comment_strategy("person", "D", 0.2, ["family", "financial", "breach"])
+    assert "family" in c or "financial" in c
+
+
+def test_build_scorecard_includes_comments():
+    trail = {
+        "branches": [
+            {"name": "test", "tools_used": ["run_ddg_search"], "findings_count": 1, "status": "fruit"},
+        ]
+    }
+    sc = build_scorecard(trail, [], completeness_pct=0.3, entity_type="person")
+    assert "comment" in sc["strategy"]
+    assert "comment" in sc["tactics"][0]
+    assert "comment" in sc["tactics"][0]["techniques"][0]
