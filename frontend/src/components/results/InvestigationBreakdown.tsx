@@ -8,13 +8,34 @@ interface Props {
 
 export function InvestigationBreakdown({ runId }: Props) {
   const [scorecard, setScorecard] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    getScorecard(runId).then(setScorecard);
+    setLoading(true);
+    getScorecard(runId)
+      .then((data) => {
+        setScorecard(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, [runId]);
 
-  if (!scorecard) return null;
+  if (loading) {
+    return (
+      <div className="mt-4 border border-gray-700 rounded-lg px-4 py-2 bg-gray-800 text-gray-500 text-sm">
+        Loading investigation breakdown...
+      </div>
+    );
+  }
+
+  if (!scorecard) {
+    return (
+      <div className="mt-4 border border-gray-700 rounded-lg px-4 py-2 bg-gray-800 text-gray-500 text-sm">
+        No scorecard available for this run.
+      </div>
+    );
+  }
 
   const { strategy, tactics } = scorecard;
 
@@ -50,6 +71,9 @@ export function InvestigationBreakdown({ runId }: Props) {
               Coverage: {Math.round(strategy.completeness_pct * 100)}%
             </span>
           </div>
+          {strategy.comment && (
+            <div className="text-xs text-gray-500 italic mt-1">{strategy.comment}</div>
+          )}
 
           {/* Tactics */}
           {tactics.map((tactic: any, i: number) => (
@@ -67,6 +91,9 @@ export function InvestigationBreakdown({ runId }: Props) {
                   yield {Math.round(tactic.yield_rate * 100)}%
                 </span>
               </div>
+              {tactic.comment && (
+                <div className="text-xs text-gray-500 mt-1 italic">{tactic.comment}</div>
+              )}
 
               {/* Techniques */}
               <div className="pl-4 space-y-1">
@@ -85,6 +112,9 @@ export function InvestigationBreakdown({ runId }: Props) {
                         ? 'error'
                         : 'none'}
                     </span>
+                    {tech.comment && (
+                      <span className="text-gray-600 ml-2 italic">{tech.comment.slice(0, 80)}</span>
+                    )}
                   </div>
                 ))}
               </div>

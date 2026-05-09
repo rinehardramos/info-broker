@@ -341,6 +341,15 @@ export interface PerformanceDashboardData {
 export const getPerformanceDashboard = (): Promise<PerformanceDashboardData> =>
   api.get<PerformanceDashboardData>('/v3/dashboard/technique-performance').then(r => r.data)
 
+export async function backfillScorecards(): Promise<number> {
+  try {
+    const { data } = await api.post('/v3/research-trails/scorecards/backfill')
+    return data?.count ?? 0
+  } catch {
+    return 0
+  }
+}
+
 export async function submitScorecardGrade(
   runId: string,
   level: 'strategy' | 'tactic' | 'technique',

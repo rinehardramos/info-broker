@@ -93,6 +93,14 @@ def list_research_trails(
 # ---------------------------------------------------------------------------
 
 
+@router.post("/research-trails/scorecards/backfill")
+def backfill_scorecards_endpoint(_key: str = Depends(require_api_key)):
+    """Backfill scorecards for existing research trails."""
+    from app.pipeline.fusion.scorecard import backfill_scorecards
+    count = backfill_scorecards()
+    return {"count": count, "status": "ok"}
+
+
 @router.get("/research-trails/{run_id}/scorecard")
 def get_scorecard(run_id: str, _key: str = Depends(require_api_key)):
     """Get the scorecard for a research run."""
