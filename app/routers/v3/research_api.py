@@ -313,6 +313,18 @@ async def analyze_findings(body: dict, background_tasks: "BackgroundTasks", user
 
 
 # ---------------------------------------------------------------------------
+# Dashboard — global technique/tactic performance
+# ---------------------------------------------------------------------------
+
+
+@router.get("/dashboard/technique-performance")
+def get_technique_performance_dashboard(_key: str = Depends(require_api_key)):
+    """Global technique/tactic performance dashboard."""
+    from app.pipeline.fusion.dashboard import build_dashboard
+    return build_dashboard()
+
+
+# ---------------------------------------------------------------------------
 # Plugin requests (POST — the GET/PUT are in pipelines.py)
 # ---------------------------------------------------------------------------
 

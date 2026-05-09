@@ -311,6 +311,36 @@ export async function getScorecard(runId: string): Promise<any> {
   }
 }
 
+// --- Performance Dashboard ---
+
+export interface TechniquePerf {
+  tool: string
+  avg_grade: string
+  avg_numeric: number
+  runs: number
+  total_results: number
+  errors: number
+  error_rate: number
+}
+
+export interface TacticPerf {
+  name: string
+  avg_grade: string
+  avg_numeric: number
+  runs: number
+  avg_yield: number
+}
+
+export interface PerformanceDashboardData {
+  techniques: TechniquePerf[]
+  tactics: TacticPerf[]
+  total_runs: number
+  error?: string
+}
+
+export const getPerformanceDashboard = (): Promise<PerformanceDashboardData> =>
+  api.get<PerformanceDashboardData>('/v3/dashboard/technique-performance').then(r => r.data)
+
 export async function submitScorecardGrade(
   runId: string,
   level: 'strategy' | 'tactic' | 'technique',

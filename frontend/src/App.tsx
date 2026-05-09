@@ -18,6 +18,7 @@ const NodePluginPage = lazy(() => import('./pages/NodePluginPage'))
 const PipelinePage   = lazy(() => import('./pages/PipelinePage'))
 const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
 const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
+const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/admin/processes" element={<AuthGuard><LiveProcessesPage /></AuthGuard>} />
             <Route path="/knowledge" element={<AuthGuard><KnowledgeGraphPage /></AuthGuard>} />
+            <Route path="/performance" element={<AuthGuard><PerformanceDashboardPage /></AuthGuard>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
