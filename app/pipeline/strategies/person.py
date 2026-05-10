@@ -5,6 +5,29 @@ ENTITY_TYPE = "person"
 STRATEGY = """
 === PERSON INVESTIGATION STRATEGY ===
 
+--- PIR TEMPLATE ---
+
+PIR: Who is this person, where do they live/work, and what is their current role?
+MANDATORY: At least one verified record (employment, registration, social, government) in any jurisdiction
+SUPPORTING: Record corroborated by a second independent source | Timeline consistent with known facts
+REJECT IF: Subject confirmed active in a jurisdiction that contradicts all H1–H3 findings
+
+--- HYPOTHESIS TABLE ---
+
+H1 (obvious locale): Person is based in their most obvious geography (PH if Filipino name, etc.)
+  search: "[full name] [obvious locale]" | run_ph_sec_dti | run_apollo_search
+
+H2 (migration / diaspora): Person has relocated — search popular migration destinations
+  For Filipino subjects: Italy, UAE, Canada, UK, Australia, US, Singapore
+  search: "[full name] [Italy/UAE/Canada/...]" | "[full name] overseas Filipino worker"
+
+H3 (alias / name variant): Person uses a different name spelling, nickname, or married name
+  search: run_ph_name_variants first | "[nickname] [surname]" | "[maiden name] [surname]"
+
+H_last (no public trace): Person is a private individual with minimal online presence
+  search: "[full name] site:linkedin.com" | "[full name] [employer if known]"
+  If dead end: note absence explicitly — "no records found in [jurisdictions searched]"
+
 execution_model: seed → expand → corroborate → deduplicate → gap_fill
 
 priority_selectors: full_name | email | phone | username | employer/domain | address | photo
