@@ -59,8 +59,10 @@ async def run_research(
     strategies_section: str = "",  # procedural memory strategies for the prompt
     entity_strategy: str = "",  # entity-specific strategy block for the prompt
     techniques_section: str = "",  # technique catalog for the prompt
+    meta_strategies_section: str = "",  # compiled meta-strategies for the prompt
     research_plan: str = "",  # formatted plan string for prompt injection
     user_sources: str = "",  # user-uploaded file context for prompt injection
+    session_context: str = "",  # prior session turns for prompt injection
 ) -> dict[str, Any]:
     """Run a research query via Claude Code subprocess.
 
@@ -81,8 +83,10 @@ async def run_research(
         strategies_section=strategies_section,
         entity_strategy=entity_strategy,
         techniques_section=techniques_section,
+        meta_strategies_section=meta_strategies_section,
         research_plan=research_plan,
         user_sources=user_sources,
+        session_context=session_context,
     )
 
     # Resolve API key — DB first, then env. Skip expired OAuth tokens.
@@ -278,6 +282,19 @@ def _parse_output(raw: str) -> dict[str, Any]:
                 error_count = sum(1 for f in research["findings"] if f.get("error_flagged"))
                 log.info("IS Brain: parsed structured output with %d findings (%d errors filtered)",
                          len(research["findings"]), error_count)
+                # Add topic clusters to result
+                try:
+                    from app.pipeline.fusion.topic_clustering import cluster_findings
+                    research["topic_clusters"] = cluster_findings(research.get("findings") or [])
+                except Exception:
+                    research.setdefault("topic_clusters", [])
+                # Annotate findings with Pyramid of Pain level
+                try:
+                    from app.pipeline.fusion.pyramid_scoring import annotate_findings
+                    if research.get("findings"):
+                        annotate_findings(research["findings"])
+                except Exception:
+                    pass
                 return research
             log.info("IS Brain: parsed JSON but no 'findings' key, keys=%s",
                      list(research.keys()) if isinstance(research, dict) else type(research))
@@ -320,6 +337,7 @@ def _fallback_result(text: str) -> dict[str, Any]:
         "pipeline": None,
         "suggested_plugins": [],
         "gaps": ["Research output was unstructured"],
+        "topic_clusters": [],
     }
 
 
@@ -333,4 +351,5 @@ def _error_result(error: str) -> dict[str, Any]:
         "pipeline": None,
         "suggested_plugins": [],
         "gaps": [error],
+        "topic_clusters": [],
     }
