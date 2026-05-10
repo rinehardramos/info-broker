@@ -1,106 +1,113 @@
-"""Media identification retrieval branches.
+"""Three retrieval branches for media_identification queries.
 
-Three parallel TMDB search strategies for resolving vague media queries:
-  A. character_in_universe  — search by franchise character/universe keywords
-  B. actor_career           — search via known franchise actor's recent credits
-  C. genre_signal           — broad genre + demographic search, franchise-blind
+A (character_in_universe): female character IS in Spider-Man universe
+B (actor_career):          actress FROM Spider-Man films, different new series
+C (genre_signal):          female lead + gritty action, franchise-blind
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from app.pipeline.retrieval.multi_branch import BranchHit
+from app.pipeline.retrieval.multi_branch import BranchHit, BRANCH_QUOTA
+from app.pipeline.retrieval.tmdb_client import (
+    TMDBTitle, search_tv, get_top_cast, get_person_tv_credits, search_franchise_cast,
+)
 
 log = logging.getLogger(__name__)
 
+_YEAR_GTE = 2024
+_SPIDER_MAN_FRANCHISE = [
+    "Spider-Man: No Way Home",
+    "Spider-Man: Across the Spider-Verse",
+    "Spider-Man: Beyond the Spider-Verse",
+    "Madame Web",
+    "Kraven the Hunter",
+]
 
-async def branch_character_in_universe(signals: dict) -> list["BranchHit"]:
-    """Branch A: search for titles tied to a franchise character or universe."""
-    from app.pipeline.retrieval.multi_branch import BranchHit
-    from app.pipeline.retrieval.tmdb_client import search_tv, get_top_cast
 
-    context = signals.get("context", "")
-    primary = signals.get("primary", "")
-    query = f"{context} {primary}".strip()
-    if not query:
-        return []
+def _to_hit(title: TMDBTitle, branch: str, cast: list[dict] | None = None,
+            actor_connection: str | None = None) -> BranchHit:
+    names   = [c.get("name", "") for c in (cast or [])][:3]
+    genders = [c.get("gender", 0) for c in (cast or [])][:3]
+    return BranchHit(
+        title=title.title, year=title.year, type=title.type,
+        tmdb_id=title.tmdb_id, top_billed_cast=names, top_billed_genders=genders,
+        overview=title.overview, source="tmdb", branch=branch,
+        actor_connection=actor_connection,
+    )
 
-    titles = await search_tv(query)
+
+async def branch_character_in_universe(signals: dict) -> list[BranchHit]:
+    """Branch A: female character IS in Spider-Man universe."""
+    context = signals.get("context", "spiderman")
+    queries = [
+        f"{context} female lead series",
+        f"new {context} series girl protagonist",
+        "spider woman silk series 2025",
+    ]
+    results_lists = await asyncio.gather(
+        *[search_tv(q, year_gte=_YEAR_GTE) for q in queries], return_exceptions=True)
     hits: list[BranchHit] = []
-    for t in titles:
-        cast = await get_top_cast(t.tmdb_id, "tv")
-        hits.append(BranchHit(
-            title=t.title,
-            year=t.year,
-            type="tv",
-            tmdb_id=t.tmdb_id,
-            top_billed_cast=[c.get("name", "") for c in cast],
-            top_billed_genders=[c.get("gender", 0) for c in cast],
-            overview=t.overview,
-            source="tmdb",
-            branch="character_in_universe",
-        ))
-    return hits
-
-
-async def branch_actor_career(signals: dict) -> list["BranchHit"]:
-    """Branch B: find recent titles from actors known for the source franchise."""
-    from app.pipeline.retrieval.multi_branch import BranchHit
-    from app.pipeline.retrieval.tmdb_client import search_franchise_cast, get_person_tv_credits
-
-    context = signals.get("context", "")
-    franchise_titles = [context] if context else []
-    if not franchise_titles:
-        return []
-
-    people = await search_franchise_cast(franchise_titles)
-    hits: list[BranchHit] = []
-    for person in people[:3]:
-        person_id = person.get("id")
-        if not person_id:
+    seen: set[int] = set()
+    for results in results_lists:
+        if isinstance(results, Exception):
             continue
-        credits = await get_person_tv_credits(person_id)
-        for t in credits:
-            hits.append(BranchHit(
-                title=t.title,
-                year=t.year,
-                type="tv",
-                tmdb_id=t.tmdb_id,
-                top_billed_cast=[person.get("name", "")],
-                top_billed_genders=[person.get("gender", 0)],
-                overview=t.overview,
-                source="tmdb",
-                branch="actor_career",
-                actor_connection=person.get("name"),
-            ))
-    return hits
+        for title in results:
+            if title.tmdb_id and title.tmdb_id not in seen:
+                seen.add(title.tmdb_id)
+                cast = await get_top_cast(title.tmdb_id, media_type="tv")
+                hits.append(_to_hit(title, "character_in_universe", cast))
+                if len(hits) >= BRANCH_QUOTA:
+                    return hits
+    return hits[:BRANCH_QUOTA]
 
 
-async def branch_genre_signal(signals: dict) -> list["BranchHit"]:
-    """Branch C: genre + demographic search without franchise assumptions."""
-    from app.pipeline.retrieval.multi_branch import BranchHit
-    from app.pipeline.retrieval.tmdb_client import search_tv
-
-    primary = signals.get("primary", "")
-    supporting = signals.get("supporting", "")
-    query = f"{primary} {supporting}".strip()
-    if not query:
+async def branch_actor_career(signals: dict) -> list[BranchHit]:
+    """Branch B: actress FROM Spider-Man films in a DIFFERENT new series."""
+    franchise_cast = await search_franchise_cast(_SPIDER_MAN_FRANCHISE)
+    if not franchise_cast:
         return []
-
-    titles = await search_tv(query)
+    credits_lists = await asyncio.gather(
+        *[get_person_tv_credits(p["id"], year_gte=_YEAR_GTE) for p in franchise_cast[:5]],
+        return_exceptions=True,
+    )
     hits: list[BranchHit] = []
-    for t in titles:
-        hits.append(BranchHit(
-            title=t.title,
-            year=t.year,
-            type="tv",
-            tmdb_id=t.tmdb_id,
-            top_billed_cast=[],
-            top_billed_genders=[],
-            overview=t.overview,
-            source="tmdb",
-            branch="genre_signal",
-        ))
-    return hits
+    for person, credits in zip(franchise_cast[:5], credits_lists):
+        if isinstance(credits, Exception):
+            continue
+        for credit in credits[:2]:
+            if credit.tmdb_id:
+                cast = await get_top_cast(credit.tmdb_id, media_type="tv")
+                hits.append(_to_hit(
+                    credit, "actor_career", cast,
+                    actor_connection=f"{person.get('name', '')} (from Spider-Man franchise)",
+                ))
+        if len(hits) >= BRANCH_QUOTA:
+            break
+    return hits[:BRANCH_QUOTA]
+
+
+async def branch_genre_signal(signals: dict) -> list[BranchHit]:
+    """Branch C: female lead + gritty action, franchise-blind."""
+    primary = signals.get("primary", "girl")
+    queries = [
+        f"new series {primary} protagonist gritty action drama 2025",
+        "new series young woman lead thriller 2025",
+        "2025 streaming series female lead action drama",
+    ]
+    results_lists = await asyncio.gather(
+        *[search_tv(q, year_gte=_YEAR_GTE) for q in queries], return_exceptions=True)
+    hits: list[BranchHit] = []
+    seen: set[int] = set()
+    for results in results_lists:
+        if isinstance(results, Exception):
+            continue
+        for title in results:
+            if title.tmdb_id and title.tmdb_id not in seen:
+                seen.add(title.tmdb_id)
+                cast = await get_top_cast(title.tmdb_id, media_type="tv")
+                hits.append(_to_hit(title, "genre_signal", cast))
+                if len(hits) >= BRANCH_QUOTA:
+                    return hits
+    return hits[:BRANCH_QUOTA]
