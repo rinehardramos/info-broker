@@ -138,6 +138,24 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("Memory lifecycle sweep not started: %s", exc)
 
+    # Start daily LLM curation (contradiction resolution + entity dedup)
+    async def _llm_curation_loop(interval_seconds: int = 86400) -> None:
+        import asyncio as _a
+        while True:
+            await _a.sleep(interval_seconds)
+            try:
+                from app.knowledge.llm_curator import resolve_contradictions_batch, generate_curation_suggestions
+                result = await resolve_contradictions_batch(limit=20)
+                _log.info("LLM curation: resolved %d contradictions", result.get("resolved", 0))
+                sug = await generate_curation_suggestions(limit=20)
+                _log.info("LLM curation: generated %d suggestions", sug.get("created", 0))
+            except Exception as exc:
+                _log.warning("LLM curation sweep failed: %s", exc)
+    try:
+        _aio.create_task(_llm_curation_loop(86400))
+    except Exception as exc:
+        _log.warning("LLM curator loop not started: %s", exc)
+
     yield
     await se_close()
 
@@ -213,6 +231,7 @@ from app.routers.v3.exports import router as v3_exports_router  # noqa: E402
 from app.routers.v3.curation_api import router as v3_curation_router  # noqa: E402
 from app.routers.v3.brain_questions import router as v3_brain_questions_router  # noqa: E402
 from app.routers.v3.sources_api import router as v3_sources_router  # noqa: E402
+from app.routers.v3.sessions_api import router as v3_sessions_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -231,3 +250,4 @@ app.include_router(v3_exports_router)
 app.include_router(v3_curation_router)
 app.include_router(v3_brain_questions_router)
 app.include_router(v3_sources_router)
+app.include_router(v3_sessions_router)
