@@ -63,7 +63,6 @@ async def run_research(
     research_plan: str = "",  # formatted plan string for prompt injection
     user_sources: str = "",  # user-uploaded file context for prompt injection
     session_context: str = "",  # prior session turns for prompt injection
-    prefetched_evidence=None,  # BranchEvidence or None
 ) -> dict[str, Any]:
     """Run a research query via Claude Code subprocess.
 
@@ -74,12 +73,6 @@ async def run_research(
     If on_event is provided, tool call events are pushed in real-time.
     On timeout, partial results are returned instead of an empty error.
     """
-    from app.pipeline.retrieval.multi_branch import BranchEvidence
-    evidence_block = (
-        prefetched_evidence.to_prompt_block()
-        if isinstance(prefetched_evidence, BranchEvidence) else ""
-    )
-
     prompt = build_prompt(
         query=query,
         max_depth=max_depth,
@@ -94,7 +87,6 @@ async def run_research(
         research_plan=research_plan,
         user_sources=user_sources,
         session_context=session_context,
-        prefetched_evidence=evidence_block,
     )
 
     # Resolve API key — DB first, then env. Skip expired OAuth tokens.
@@ -165,7 +157,7 @@ async def run_research(
                     for content in event.get("message", {}).get("content", []):
                         if content.get("type") == "tool_use":
                             tool_name = content.get("name", "")
-                            tc = {"tool": tool_name, "status": "calling", "id": content.get("id", "")}
+                            tc = {"tool": tool_name, "status": "calling", "id": content.get("id", ""), "input": content.get("input", {})}
                             tool_calls.append(tc)
                             if on_event:
                                 await on_event(tc)

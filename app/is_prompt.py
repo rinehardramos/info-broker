@@ -32,7 +32,6 @@ QUERY: {query}
 {context_section}
 
 {session_context}
-{prefetched_evidence}
 {research_plan}
 
 {user_sources}
@@ -45,6 +44,7 @@ Do not rely only on the manifest — query specific columns, values, or keywords
 - run_ai_scoring(items, criteria) — score results by relevance
 - run_summarizer(items, instructions) — condense findings
 - suggest_plugin(name, description, reason) — request a new tool you don't have yet
+- log_cycle(pir, hypotheses, cycle_id, parent_cycle_id) — declare INVESTIGATE cycle start (call before any search)
 
 {meta_strategies_section}
 {entity_strategy}
@@ -159,6 +159,12 @@ CORRECT PATTERN:
 ---
 
 ### STEP 2 — BOOTSTRAP / BROADEN (live evidence first, no commitment)
+
+**MANDATORY CYCLE DECLARATION (call before any search):**
+At the start of every INVESTIGATE cycle — top-level and every child PIR — call:
+log_cycle(pir="<the specific question this cycle answers>", hypotheses=["H1: <desc>", "H2: <desc>", "H3: <desc>", "H_last: <desc>"], cycle_id="<unique id>", parent_cycle_id="<parent id or empty>")
+
+You CANNOT run any search before calling log_cycle for the current cycle. This declares your PIR and competing hypotheses for the investigation graph.
 
 **SOURCE CLASS POLICY:**
 - `training_knowledge` = hypothesis fuel only. It tells you WHAT to look for, not WHAT IS TRUE.
@@ -547,7 +553,6 @@ def build_prompt(
     user_sources: str = "",
     meta_strategies_section: str = "",
     session_context: str = "",
-    prefetched_evidence: str = "",
 ) -> str:
     """Build the full research prompt with context."""
     context_parts: list[str] = []
@@ -612,5 +617,4 @@ def build_prompt(
         user_sources=_esc(user_sources),
         meta_strategies_section=_esc(meta_strategies_section),
         session_context=_esc(session_context),
-        prefetched_evidence=_esc(prefetched_evidence),
     )
