@@ -22,6 +22,35 @@ from app.services.session_service import (
 )
 
 router = APIRouter(prefix="/v3/agent", tags=["v3-agent"])
+
+# PreFlight pending state — keyed by run_id.
+# When PreFlight blocks a query, we store the pending research here and
+# wait for the user to answer the clarification question via /brain-answer.
+# Only then is the brain actually launched with the enriched query.
+_PREFLIGHT_PENDING: dict[str, dict] = {}
+
+# Per-session slot cache — stores the last successful SlotResult for each session so that
+# PreFlight can skip re-asking questions already answered in a prior turn.
+_SESSION_SLOTS: dict[str, "SlotResult"] = {}  # type: ignore[name-defined]
+
+# Identification confirmation state — keyed by run_id.
+# When the pipeline-layer confirmation gate fires, we hold the result here and
+# wait for the user's Yes/No/Not sure response via /brain-answer.
+_CONFIRM_PENDING: dict[str, dict] = {}
+
+def _parse_identification_signals(query: str) -> dict:
+    """Parse PRIMARY/SUPPORTING/CONTEXT labels from an enriched identification query."""
+    signals = {"primary": "", "supporting": "", "context": ""}
+    for line in query.splitlines():
+        line = line.strip()
+        if line.startswith("PRIMARY (subject to identify):"):
+            signals["primary"] = line.split(":", 1)[-1].strip()
+        elif line.startswith("SUPPORTING (scene details):"):
+            signals["supporting"] = line.split(":", 1)[-1].strip()
+        elif line.startswith("CONTEXT (franchise/platform constraints):"):
+            signals["context"] = line.split(":", 1)[-1].strip()
+    return signals
+
 log = logging.getLogger(__name__)
 
 SYSTEM_PIPELINE_ID = "00000000-0000-4000-8000-000000000001"
@@ -145,6 +174,65 @@ def set_agent_pipeline(body: AgentPipelineIn, user: dict = Depends(get_current_u
 # ---------------------------------------------------------------------------
 
 
+@router.get("/confirm/pending")
+async def get_pending_confirmations(user: dict = Depends(get_current_user)):
+    """Return any identification results held pending user confirmation for this user.
+
+    Checks both in-memory _CONFIRM_PENDING (fast path) and DB confirm_pending rows
+    (recovery path after restart). On restart, DB rows are reloaded into memory by
+    the lifespan hook, so this DB fallback is an extra safety net.
+    """
+    uid = str(user["id"])
+    pending = []
+
+    # Primary: in-memory state
+    seen_run_ids: set[str] = set()
+    for run_id, state in list(_CONFIRM_PENDING.items()):
+        # Skip rejected-list entries (keyed as "rejected:{run_id}", value is a list not a dict)
+        if run_id.startswith("rejected:") or not isinstance(state, dict):
+            continue
+        if state.get("uid") != uid:
+            continue
+        result  = state.get("result", {})
+        top     = (result.get("findings") or [{}])[0]
+        pending.append({
+            "run_id":         run_id,
+            "candidate":      top.get("title", ""),
+            "candidate_desc": (top.get("content") or "")[:120],
+            "confidence":     top.get("confidence", 0),
+            "alternatives":   result.get("considered_alternatives", [])[:3],
+        })
+        seen_run_ids.add(run_id)
+
+    # Fallback: DB rows not yet in memory (e.g. between restart and lifespan hook)
+    try:
+        db_rows = fetch_all(
+            "SELECT id, confirmation_data FROM pipeline_runs WHERE status = 'confirm_pending' AND user_id = %s",
+            (uid,),
+        )
+        for row in db_rows:
+            run_id = str(row["id"])
+            if run_id in seen_run_ids:
+                continue
+            data = row.get("confirmation_data") or {}
+            # Reload into memory so future WS replay works
+            if isinstance(data, dict) and data.get("uid"):
+                _CONFIRM_PENDING[run_id] = data
+            result  = data.get("result", {})
+            top     = (result.get("findings") or [{}])[0]
+            pending.append({
+                "run_id":         run_id,
+                "candidate":      top.get("title", ""),
+                "candidate_desc": (top.get("content") or "")[:120],
+                "confidence":     top.get("confidence", 0),
+                "alternatives":   result.get("considered_alternatives", [])[:3],
+            })
+    except Exception as exc:
+        log.warning("confirm/pending DB fallback failed (non-fatal): %s", exc)
+
+    return {"pending": pending}
+
+
 @router.get("/brain/status")
 async def get_brain_status(user: dict = Depends(get_current_user)):
     """Check if the IS brain (Claude Code) is authenticated and ready."""
@@ -265,6 +353,7 @@ async def _run_is_research(
     past_research: list[dict] | None = None,
     session_id: str | None = None,
     session_context: str = "",
+    preflight_result=None,
 ) -> None:
     """Background task: run IS brain and push WS events."""
     from app.routers.v3.stream import push_event
@@ -342,6 +431,19 @@ async def _run_is_research(
 
         entity_strategy = await compile_strategy(research_category, substrategy=substrategy)
 
+        # Multi-branch pre-fetch for media_identification only (non-fatal if fails)
+        prefetched_evidence = None
+        if research_category == "media_identification":
+            try:
+                from app.pipeline.retrieval.multi_branch import prefetch_branches
+                _signals = _parse_identification_signals(query)
+                prefetched_evidence = await prefetch_branches(_signals, research_category)
+                log.info("IS Brain: pre-fetched branches balanced=%s branches=%s",
+                         prefetched_evidence.balanced,
+                         list(prefetched_evidence.branches.keys()))
+            except Exception as _pf_exc:
+                log.warning("prefetch_branches failed (non-fatal): %s", _pf_exc)
+
         # Load technique catalog
         from app.pipeline.techniques import format_techniques_for_prompt
         techniques_section = format_techniques_for_prompt()
@@ -407,6 +509,35 @@ async def _run_is_research(
             log.warning("Meta-strategy compilation failed (non-fatal): %s", exc)
             meta_strategies_section = ""
 
+        # Prepend PreFlight section to session_context so the brain sees it first
+        if preflight_result is not None:
+            if preflight_result.blocking:
+                preflight_section = (
+                    f"[PREFLIGHT: CLARIFICATION REQUIRED]\n"
+                    f"Before any research, call ask_user() with this exact question:\n"
+                    f"Question: {preflight_result.first_question}\n"
+                    f"Options: {preflight_result.first_question_options}\n"
+                    f"This is your FIRST and ONLY action. Do not search. Do not hypothesize.\n"
+                    f"After the user answers, fold the answer into your research context and proceed."
+                )
+            elif preflight_result.tier == 3:
+                preflight_section = (
+                    f"[PREFLIGHT: LOW CONFIDENCE INTERPRETATION]\n"
+                    f"Interpretation: {preflight_result.slots.raw_interpretation}\n"
+                    f"Confidence: {preflight_result.confidence:.0%}\n"
+                    f"Prepend to your summary: '{preflight_result.disclaimer}'\n"
+                    f"Then proceed with research."
+                )
+            else:
+                preflight_section = (
+                    f"[PREFLIGHT: VALIDATED]\n"
+                    f"Query interpreted as: {preflight_result.slots.raw_interpretation}\n"
+                    f"Proceed directly to BROADEN — skip STEP 0 decomposition (already done)."
+                )
+            session_context = (
+                preflight_section + "\n\n" + session_context
+            ).strip()
+
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
             max_depth=max_depth, max_branches=max_branches,
@@ -418,6 +549,7 @@ async def _run_is_research(
             meta_strategies_section=meta_strategies_section,
             user_sources=user_sources,
             session_context=session_context,
+            prefetched_evidence=prefetched_evidence,
         )
 
         # Check if IS brain returned an error result (no findings, error summary)
@@ -427,6 +559,84 @@ async def _run_is_research(
         )
         if is_error:
             raise RuntimeError(result["summary"])
+
+        # ── Pipeline-layer identification confirmation gate ────────────────
+        # The brain cannot reliably self-police this gate at high confidence,
+        # so the orchestrator enforces it deterministically.
+        is_identification = query.startswith("[IDENTIFICATION TASK")
+        if is_identification:
+            top_finding = (result.get("findings") or [{}])[0]
+            top_confidence = top_finding.get("confidence", 0)
+            alternatives = result.get("considered_alternatives") or []
+            rejected = _CONFIRM_PENDING.get(f"rejected:{run_id}", [])
+            rejection_count = len(rejected)
+
+            should_confirm = (
+                top_confidence < 98
+                and (len(alternatives) >= 1 or top_confidence < 85)
+                and rejection_count < 2
+            )
+
+            candidate_name = top_finding.get("title", "this result")
+            candidate_desc = (top_finding.get("content") or "")[:120]
+
+            # Hard lead-gender filter — blocks Spider-Noir before confirmation card
+            if should_confirm and research_category == "media_identification":
+                try:
+                    from app.pipeline.fusion.constraint_filter import (
+                        passes_lead_constraint, extract_primary_signal,
+                    )
+                    _cf_signals = _parse_identification_signals(query)
+                    _cf_primary = extract_primary_signal(_cf_signals.get("primary", ""))
+                    _cf_tmdb_id: int | None = None
+                    try:
+                        _cf_tmdb_id = int(top_finding.get("tmdb_id") or 0) or None
+                    except (ValueError, TypeError):
+                        pass
+                    _cf_result = await passes_lead_constraint(
+                        candidate_title=candidate_name,
+                        candidate_tmdb_id=_cf_tmdb_id,
+                        candidate_type=result.get("entity_type", "tv"),
+                        primary_signal=_cf_primary,
+                    )
+                    if not _cf_result.passed:
+                        log.info("Constraint filter BLOCKED %r: %s",
+                                 candidate_name, _cf_result.reason)
+                        should_confirm = False
+                except Exception as _cf_exc:
+                    log.warning("constraint_filter failed (non-fatal): %s", _cf_exc)
+
+            if should_confirm:
+                state = {
+                    "uid": uid,
+                    "result": result,
+                    "run_id": run_id,
+                    "pipeline_id": pipeline_id,
+                    "query": query,
+                    "session_id": session_id,
+                    "session_context": session_context,
+                    "past_research": past_research,
+                    "rejected": rejected + [candidate_name],
+                }
+                # Persist to DB so the state survives server restarts
+                execute(
+                    "UPDATE pipeline_runs SET status = 'confirm_pending', confirmation_data = %s WHERE id = %s",
+                    (json.dumps(state), run_id),
+                )
+                _CONFIRM_PENDING[run_id] = state
+                from app.routers.v3.stream import push_event as _push_confirm
+                await _push_confirm(uid, {
+                    "type": "brain.confirm",
+                    "run_id": run_id,
+                    "job_id": run_id,
+                    "candidate": candidate_name,
+                    "candidate_desc": candidate_desc,
+                    "confidence": top_confidence,
+                    "alternatives": alternatives[:3],
+                })
+                # Don't store trail or push success yet — wait for confirmation
+                return
+        # ─────────────────────────────────────────────────────────────────
 
         # Update session after investigation run
         if session_id:
@@ -456,6 +666,8 @@ async def _run_is_research(
         log.info("IS Brain: verification status=%s issues=%d", verification["status"], len(verification.get("issues", [])))
 
         suggested_pipeline = result.get("pipeline")
+        # Delete any prior trail for this run_id (re-run scenario — same run_id, new result)
+        execute("DELETE FROM research_trails WHERE run_id = %s", (run_id,))
         trail_id = str(uuid.uuid4())
         execute(
             """INSERT INTO research_trails
@@ -732,7 +944,9 @@ async def send_message(
             (run_id, pipeline_id, uid, workflow_id, body.message),
         )
 
-        # Fetch parent research trail for "Go Deeper" context
+        # Grounding pass — always retrieve similar past findings before launching brain.
+        # For explicit "Go Deeper" (parent_run_id set), use the parent trail directly.
+        # For all other queries, run fused_retrieve to inject graded prior research.
         past_research = None
         if body.parent_run_id:
             parent_trail = fetch_one(
@@ -747,7 +961,97 @@ async def send_message(
                     "findings": parent_trail["findings"] if isinstance(parent_trail["findings"], list) else [],
                     "summary": "",
                     "deeper_leads": trail_data.get("deeper_leads", []),
+                    "grade": "",
                 }]
+        else:
+            # Automatic grounding — retrieve semantically similar past research from memory.
+            # A-graded (user-verified) findings are injected as assertions the brain must
+            # affirm or update with fresh evidence, not ignore.
+            try:
+                from app.memory.retriever import fused_retrieve
+                grounded = await fused_retrieve(body.message, limit=12, user_id=uid)
+                if grounded:
+                    # Group by run_id to reconstruct per-run summaries
+                    by_run: dict[str, list] = {}
+                    for r in grounded:
+                        key = r.run_id or r.ref
+                        by_run.setdefault(key, []).append(r)
+
+                    past_research = []
+                    for run_key, results in list(by_run.items())[:4]:
+                        top = results[0]
+                        grade = ""
+                        # Prefer results with positive user score (A/B graded)
+                        scored = [r for r in results if r.user_score > 0]
+                        if scored:
+                            top = scored[0]
+                            grade = "A"  # user-verified finding
+                        past_research.append({
+                            "query": body.message,
+                            "entity_type": "unknown",
+                            "findings": [
+                                {"title": r.title, "content": r.content[:300], "source": r.source_tool or r.source}
+                                for r in results[:5] if r.title
+                            ],
+                            "summary": top.content[:400] if top.content else "",
+                            "deeper_leads": [],
+                            "grade": grade,
+                        })
+
+                    if not past_research:
+                        past_research = None
+            except Exception as exc:
+                log.warning("Grounding pass failed (non-fatal): %s", exc)
+                past_research = None
+
+        # PreFlight requirements validation — runs before brain launches.
+        # If blocking, emit brain.question directly and hold the brain; do NOT launch yet.
+        preflight_result = None
+        try:
+            from app.pipeline.preflight import validate as preflight_validate
+            sid_for_slots = sid or ""
+            prior_slots = _SESSION_SLOTS.get(sid_for_slots)
+            preflight_result = preflight_validate(body.message, prior_slots=prior_slots)
+            # Cache slots so the next turn in this session can skip already-answered questions.
+            if preflight_result and preflight_result.slots._haiku_succeeded:
+                _SESSION_SLOTS[sid_for_slots] = preflight_result.slots
+        except Exception as exc:
+            log.warning("PreFlight validation failed (non-fatal): %s", exc)
+
+        if preflight_result and preflight_result.blocking:
+            # Gate: return question inline in HTTP response (reliable) AND via WS (belt+suspenders).
+            # The brain is NOT launched. Research resumes when the user answers
+            # via POST /v3/agent/brain-answer with this run_id.
+            # Mark run as awaiting_input so LIVE doesn't show it as an active research run.
+            execute(
+                "UPDATE pipeline_runs SET status = 'awaiting_input' WHERE id = %s",
+                (run_id,),
+            )
+            from app.routers.v3.stream import push_event as _push_event
+            asyncio.create_task(_push_event(uid, {
+                "type": "brain.question",
+                "run_id": run_id,
+                "job_id": run_id,
+                "question": preflight_result.first_question,
+                "options": preflight_result.first_question_options or [],
+                "preflight": True,
+            }))
+            _PREFLIGHT_PENDING[run_id] = {
+                "uid": uid,
+                "pipeline_id": pipeline_id,
+                "original_query": body.message,
+                "past_research": past_research,
+                "session_id": sid,
+                "session_context": session_context,
+            }
+            return AgentMessageOut(
+                job_id=run_id,
+                session_id=sid,
+                status="pending",
+                mode="question",
+                question=preflight_result.first_question,
+                options=preflight_result.first_question_options or [],
+            )
 
         # Fire and forget — research runs async, pushes WS events when done.
         task = asyncio.create_task(
@@ -756,6 +1060,7 @@ async def send_message(
                 past_research=past_research,
                 session_id=sid,
                 session_context=session_context,
+                preflight_result=preflight_result,
             )
         )
         task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
