@@ -57,15 +57,20 @@ class TMDBTitle:
 async def _get(path: str, params: dict | None = None) -> dict:
     key = _resolve_key()
     if not key:
+        log.warning("tmdb_client: no API key configured, skipping request")
         return {}
-    p: dict = {"language": "en-US"}
-    p["api_key"] = key
-    if params:
-        p.update(params)
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        r = await client.get(f"{_TMDB_BASE}{path}", params=p)
-        r.raise_for_status()
-        return r.json()
+    try:
+        p: dict = {"language": "en-US"}
+        p["api_key"] = key
+        if params:
+            p.update(params)
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            r = await client.get(f"{_TMDB_BASE}{path}", params=p)
+            r.raise_for_status()
+            return r.json()
+    except Exception as exc:
+        log.warning("tmdb _get(%s) failed: %s", path, exc)
+        return {}
 
 
 async def search_tv(query: str, year_gte: int = 2024) -> list[TMDBTitle]:
@@ -147,6 +152,7 @@ async def search_franchise_cast(franchise_titles: list[str]) -> list[dict]:
     for cast_list in casts:
         for p in cast_list:
             pid = p.get("id")
+            # gender==1 is TMDB's code for female — we want actress candidates
             if pid and pid not in seen and p.get("gender") == 1:
                 seen.add(pid)
                 people.append(p)
