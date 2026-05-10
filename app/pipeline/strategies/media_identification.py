@@ -23,5 +23,6 @@ principles: MULTI-HYPOTHESIS(≥3 candidates) | VERIFY-SPECIFIC-DETAIL | ACTOR-C
 
 COMPLETENESS CHECKLIST: multiple_hypotheses(3+) | specific_detail_verified | alternative_interpretations_explored | streaming_platform_identified | cast_cross_referenced | trailer_ad_checked
 
+NOTE: The orchestrator pre-fetches retrieval branches (PRE-RETRIEVED EVIDENCE block above the workflow). Work from that corpus; do not re-search it.
 tools: run_tmdb_search | run_multi_search | run_google_news | run_web_crawl | run_serper_search
 """
