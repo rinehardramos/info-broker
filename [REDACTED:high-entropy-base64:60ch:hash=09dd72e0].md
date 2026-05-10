@@ -4,6 +4,8 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
+- [2026-05-07] - [Claude/software-developer] - [RAG rule store: Qdrant-based strategy rule indexing and retrieval] - [app/pipeline/strategies/meta/rule_store.py, tests/pipeline/test_rule_store.py]
+- [2026-05-08] - [Claude/software-developer] - [URE Phase C Task 1: domain sub-strategy registry with directory structure (TDD)] - [app/pipeline/strategies/domains/, tests/pipeline/strategies/test_registry.py]
 - [2026-05-08] - [Claude/software-developer] - [File Import Task 2: TXT and CSV file parser module (TDD)] - [app/sources/__init__.py, app/sources/parser.py, tests/sources/__init__.py, tests/sources/test_parser.py]
 - [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 7: wire scale classifier, planner, verifier into IS brain execution flow] - [app/is_prompt.py, app/is_brain.py, app/routers/v3/agent.py]
 - [2026-05-08] - [Claude/software-developer] - [URE Phase A Task 6: rule-based finding verifier module (TDD)] - [app/pipeline/strategies/verifier.py, tests/pipeline/strategies/test_verifier.py]
