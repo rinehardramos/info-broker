@@ -51,3 +51,24 @@ def test_unknown_gender_always_passes():
         "Any", 99, "tv",
         PrimarySignal(entity="detective", gender="unknown", role="lead")))
     assert result.passed is True
+
+
+def test_spider_noir_scores_low():
+    from app.pipeline.fusion.scorecard import query_explanatory_score
+    candidate = {"title": "Spider-Noir", "year": 2026,
+                 "top_billed_genders": [2], "overview": "1930s detective shotgun",
+                 "branches": ["character_in_universe"]}
+    score = query_explanatory_score(
+        candidate, {"primary": "girl", "supporting": "shotgun", "context": "spiderman"})
+    assert score <= 0.55  # PRIMARY fails (no +0.40)
+
+
+def test_euphoria_scores_high():
+    import datetime
+    from app.pipeline.fusion.scorecard import query_explanatory_score
+    candidate = {"title": "Euphoria", "year": datetime.date.today().year,
+                 "top_billed_genders": [1], "overview": "teen drama violence gun scenes",
+                 "branches": ["actor_career", "genre_signal"]}
+    score = query_explanatory_score(
+        candidate, {"primary": "girl", "supporting": "shotgun", "context": "spiderman"})
+    assert score >= 0.55  # PRIMARY +0.40, recency +0.10, multi-branch +0.10
