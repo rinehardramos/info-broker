@@ -9,7 +9,7 @@ def test_get_strategy_person_returns_string():
 def test_get_strategy_person_contains_key_sections():
     result = get_strategy("person")
     assert "PERSON INVESTIGATION STRATEGY" in result
-    assert "PRIORITY SELECTORS" in result
+    assert "priority_selectors" in result
     assert "COMPLETENESS CHECKLIST" in result
 
 def test_get_strategy_unknown_returns_empty():

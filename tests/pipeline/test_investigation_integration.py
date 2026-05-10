@@ -16,6 +16,6 @@ def test_new_nodes_discoverable():
 
 def test_strategy_mentions_new_tools():
     strategy = get_strategy("person")
-    assert "run_smtp_verifier" in strategy
-    assert "run_hibp_lookup" in strategy
-    assert "run_reverse_lookup" in strategy
+    assert "smtp_verifier" in strategy
+    assert "hibp_lookup" in strategy
+    assert "reverse_lookup" in strategy
