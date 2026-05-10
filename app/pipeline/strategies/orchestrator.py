@@ -14,6 +14,15 @@ log = logging.getLogger(__name__)
 # not "person".  "profile " is kept before generation signals so that
 # "Build a complete profile of Jane Smith" still resolves to "person".
 _CATEGORY_SIGNALS: list[tuple[str, list[str]]] = [
+    # --- Media identification (checked before all other categories) ---
+    ("media_identification", [
+        "what show ", "what movie ", "what series ", "which show ", "which movie ",
+        "identify this show", "identify this movie", "what am i watching",
+        "new series with", "new series on", "new series ", "new show with", "new show on",
+        "girl in ", "guy in ", "man in ",
+        "actress from", "actor from", "who plays",
+        "what is this series", "what is this show", "what is this movie",
+    ]),
     # --- Specific Retrieval variants (checked before generic person) ---
     ("due_diligence", ["due diligence", "kyc", "aml", "compliance check", "background check",
                        "risk assessment", "sanctions", "pep screen", "know your customer"]),
@@ -68,12 +77,21 @@ def classify_query(query: str) -> str:
 # ---------------------------------------------------------------------------
 _COMPLEXITY_SIGNALS: list[tuple[int, list[str]]] = [
     (-2, ["email of", "phone of", "address of"]),
-    (-1, ["what is", "find ", "look up", "who is"]),
+    (-1, ["what is", "look up", "who is"]),  # "find " removed — "find X with description" is NOT simple
     (+2, ["vs", "versus", "compare "]),
     (+2, ["investigate", "analyze", "research ", "root cause"]),
     (+3, ["and also", " and "]),
     (+1, ["why ", "because"]),
     (+1, ["predict", "forecast", "what will"]),
+    # Appearance-description queries are always complex (must identify brand → ambassador → person)
+    (+4, ["mole", "tattoo", "hair color", "eye shape", "cheekbone", "cheek bone", "skin tone",
+          "with curly", "with straight", "with long hair", "with short hair"]),
+    # Entertainment/celebrity identification without a name = complex multi-step reasoning
+    (+3, ["commercial", "advertisement", "in the ad", "in the commercial", "in the video",
+          "kpop", "k-pop", "idol", "actress", "actor in", "singer in", "model in"]),
+    # Non-English cultural context signals complexity
+    (+2, ["korean", "japanese", "chinese", "thai", "filipino", "vietnamese", "bollywood",
+          "telenovela", "anime", "hallyu", "kdrama"]),
 ]
 
 
