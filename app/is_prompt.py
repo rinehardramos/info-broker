@@ -152,7 +152,7 @@ VIOLATION PATTERN (do not do this):
 
 CORRECT PATTERN:
   → Decompose the query into PRIMARY / SUPPORTING / CONTEXT signals (see STEP 0 SIGNAL HIERARCHY)
-  → Run BROADEN using the labeled signal order (PRIMARY+CONTEXT, PRIMARY+SUPPORTING, CONTEXT alone)
+  → Run BROADEN using hypothesis-first search (one search per hypothesis declared in log_cycle)
   → Check results: does any LIVE source name a specific title where the LEAD matches PRIMARY?
   → ONLY THEN name a candidate — with the live source as citation
 
@@ -179,25 +179,33 @@ Do NOT re-search that corpus. Work from it directly.
 YOU MUST produce >= 1 candidate from each non-empty branch before ranking.
 State "no viable candidate" for any branch you cannot satisfy.
 
-When the query provides labeled signals (PRIMARY / SUPPORTING / CONTEXT), search in this order:
-1. PRIMARY + CONTEXT — identifies candidates where the subject matches within the franchise/domain
-2. PRIMARY + SUPPORTING — identifies candidates where both the subject and scene details co-occur
-3. CONTEXT alone with any temporal or type constraints present in the query — surfaces the full candidate space within that domain so nothing is missed
-4. Call get_past_research to check verified prior findings on this topic
+**HYPOTHESIS-FIRST BROADEN — minimum searches = number of hypotheses declared in log_cycle (≥3):**
 
-When signals are NOT labeled (unstructured query):
-1. Search the most specific descriptive element of the query
-2. Search the next most identifying element
-3. Search combined signals or composite query
-4. Call get_past_research
+For each hypothesis declared in log_cycle, run ≥1 dedicated search derived from that hypothesis.
+The search query is hypothesis-specific — ask "what would I search to confirm or deny H_n?" not "what combination of signals do I search?".
 
-If you have fewer than 3 live search results, you CANNOT rank hypotheses. Run more searches.
+H1 search: what confirms the most obvious interpretation?
+H2 search: what confirms the actor-career / alternate-geography interpretation?
+H3 search: what confirms the genre-blind / franchise-dropped interpretation?
+H_last search: what confirms the unconventional interpretation (ad, alias, migration, shell entity)?
 
-**AFTER BROADEN — rank hypotheses by PRIMARY signal coverage first:**
-A candidate that satisfies PRIMARY in the lead role outranks one that satisfies SUPPORTING more strongly.
-The hypothesis that explains MORE labeled signals wins — with PRIMARY weighted above SUPPORTING above CONTEXT.
+Also call get_past_research(query) — prior research may have already found a verified answer.
 
-ANTI-PATTERN: ranking a candidate because it matches CONTEXT + SUPPORTING strongly while only weakly matching PRIMARY (e.g. franchise + weapon match, but wrong lead gender/role). Certainty comes from PRIMARY coverage, not peripheral signal density.
+You CANNOT rank hypotheses before all hypothesis searches complete. This is the hard gate.
+
+**AFTER BROADEN — rank by fewest signal inconsistencies (penalty-based, not elimination):**
+
+Score each hypothesis against the PIR criteria declared in log_cycle:
+- PRIMARY signal mismatch: heavy penalty (candidate scores low, still appears in results)
+- SUPPORTING signal mismatch: moderate penalty
+- CONTEXT signal mismatch: light penalty (CONTEXT is often loose or misleading)
+- Medium-type mismatch (ad vs. show, from PreFlight): heavy penalty when medium is known
+- Recency mismatch: moderate penalty for candidates outside the stated time window
+
+No candidate is eliminated from the result set — every hypothesis scores at its earned confidence.
+The top-ranked hypothesis proceeds to RECURSE. Low-scoring hypotheses are reported as considered alternatives.
+
+ANTI-PATTERN: ranking a candidate high because it matches CONTEXT + SUPPORTING while mismatching PRIMARY. PRIMARY mismatch is the heaviest penalty — a franchise + weapon match with wrong lead gender/medium scores below a partial match that satisfies PRIMARY.
 
 ### STEP 3 — PLAN
 
