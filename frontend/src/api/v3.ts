@@ -48,8 +48,22 @@ export interface CoreSettingsOut {
 }
 
 export interface AgentMessageOut {
-  job_id: string
+  job_id: string | null
+  session_id: string
   status: string
+  reply: string | null
+  mode: 'investigation' | 'conversational'
+}
+
+export interface AgentSession {
+  id: string
+  genesis_query: string
+  status: 'active' | 'archived'
+  created_at: string
+  turn_count: number
+  run_count: number
+  accumulated_summary: string
+  entity_type: string
 }
 
 export interface AgentPipelineOut {
@@ -80,8 +94,24 @@ export const updatePreferences = (body: Partial<PreferencesOut>) =>
 
 // --- Agent ---
 
-export const sendMessage = (message: string, context_job_id?: string, use_intelligent_search?: boolean, parent_run_id?: string) =>
-  api.post<AgentMessageOut>('/v3/agent/message', { message, context_job_id, use_intelligent_search, parent_run_id }).then(r => r.data)
+export const sendMessage = (
+  message: string,
+  sessionId?: string | null,
+  useIntelligentSearch?: boolean,
+  parentRunId?: string,
+) =>
+  api.post<AgentMessageOut>('/v3/agent/message', {
+    message,
+    session_id: sessionId ?? undefined,
+    use_intelligent_search: useIntelligentSearch,
+    parent_run_id: parentRunId,
+  }).then(r => r.data)
+
+export const archiveSession = (sessionId: string): Promise<void> =>
+  api.post(`/v3/agent/sessions/${sessionId}/archive`).then(() => undefined)
+
+export const listSessions = (): Promise<AgentSession[]> =>
+  api.get('/v3/agent/sessions').then(r => r.data)
 
 export const getAgentPipeline = (): Promise<AgentPipelineOut> =>
   api.get<AgentPipelineOut>('/v3/agent/pipeline').then(r => r.data)
