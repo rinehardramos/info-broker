@@ -389,6 +389,20 @@ async def _run_is_research(
                     "call_id": ev.get("tool_use_id", ""),
                     "preview": ev.get("preview", ""),
                 })
+            elif clean_tool == "log_cycle":
+                inp = ev.get("input", {}) or {}
+                hyps = inp.get("hypotheses", [])
+                if isinstance(hyps, str):
+                    hyps = [h.strip() for h in hyps.split("\n") if h.strip()]
+                await push_event(uid, {
+                    "type": "is.cycle",
+                    "job_id": run_id, "run_id": run_id,
+                    "call_id": ev.get("id", ""),
+                    "pir": inp.get("pir", ""),
+                    "hypotheses": hyps,
+                    "cycle_id": inp.get("cycle_id", "cycle_1"),
+                    "parent_cycle_id": inp.get("parent_cycle_id", ""),
+                })
             else:
                 await push_event(uid, {
                     "type": "is.tool_call",
@@ -430,19 +444,6 @@ async def _run_is_research(
             log.warning("Sub-strategy classification failed: %s", exc)
 
         entity_strategy = await compile_strategy(research_category, substrategy=substrategy)
-
-        # Multi-branch pre-fetch for media_identification only (non-fatal if fails)
-        prefetched_evidence = None
-        if research_category == "media_identification":
-            try:
-                from app.pipeline.retrieval.multi_branch import prefetch_branches
-                _signals = _parse_identification_signals(query)
-                prefetched_evidence = await prefetch_branches(_signals, research_category)
-                log.info("IS Brain: pre-fetched branches balanced=%s branches=%s",
-                         prefetched_evidence.balanced,
-                         list(prefetched_evidence.branches.keys()))
-            except Exception as _pf_exc:
-                log.warning("prefetch_branches failed (non-fatal): %s", _pf_exc)
 
         # Load technique catalog
         from app.pipeline.techniques import format_techniques_for_prompt
@@ -549,7 +550,6 @@ async def _run_is_research(
             meta_strategies_section=meta_strategies_section,
             user_sources=user_sources,
             session_context=session_context,
-            prefetched_evidence=prefetched_evidence,
         )
 
         # Check if IS brain returned an error result (no findings, error summary)
@@ -579,32 +579,6 @@ async def _run_is_research(
 
             candidate_name = top_finding.get("title", "this result")
             candidate_desc = (top_finding.get("content") or "")[:120]
-
-            # Hard lead-gender filter — blocks Spider-Noir before confirmation card
-            if should_confirm and research_category == "media_identification":
-                try:
-                    from app.pipeline.fusion.constraint_filter import (
-                        passes_lead_constraint, extract_primary_signal,
-                    )
-                    _cf_signals = _parse_identification_signals(query)
-                    _cf_primary = extract_primary_signal(_cf_signals.get("primary", ""))
-                    _cf_tmdb_id: int | None = None
-                    try:
-                        _cf_tmdb_id = int(top_finding.get("tmdb_id") or 0) or None
-                    except (ValueError, TypeError):
-                        pass
-                    _cf_result = await passes_lead_constraint(
-                        candidate_title=candidate_name,
-                        candidate_tmdb_id=_cf_tmdb_id,
-                        candidate_type=result.get("entity_type", "tv"),
-                        primary_signal=_cf_primary,
-                    )
-                    if not _cf_result.passed:
-                        log.info("Constraint filter BLOCKED %r: %s",
-                                 candidate_name, _cf_result.reason)
-                        should_confirm = False
-                except Exception as _cf_exc:
-                    log.warning("constraint_filter failed (non-fatal): %s", _cf_exc)
 
             if should_confirm:
                 state = {
