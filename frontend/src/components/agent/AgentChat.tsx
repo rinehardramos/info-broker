@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
-import { sendMessage, getAgentPipeline, getBrainStatus } from '../../api/v3'
+import { sendMessage, getAgentPipeline, getBrainStatus, archiveSession } from '../../api/v3'
+import type { AgentMessageOut } from '../../api/v3'
 import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -12,6 +13,10 @@ let _msgCounter = 0
 
 export default function AgentChat() {
   const chatMessages = useChatStore(s => s.messages)
+  const clearMessages = useChatStore(s => s.clearMessages)
+  const sessionId = useChatStore(s => s.sessionId)
+  const setSessionId = useChatStore(s => s.setSessionId)
+  const setGenesisQuery = useChatStore(s => s.setGenesisQuery)
   const setChatMessages = useChatStore(s => s.setMessages)
   // Wrap setMessages to support functional updater pattern (prev => newArr)
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
@@ -142,15 +147,34 @@ export default function AgentChat() {
     setMessages(prev => [...prev, userMsg])
 
     try {
-      const result = await sendMessage(text, activeJobId ?? undefined, useIntelligentSearch)
-      setMessages(prev => [
-        ...prev,
-        { id: result.job_id, role: 'agent', content: `Research started…`, status: 'pending' },
-      ])
-      setActiveJobId(result.job_id)
-      // Auto-switch ResultsPanel to this run's tab
-      const { setCol1Content } = useSessionStore.getState()
-      setCol1Content({ type: 'pipeline_run', runId: result.job_id })
+      const result: AgentMessageOut = await sendMessage(
+        text,
+        sessionId ?? undefined,
+        useIntelligentSearch,
+      )
+
+      // Store session_id from first response
+      if (result.session_id) {
+        setSessionId(result.session_id)
+        if (!sessionId) setGenesisQuery(text)  // first message = genesis
+      }
+
+      if (result.mode === 'conversational' && result.reply) {
+        // Conversational reply — render directly, no spinner, no ResultsPanel tab
+        setMessages(prev => [
+          ...prev,
+          { id: `agent-${++_msgCounter}`, role: 'agent', content: result.reply! },
+        ])
+      } else {
+        // Investigation — existing async flow
+        setMessages(prev => [
+          ...prev,
+          { id: result.job_id!, role: 'agent', content: `Researching…`, status: 'pending' },
+        ])
+        setActiveJobId(result.job_id!)
+        const { setCol1Content } = useSessionStore.getState()
+        setCol1Content({ type: 'pipeline_run', runId: result.job_id! })
+      }
     } catch {
       setMessages(prev => [
         ...prev,
@@ -175,7 +199,34 @@ export default function AgentChat() {
         style={{ color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}
       >
         <span>Agent</span>
+        {sessionId && (
+          <span style={{
+            fontSize: 8, color: 'var(--muted)', fontWeight: 400,
+            padding: '1px 5px', borderRadius: 3,
+            border: '1px solid var(--border)', marginLeft: 4,
+          }}>
+            Session active
+          </span>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {messages.length > 0 && (
+            <button
+              onClick={async () => {
+                if (sessionId) {
+                  try { await archiveSession(sessionId) } catch { /* non-fatal */ }
+                }
+                clearMessages()
+              }}
+              title="Clear chat history"
+              style={{
+                padding: '2px 6px', borderRadius: 6, fontSize: 9, fontWeight: 500,
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--muted)', cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+          )}
           {activePipeline && (
             <span
               style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}
