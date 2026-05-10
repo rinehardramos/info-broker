@@ -14,6 +14,12 @@ from pydantic import BaseModel
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.models import AgentMessageIn, AgentMessageOut, AgentPipelineOut
+from app.services.session_service import (
+    classify_turn,
+    build_session_context,
+    build_conversational_reply,
+    update_session_after_run,
+)
 
 router = APIRouter(prefix="/v3/agent", tags=["v3-agent"])
 log = logging.getLogger(__name__)
@@ -48,6 +54,34 @@ def _get_active_pipeline(user_id: str) -> dict:
     if not row:
         raise HTTPException(status_code=503, detail="No agent pipeline configured")
     return row
+
+
+def _create_or_fetch_session(session_id: str | None, user_id: str, message: str) -> tuple[str, dict | None]:
+    """Return (session_id, session_row). Creates session if session_id is None."""
+    if not session_id:
+        row = fetch_one(
+            """INSERT INTO agent_sessions (id, user_id, genesis_query)
+               VALUES (%s, %s, %s) RETURNING *""",
+            (str(uuid.uuid4()), user_id, message),
+        )
+        return str(row["id"]), dict(row) if row else None
+    row = fetch_one(
+        "SELECT * FROM agent_sessions WHERE id = %s AND user_id = %s",
+        (session_id, user_id),
+    )
+    return session_id, dict(row) if row else None
+
+
+async def _update_session_conversational(
+    session_id: str, user_message: str, reply: str, uid: str
+) -> None:
+    """Lightweight session update for conversational replies."""
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        update_session_after_run,
+        session_id, user_message, reply, None, [], "conversational", False,
+    )
 
 
 @router.get("/pipeline", response_model=AgentPipelineOut)
@@ -129,12 +163,108 @@ async def get_brain_status(user: dict = Depends(get_current_user)):
 
 
 # ---------------------------------------------------------------------------
+# IS brain synchronous endpoint — for MCP / Claude Code direct access
+# ---------------------------------------------------------------------------
+
+
+@router.post("/research/sync")
+async def run_research_sync(
+    body: dict,
+    user: dict = Depends(get_current_user),
+):
+    """Run the IS brain synchronously and return the full result.
+
+    Intended for MCP tool use (run_intelligent_search) so Claude Code and
+    other MCP clients can invoke the full investigation loop directly.
+    Times out after 280s (MCP transport limit).
+    """
+    import asyncio
+    from app.is_brain import run_research as _run_research
+    from app.pipeline.strategies.orchestrator import classify_query, classify_complexity
+    from app.pipeline.strategies.compiler import compile_strategy
+    from app.pipeline.techniques import format_techniques_for_prompt
+
+    uid = str(user["id"])
+    query = (body.get("query") or "").strip()
+    if not query:
+        return {"error": "query is required"}
+
+    max_depth = int(body.get("max_depth", 3))
+    max_branches = int(body.get("max_branches", 12))
+
+    research_category = classify_query(query)
+    _, complexity_score = classify_complexity(query)
+    if complexity_score >= 5:
+        max_depth = max(max_depth, 5)
+        max_branches = max(max_branches, 40)
+    elif complexity_score >= 3:
+        max_depth = max(max_depth, 4)
+        max_branches = max(max_branches, 30)
+
+    try:
+        from app.pipeline.strategies.orchestrator import classify_substrategy
+        substrategy = await classify_substrategy(research_category, query)
+    except Exception:
+        substrategy = "none"
+
+    entity_strategy = await compile_strategy(research_category, substrategy=substrategy)
+    techniques_section = format_techniques_for_prompt()
+
+    strategies_section = ""
+    try:
+        from app.pipeline.strategies.orchestrator import build_strategies_section
+        strategies_section = await build_strategies_section(query)
+    except Exception:
+        pass
+
+    meta_strategies_section = ""
+    try:
+        from app.pipeline.strategies.meta.compiler import build_meta_strategies_section
+        meta_strategies_section = build_meta_strategies_section(query=query, entity_type=research_category)
+    except Exception:
+        pass
+
+    healthy_nodes = []
+    try:
+        from app.pipeline.nodes import NodeRegistry
+        NodeRegistry.auto_discover()
+        healthy_nodes = [{"node_type": n.node_type, "display_name": n.display_name} for n in NodeRegistry.all()]
+    except Exception:
+        pass
+
+    try:
+        result = await asyncio.wait_for(
+            _run_research(
+                query=query,
+                user_id=uid,
+                max_depth=max_depth,
+                max_branches=max_branches,
+                available_nodes=healthy_nodes,
+                strategies_section=strategies_section,
+                entity_strategy=entity_strategy,
+                techniques_section=techniques_section,
+                meta_strategies_section=meta_strategies_section,
+            ),
+            timeout=280.0,
+        )
+    except asyncio.TimeoutError:
+        return {"error": "Research timed out after 280s", "query": query, "summary": "Timed out — try a narrower query or increase max_depth"}
+    except Exception as exc:
+        log.error("run_research_sync failed: %s", exc)
+        return {"error": str(exc), "query": query}
+
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Agent message — triggers pipeline run via Temporal
 # ---------------------------------------------------------------------------
 
 async def _run_is_research(
     run_id: str, uid: str, pipeline_id: str, query: str,
     past_research: list[dict] | None = None,
+    session_id: str | None = None,
+    session_context: str = "",
 ) -> None:
     """Background task: run IS brain and push WS events."""
     from app.routers.v3.stream import push_event
@@ -220,6 +350,14 @@ async def _run_is_research(
         complexity_type, complexity_score = classify_complexity(query)
         log.info("IS Brain: complexity=%s score=%d for query: %s", complexity_type, complexity_score, query[:80])
 
+        # Suggest starting depth based on complexity (no hard cap — brain goes deeper when needed)
+        if complexity_score >= 5:
+            max_depth, max_branches = 5, 40
+        elif complexity_score >= 3:
+            max_depth, max_branches = 4, 30
+        else:
+            max_depth, max_branches = 3, 20
+
         # Build user_sources context from uploaded files
         user_sources = ""
         try:
@@ -258,14 +396,28 @@ async def _run_is_research(
         except Exception as exc:
             log.warning("Failed to load user sources: %s", exc)
 
+        # Build meta-strategies section
+        try:
+            from app.pipeline.strategies.meta.compiler import build_meta_strategies_section
+            meta_strategies_section = build_meta_strategies_section(
+                query=query,
+                entity_type=research_category,
+            )
+        except Exception as exc:
+            log.warning("Meta-strategy compilation failed (non-fatal): %s", exc)
+            meta_strategies_section = ""
+
         result = await run_research(
             query=query, user_id=uid, past_research=past_research,
+            max_depth=max_depth, max_branches=max_branches,
             on_event=_on_tool_event,
             available_nodes=healthy_nodes,
             strategies_section=strategies_section,
             entity_strategy=entity_strategy,
             techniques_section=techniques_section,
+            meta_strategies_section=meta_strategies_section,
             user_sources=user_sources,
+            session_context=session_context,
         )
 
         # Check if IS brain returned an error result (no findings, error summary)
@@ -275,6 +427,28 @@ async def _run_is_research(
         )
         if is_error:
             raise RuntimeError(result["summary"])
+
+        # Update session after investigation run
+        if session_id:
+            try:
+                findings = result.get("findings") or []
+                summary = result.get("summary") or ""
+                entity_type = result.get("entity_type") or "unknown"
+                update_session_after_run(
+                    session_id=session_id,
+                    user_message=query,
+                    agent_summary=summary,
+                    run_id=run_id,
+                    findings=findings,
+                    entity_type=entity_type,
+                    is_investigation=True,
+                )
+                execute(
+                    "UPDATE pipeline_runs SET session_id = %s WHERE id = %s",
+                    (session_id, run_id),
+                )
+            except Exception as exc:
+                log.warning("Session update after run failed: %s", exc)
 
         # Verify findings quality
         from app.pipeline.strategies.verifier import verify_findings
@@ -522,6 +696,33 @@ async def send_message(
     if body.use_intelligent_search:
         # IS bypasses the pipeline entirely — runs Claude Code as a subprocess brain.
         # A pipeline_run record is created for UI tracking; research runs in background.
+
+        # --- Session handling ---
+        sid, session_row = _create_or_fetch_session(body.session_id, uid, body.message)
+
+        # Classifier decides mode (first message always = investigation, no prior thread)
+        thread = (session_row or {}).get("conversation_thread") or []
+        summary = (session_row or {}).get("accumulated_summary") or ""
+        genesis = (session_row or {}).get("genesis_query") or body.message
+        mode = classify_turn(body.message, thread, summary, genesis) if thread else "investigation"
+
+        # --- Conversational reply path ---
+        if mode == "conversational" and session_row:
+            reply_text = build_conversational_reply(body.message, session_row)
+            asyncio.create_task(_update_session_conversational(
+                sid, body.message, reply_text, uid
+            ))
+            return AgentMessageOut(
+                job_id=None,
+                session_id=sid,
+                status="done",
+                reply=reply_text,
+                mode="conversational",
+            )
+
+        # --- Full investigation path ---
+        session_context = build_session_context(session_row, body.message)
+
         fetch_one(
             """
             INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type, query)
@@ -550,11 +751,16 @@ async def send_message(
 
         # Fire and forget — research runs async, pushes WS events when done.
         task = asyncio.create_task(
-            _run_is_research(run_id, uid, pipeline_id, body.message, past_research=past_research)
+            _run_is_research(
+                run_id, uid, pipeline_id, body.message,
+                past_research=past_research,
+                session_id=sid,
+                session_context=session_context,
+            )
         )
         task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
 
-        return AgentMessageOut(job_id=run_id)
+        return AgentMessageOut(job_id=run_id, session_id=sid, status="pending", mode="investigation")
 
     else:
         nodes_rows = fetch_all(
