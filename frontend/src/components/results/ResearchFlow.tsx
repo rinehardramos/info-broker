@@ -23,6 +23,7 @@ interface FlowNode {
   status: 'running' | 'succeeded' | 'failed'
   resultCount?: number
   resultPreview?: string
+  queryPreview?: string
   parentId: string | null
   depth: number
   timestamp: number
@@ -329,6 +330,7 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
           parentId,
           depth,
           timestamp: Date.now(),
+          queryPreview: event.query_preview ?? '',
         }
         next.set(event.run_id!, {
           ...flow,
@@ -711,11 +713,27 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         // Generic tool node
         const color = TOOL_COLORS[node.tool] ?? '#60a5fa'
         const statusColor = STATUS_COLORS[node.status] ?? '#475569'
-        const paramStr = Object.values(node.params).map(v => String(v).slice(0, 20)).join(', ')
-        const tooltipText = `${node.tool}${node.resultPreview ? ` — ${node.resultPreview}` : ''}`
+        // Build human-readable description from tool + query
+        const descText = (() => {
+          const q = node.queryPreview ?? ''
+          if (!q) return ''
+          const t = node.tool
+          if (t.includes('web_search') || t.includes('ddg') || t.includes('serper') || t.includes('qdrant')) return `Searching: ${q}`
+          if (t.includes('crawl') || t.includes('headless')) return `Crawling: ${q.replace(/^https?:\/\//, '').split('/')[0]}`
+          if (t.includes('google_news') || t.includes('rss')) return `News: ${q}`
+          if (t.includes('linkedin')) return `LinkedIn: ${q}`
+          if (t.includes('apollo')) return `Apollo: ${q}`
+          if (t.includes('tmdb')) return `TMDB: ${q}`
+          if (t.includes('opencorporates') || t.includes('sec_dti') || t.includes('bir')) return `Registry: ${q}`
+          if (t.includes('past_research')) return `Prior: ${q}`
+          if (t.includes('wikipedia')) return `Wikipedia: ${q}`
+          if (t.includes('hunter')) return `Hunter.io: ${q}`
+          if (t.includes('shodan')) return `Shodan: ${q}`
+          return q
+        })()
         return (
           <g key={node.id}>
-            <title>{tooltipText}</title>
+            <title>{`${node.tool}${descText ? `: ${descText}` : ''}${node.resultPreview ? ` → ${node.resultPreview}` : ''}`}</title>
             <rect
               x={pos.x} y={pos.y}
               width={nw} height={nh}
@@ -728,9 +746,9 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
             <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={color} fontSize={fontSize} fontWeight={700}>
               {node.tool.replace(/^run_/, '').replace(/_/g, ' ').slice(0, Math.round(18 * s))}
             </text>
-            {/* Params preview */}
+            {/* Description preview (query/URL/name being searched) */}
             <text x={pos.x + 6} y={pos.y + nh * 0.55} fill="#94a3b8" fontSize={fontSizeSm}>
-              {paramStr.slice(0, Math.round(20 * s))}{paramStr.length > Math.round(20 * s) ? '...' : ''}
+              {descText.slice(0, Math.round(22 * s))}{descText.length > Math.round(22 * s) ? '…' : ''}
             </text>
             {/* Status + result count */}
             <text x={pos.x + 6} y={pos.y + nh * 0.82} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>

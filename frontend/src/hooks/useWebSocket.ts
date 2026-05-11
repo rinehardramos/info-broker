@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { useEffect, useRef, useCallback } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
 
@@ -20,7 +21,14 @@ export type WsEvent = {
   depth?: number
   query?: string
   result_preview?: string
+  preview?: string
+  query_preview?: string
   spec?: Record<string, unknown>
+  // is.cycle event fields
+  pir?: string
+  hypotheses?: string[]
+  cycle_id?: string
+  parent_cycle_id?: string
 }
 
 type Handler = (event: WsEvent) => void

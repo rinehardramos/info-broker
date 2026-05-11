@@ -408,12 +408,24 @@ async def _run_is_research(
                     "parent_cycle_id": inp.get("parent_cycle_id", ""),
                 })
             else:
+                inp = ev.get("input", {}) or {}
+                query_preview = str(
+                    inp.get("query") or
+                    inp.get("url") or
+                    inp.get("name") or
+                    inp.get("company_name") or
+                    inp.get("feed_url") or
+                    inp.get("title") or
+                    inp.get("search_query") or
+                    ""
+                )[:120]
                 await push_event(uid, {
                     "type": "is.tool_call",
                     "job_id": run_id, "run_id": run_id,
                     "tool": clean_tool,
                     "status": ev.get("status", ""),
                     "call_id": ev.get("id", ""),
+                    "query_preview": query_preview,
                 })
 
         # Only advertise healthy+enabled tools to the brain
