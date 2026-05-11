@@ -198,7 +198,9 @@ async def get_pending_confirmations(user: dict = Depends(get_current_user)):
         pending.append({
             "run_id":         run_id,
             "candidate":      top.get("title", ""),
-            "candidate_desc": (top.get("content") or "")[:120],
+            "candidate_desc": top.get("content") or "",
+            "candidate_url": top.get("url") or "",
+            "candidate_image": top.get("image_url") or top.get("thumbnail_url") or top.get("poster_url") or "",
             "confidence":     top.get("confidence", 0),
             "alternatives":   result.get("considered_alternatives", [])[:3],
         })
@@ -223,7 +225,9 @@ async def get_pending_confirmations(user: dict = Depends(get_current_user)):
             pending.append({
                 "run_id":         run_id,
                 "candidate":      top.get("title", ""),
-                "candidate_desc": (top.get("content") or "")[:120],
+                "candidate_desc": top.get("content") or "",
+                "candidate_url": top.get("url") or "",
+                "candidate_image": top.get("image_url") or top.get("thumbnail_url") or top.get("poster_url") or "",
                 "confidence":     top.get("confidence", 0),
                 "alternatives":   result.get("considered_alternatives", [])[:3],
             })
@@ -578,7 +582,14 @@ async def _run_is_research(
             )
 
             candidate_name = top_finding.get("title", "this result")
-            candidate_desc = (top_finding.get("content") or "")[:120]
+            candidate_desc = top_finding.get("content") or ""
+            candidate_url = top_finding.get("url") or ""
+            candidate_image = (
+                top_finding.get("image_url")
+                or top_finding.get("thumbnail_url")
+                or top_finding.get("poster_url")
+                or ""
+            )
 
             if should_confirm:
                 state = {
@@ -605,6 +616,8 @@ async def _run_is_research(
                     "job_id": run_id,
                     "candidate": candidate_name,
                     "candidate_desc": candidate_desc,
+                    "candidate_url": candidate_url,
+                    "candidate_image": candidate_image,
                     "confidence": top_confidence,
                     "alternatives": alternatives[:3],
                 })

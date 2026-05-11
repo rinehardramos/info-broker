@@ -473,11 +473,13 @@ export default function AgentChat() {
           // Confirmation card — pipeline-layer gate for identification queries
           if (m.type === 'confirm') {
             const runId      = (m.payload?.run_id ?? '') as string
-            const candidate  = (m.payload?.candidate ?? m.content) as string
-            const desc       = (m.payload?.candidate_desc ?? '') as string
-            const confidence = (m.payload?.confidence ?? 0) as number
-            const alts       = (m.payload?.alternatives ?? []) as string[]
-            const answered   = answeredQuestions[m.id]
+            const candidate      = (m.payload?.candidate ?? m.content) as string
+            const desc           = (m.payload?.candidate_desc ?? '') as string
+            const confidence     = (m.payload?.confidence ?? 0) as number
+            const alts           = (m.payload?.alternatives ?? []) as string[]
+            const candidateUrl   = (m.payload?.candidate_url ?? '') as string
+            const candidateImage = (m.payload?.candidate_image ?? '') as string
+            const answered       = answeredQuestions[m.id]
 
             return (
               <div key={m.id} style={{ margin: '6px 0 12px' }}>
@@ -490,10 +492,44 @@ export default function AgentChat() {
                     RESULT FOUND — PLEASE CONFIRM
                   </span>
                   <div style={{ fontWeight: 600, marginBottom: 3 }}>{candidate}</div>
-                  {desc && <div style={{ color: 'var(--muted)', fontSize: 10 }}>{desc}</div>}
-                  <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 4 }}>
-                    Confidence: {confidence}% {alts.length > 0 && `· Also considered: ${alts.join(', ')}`}
+                  {candidateImage && (
+                    <img
+                      src={candidateImage}
+                      alt={candidate}
+                      style={{
+                        width: '100%', maxHeight: 160, objectFit: 'cover',
+                        borderRadius: 6, marginBottom: 6, display: 'block',
+                      }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                  )}
+                  {desc && <div style={{ color: 'var(--text)', fontSize: 10, lineHeight: 1.6, marginBottom: 4 }}>{desc}</div>}
+                  <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 6 }}>
+                    Confidence: {confidence}%
                   </div>
+                  {alts.length > 0 && (
+                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>Also considered:</span>
+                      {alts.map((alt, i) => (
+                        <div key={i} style={{ marginLeft: 8, marginTop: 2, color: '#94a3b8' }}>· {alt}</div>
+                      ))}
+                    </div>
+                  )}
+                  {candidateUrl && (
+                    <a
+                      href={candidateUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block', marginTop: 8, fontSize: 9,
+                        color: 'var(--accent)', textDecoration: 'none',
+                        border: '1px solid var(--accent)', borderRadius: 8,
+                        padding: '2px 8px', opacity: 0.85,
+                      }}
+                    >
+                      View source ↗
+                    </a>
+                  )}
                 </div>
 
                 {answered ? (
