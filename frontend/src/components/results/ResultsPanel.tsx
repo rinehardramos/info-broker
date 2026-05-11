@@ -124,7 +124,9 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
     queryFn: () => getPipelineRun(runId),
     refetchInterval: (query) => {
       const status = query.state.data?.status
-      return status === 'running' || status === 'queued' ? 3000 : false
+      // Poll while active or awaiting user action (so re-runs and confirmations clear properly)
+      const active = ['running', 'queued', 'confirm_pending', 'awaiting_input']
+      return status && active.includes(status) ? 3000 : false
     },
   })
   const [goingDeeper, setGoingDeeper] = useState(false)
@@ -510,7 +512,12 @@ function ResearchResults({
         setAnalyzing(false)
       }).catch(() => {})
     }
-  }, [runId])
+    // Re-run after "No, try another" resets the run to queued/running.
+    // Polling was disabled while confirm_pending — force a refetch so the amber box clears.
+    if (event.type === 'job.update' && (event.run_id === runId || event.job_id === runId)) {
+      qc.invalidateQueries({ queryKey: ['pipeline-run', runId] })
+    }
+  }, [runId, qc])
 
   useWebSocket(handleWsEvent)
 
