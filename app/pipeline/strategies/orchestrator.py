@@ -23,6 +23,17 @@ _CATEGORY_SIGNALS: list[tuple[str, list[str]]] = [
         "actress from", "actor from", "who plays",
         "what is this series", "what is this show", "what is this movie",
     ]),
+    # --- Place / route / navigation (checked before generic person) ---
+    ("place", [
+        "route to ", "route from ", "directions to ", "directions from ",
+        "how to get to ", "how to get from ", "how do i get to ",
+        "walking from ", "walking to ", "walk from ", "walk to ",
+        "shortcut from ", "shortcut to ", "fastest way to ", "fastest way from ",
+        "commute from ", "commute to ", "on foot from ", "by foot ",
+        "path from ", "path to ", "navigate to ", "navigate from ",
+        "how far is ", "distance from ", "paano makarating ", "papunta sa ",
+        "tawid ", "eskinita ", "bliss hulo", "bliss mandaluyong",
+    ]),
     # --- Specific Retrieval variants (checked before generic person) ---
     ("due_diligence", ["due diligence", "kyc", "aml", "compliance check", "background check",
                        "risk assessment", "sanctions", "pep screen", "know your customer"]),
