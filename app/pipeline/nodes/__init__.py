@@ -95,6 +95,17 @@ class NodeRegistry:
         from app.pipeline.nodes.google_maps_places import GoogleMapsPlacesNode
         from app.pipeline.nodes.ph_fda_lto import PhFdaLtoNode
         from app.pipeline.nodes.mcp_registry_search import MCPRegistrySearchNode
+        from app.pipeline.nodes.arxiv_search import ArxivSearchNode
+        from app.pipeline.nodes.github_repo_stats import GithubRepoStatsNode
+        from app.pipeline.nodes.ph_prc_license_search import PhPrcLicenseSearchNode
+        from app.pipeline.nodes.ph_comelec_voter_search import PhComelecVoterSearchNode
+        from app.pipeline.nodes.ph_psa_civil_registry import PhPsaCivilRegistryNode
+        from app.pipeline.nodes.ph_name_variants import PhNameVariantsNode
+        from app.pipeline.nodes.entity_lineage import EntityLineageNode
+        from app.pipeline.nodes.name_origin_lookup import NameOriginLookupNode
+        from app.pipeline.nodes.migration_corridor_lookup import MigrationCorridorLookupNode
+        from app.pipeline.nodes.h1bdata_search import H1bdataSearchNode
+        from app.pipeline.nodes.icij_search import IcijSearchNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -122,5 +133,10 @@ class NodeRegistry:
             OpenAlexSearchNode(), SemanticScholarNode(),
             TmdbSearchNode(), TavilySearchNode(), ExaSearchNode(),
             GoogleMapsPlacesNode(), PhFdaLtoNode(), MCPRegistrySearchNode(),
+            ArxivSearchNode(), GithubRepoStatsNode(),
+            PhPrcLicenseSearchNode(), PhComelecVoterSearchNode(), PhPsaCivilRegistryNode(),
+            PhNameVariantsNode(), EntityLineageNode(),
+            NameOriginLookupNode(), MigrationCorridorLookupNode(),
+            H1bdataSearchNode(), IcijSearchNode(),
         ]:
             cls.register(node)

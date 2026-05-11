@@ -15,12 +15,41 @@ mcp = FastMCP("info-broker")
 
 
 @mcp.tool()
-async def run_ddg_search(query: str, max_results: int = 10) -> str:
-    """Search the web using DuckDuckGo. Returns a list of results with title, url, and snippet."""
+async def run_web_search(
+    query: str,
+    max_results: int = 15,
+    engines: str = "ddg,baidu,yahoo,serper,brave",
+) -> str:
+    """Multi-engine web search with consensus ranking and auto-translation to English.
+
+    Queries multiple search engines in parallel, deduplicates by URL, and ranks
+    by cross-engine consensus score (higher = more engines agree it's relevant).
+    Non-English results from Baidu/Yandex are automatically translated to English.
+
+    Use this as the PRIMARY search tool for every research branch.
+    For geopolitical/regional/non-Western topics always include baidu and/or yandex.
+
+    engines: comma-separated from:
+      ddg     — DuckDuckGo (free, no key)
+      baidu   — Baidu (free HTML scrape, Chinese-language web)
+      yahoo   — Yahoo Search (free HTML scrape, Bing-powered)
+      yandex  — Yandex (free with YANDEX_API_KEY, or HTML scrape fallback; Russian/Slavic web)
+      google  — Google direct HTML scrape (free fallback when no serper key)
+      bing    — Bing (free HTML scrape, or API with BING_API_KEY)
+      serper  — Google via Serper API (key: SERPER_API_KEY — auto-falls back to google direct)
+      brave   — Brave Search (key: BRAVE_API_KEY)
+      exa     — Exa neural search (key: EXA_API_KEY)
+      tavily  — Tavily AI search (key: TAVILY_API_KEY)
+    """
     result = await api_call(
         "POST",
-        "/v3/nodes/ddg_search/execute",
-        json={"query": query, "max_results": max_results},
+        "/v3/nodes/multi_search/execute",
+        json={
+            "query": query,
+            "max_results": max_results,
+            "engines": [e.strip() for e in engines.split(",") if e.strip()],
+            "translate": True,
+        },
     )
     return json.dumps(result)
 
@@ -512,6 +541,75 @@ async def run_ph_bir(
     return json.dumps(result)
 
 
+@mcp.tool()
+async def run_ph_fda_lto(company_name: str) -> str:
+    """Look up Philippine FDA License to Operate (LTO) records by company name.
+
+    Returns LTO number, status (active/expired/revoked), category, and registered address.
+    Covers medical device manufacturers/distributors/importers regulated by the Philippine FDA.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ph_fda_lto/execute",
+        json={"company_name": company_name},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_ph_prc_license_search(
+    name: str, profession: str = "", license_number: str = ""
+) -> str:
+    """Search the Philippine PRC licensee database by name.
+
+    Returns license number, profession, validity, and status for regulated professionals
+    (nurses, engineers, doctors, CPAs, teachers, architects, and 40+ other professions).
+    Falls back to DDG search of passer lists when the portal is unavailable.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ph_prc_license_search/execute",
+        json={"name": name, "profession": profession, "license_number": license_number},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_ph_comelec_voter_search(
+    name: str, birth_year: str = "", locality: str = ""
+) -> str:
+    """Search the Philippine COMELEC voter registration database by name.
+
+    Returns precinct, barangay, city/municipality, province, and registration status.
+    COMELEC voter records are the most reliable public residency anchor for Filipino persons.
+    Falls back to DDG search when the live portal is unavailable.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ph_comelec_voter_search/execute",
+        json={"name": name, "birth_year": birth_year, "locality": locality},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_ph_psa_civil_registry(
+    name: str, record_type: str = "birth", birth_year: str = "", province: str = ""
+) -> str:
+    """Search PSA civil registry records (birth, marriage, death) by name.
+
+    record_type: 'birth' (default), 'marriage', or 'death'.
+    PSA CRS requires authorized access for direct retrieval — this returns web search results
+    and references. For official certified copies, use serbilis.psa.gov.ph.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/ph_psa_civil_registry/execute",
+        json={"name": name, "record_type": record_type, "birth_year": birth_year, "province": province},
+    )
+    return json.dumps(result)
+
+
 # ---------------------------------------------------------------------------
 # Financial / marketplace tools
 # ---------------------------------------------------------------------------
@@ -640,6 +738,184 @@ async def run_maven_gumroad(
         "POST",
         "/v3/nodes/maven_gumroad/execute",
         json={"query": query, "platform": platform, "max_results": max_results},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def run_github_search(
+    query: str, search_type: str = "repositories", max_results: int = 10
+) -> str:
+    """Search GitHub for repositories, code snippets, or user profiles.
+
+    search_type: 'repositories' (default), 'code', or 'users'.
+    Useful for tech-stack recon, finding open-source projects, and developer OSINT.
+    Requires GITHUB_TOKEN env var for higher rate limits (optional).
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/github_search/execute",
+        json={"query": query, "search_type": search_type, "max_results": max_results},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_github_repo_stats(
+    repo: str,
+    include_commit_activity: bool = True,
+    max_releases: int = 5,
+) -> str:
+    """Fetch GitHub repo metrics: stars, forks, weekly commit velocity, top contributors, and releases.
+
+    repo: full repo name like 'mem0ai/mem0' or comma-separated list (e.g. 'mem0ai/mem0,letta-ai/letta').
+    Returns time-series commit activity, contributor count, and release cadence — critical for OSS competitive analysis.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/github_repo_stats/execute",
+        json={
+            "repo": repo,
+            "include_commit_activity": include_commit_activity,
+            "max_releases": max_releases,
+        },
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_arxiv_search(
+    query: str,
+    category: str = "",
+    sort_by: str = "relevance",
+    max_results: int = 10,
+) -> str:
+    """Search arXiv preprints for AI/ML, CS, math, and science papers.
+
+    category: optional arXiv category filter (e.g. 'cs.AI', 'cs.LG', 'stat.ML').
+    sort_by: 'relevance' (default), 'lastUpdatedDate', or 'submittedDate'.
+    Returns title, authors, abstract, published date, PDF link, and arxiv ID.
+    Free API — no key required.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/arxiv_search/execute",
+        json={
+            "query": query,
+            "category": category,
+            "sort_by": sort_by,
+            "max_results": max_results,
+        },
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_name_origin_lookup(
+    first_name: str = "", last_name: str = "", full_name: str = ""
+) -> str:
+    """Infer nationality/origin probability from a person's name.
+
+    Returns top countries of origin by probability, romanization artifact hints
+    (e.g. Tan=Hokkien/PH, Chan=Cantonese/HK, Chen=Mandarin/CN, Tran=Vietnamese),
+    and diaspora ambiguity flags. Use at the START of any person investigation,
+    before committing to a locale. Powered by Forebears.io + optional Namsor API.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/name_origin_lookup/execute",
+        json={"first_name": first_name, "last_name": last_name, "full_name": full_name},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_migration_corridor_lookup(
+    origin_country: str, max_destinations: int = 10
+) -> str:
+    """Return top destination countries for a given origin country by migrant stock.
+
+    Uses IOM Migration Data Portal API with hardcoded corridor fallback.
+    Returns destination countries ranked by migrant population with search tips
+    specific to each destination (h1bdata.info for US, Gazette for UK, DMW for PH, etc.).
+    Use as Step 1 of geographic widening when initial locale search is low-yield.
+
+    Key corridors: PH→US/UAE/SA/CA/AU/SG; IN→UAE/SA/US/UK/CA; VN→US/JP/AU/KR;
+    CN→US/HK/SG/CA/AU; PK→SA/UAE/UK/US; NG→US/UK/CA; MX→US/CA/ES.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/migration_corridor_lookup/execute",
+        json={"origin_country": origin_country, "max_destinations": max_destinations},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_h1bdata_search(
+    first_name: str = "", last_name: str = "", full_name: str = "",
+    employer: str = "", job_title: str = "",
+) -> str:
+    """Search the H-1B visa disclosure database for a person's US employment history.
+
+    H-1B data is publicly filed with US DOL/USCIS. Returns employer, job title,
+    salary, location, and year for each H-1B filing. Highest-yield first query
+    for any technical-skill IN/CN/PK/PH/VN name in geographic widening.
+    No API key required — fully public data.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/h1bdata_search/execute",
+        json={"first_name": first_name, "last_name": last_name,
+              "full_name": full_name, "employer": employer, "job_title": job_title},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_icij_search(query: str, jurisdiction: str = "", dataset: str = "") -> str:
+    """Search the ICIJ Offshore Leaks database for entities in offshore structures.
+
+    Covers 810K+ entities from Panama Papers, Pandora Papers, Paradise Papers,
+    FinCEN Files, and Offshore Leaks. Returns entity name, jurisdiction, linked
+    companies/individuals, and source dataset.
+    Use for beneficial ownership tracing and offshore structure investigations.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/icij_search/execute",
+        json={"query": query, "jurisdiction": jurisdiction, "dataset": dataset},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_intelligent_search(
+    query: str,
+    max_depth: int = 3,
+    max_branches: int = 12,
+) -> str:
+    """Run the full Intelligent Search (IS) brain on a query.
+
+    This executes the complete recursive investigation loop with:
+    - Multi-engine web search + past research retrieval
+    - Entity-type detection and strategy selection
+    - Meta-strategy injection (geographic widening, financial trail, ACH, etc.)
+    - Recursive branch exploration up to max_depth
+    - Findings fusion and confidence scoring
+
+    Returns a structured JSON result with summary, findings, investigation tree,
+    suggested pipeline, and gaps.
+
+    This is the highest-capability research tool — use it for complex queries
+    that require multi-step investigation rather than single-tool lookups.
+    For simple factual lookups, prefer run_web_search + run_web_crawl.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/agent/research/sync",
+        json={"query": query, "max_depth": max_depth, "max_branches": max_branches},
+        timeout=300.0,
     )
     return json.dumps(result, default=str)
 
@@ -902,3 +1178,21 @@ async def suggest_plugin(name: str, description: str, reason: str) -> str:
         json={"name": name, "description": description, "reason": reason},
     )
     return json.dumps({"status": "new", "message": "New plugin request created.", **result})
+
+
+@mcp.tool()
+async def log_cycle(
+    pir: str,
+    hypotheses: list[str],
+    cycle_id: str = "cycle_1",
+    parent_cycle_id: str = "",
+) -> str:
+    """
+    Declare the start of an INVESTIGATE cycle. Call this before any BROADEN searches.
+
+    pir: The specific question this cycle answers (one sentence).
+    hypotheses: Competing hypotheses for this PIR, e.g. ["H1: PH-based person", "H2: EU-migrant", "H3: alias abroad", "H_last: no public trace"].
+    cycle_id: Unique ID for this cycle, e.g. "cycle_1", "cycle_2", "cycle_1_child_1".
+    parent_cycle_id: ID of the parent cycle if this is a child PIR, else empty string.
+    """
+    return json.dumps({"logged": True, "cycle_id": cycle_id or "cycle_1"})
