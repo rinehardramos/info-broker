@@ -51,6 +51,29 @@ async def stream(websocket: WebSocket):
     _queues[user_id].add(queue)
     log.info("WebSocket connected: user=%s", user_id)
 
+    # Replay any pending confirmation gates so the user sees them after reconnect
+    try:
+        from app.routers.v3.agent import _CONFIRM_PENDING
+        for run_id, pending in list(_CONFIRM_PENDING.items()):
+            if run_id.startswith("rejected:") or not isinstance(pending, dict):
+                continue
+            if pending.get("uid") == user_id:
+                result = pending.get("result", {})
+                top = (result.get("findings") or [{}])[0]
+                queue.put_nowait({
+                    "type": "brain.confirm",
+                    "run_id": run_id,
+                    "job_id": run_id,
+                    "candidate": top.get("title", ""),
+                    "candidate_desc": (top.get("content") or "")[:120],
+                    "confidence": top.get("confidence", 0),
+                    "alternatives": result.get("considered_alternatives", [])[:3],
+                    "replayed": True,
+                })
+                log.info("Replayed brain.confirm for run=%s user=%s", run_id, user_id)
+    except Exception as exc:
+        log.warning("brain.confirm replay failed: %s", exc)
+
     try:
         while True:
             try:

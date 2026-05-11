@@ -91,6 +91,8 @@ class AgentMessageOut(BaseModel):
     status: str = "pending"
     reply: str | None = None
     mode: str = "investigation"
+    question: str | None = None           # PreFlight clarification question (mode="question")
+    options: list[str] | None = None      # PreFlight answer options
 
 
 class AgentSessionOut(BaseModel):

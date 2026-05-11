@@ -4,10 +4,22 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+# Phrases that signal the user is rejecting prior findings
+_REJECTION_PATTERNS = re.compile(
+    r'\b(none of (the|these|those)|not (the one|what i|that|it|right|correct)|'
+    r'(that\'?s?|this is) (wrong|incorrect|not it|not right|not what)|'
+    r'didn\'?t find|no[t ]? (find|found|match)|'
+    r'try again|wrong (answer|result|finding)|'
+    r'not (what|the one) i (was |am )?(looking|seeking|searching)|'
+    r'incorrect result|still not|nope|not exactly)\b',
+    re.IGNORECASE,
+)
 
 _CLASSIFIER_PROMPT = """\
 You are classifying a follow-up message in an ongoing investigation session.
@@ -60,14 +72,27 @@ def _call_classifier(
         return "investigation"
 
 
+def is_rejection_turn(message: str) -> bool:
+    """Return True if the message is an explicit rejection of prior findings."""
+    return bool(_REJECTION_PATTERNS.search(message.strip()))
+
+
 def classify_turn(
     message: str,
     conversation_thread: list[dict] | None,
     accumulated_summary: str | None,
     genesis_query: str = "",
 ) -> str:
-    """Return 'investigation' or 'conversational' for this turn."""
+    """Return 'investigation' or 'conversational' for this turn.
+
+    Rejection turns are always classified as 'investigation' — the brain must
+    re-investigate using E5-graded near-probable seeds from the rejected findings.
+    """
     if not conversation_thread:
+        return "investigation"
+    # Explicit rejection always triggers a new investigation branch
+    if is_rejection_turn(message):
+        log.info("Rejection turn detected: %r — forcing investigation mode", message[:80])
         return "investigation"
     return _call_classifier(
         message=message,
@@ -102,6 +127,49 @@ def build_session_context(session: dict | None, current_message: str) -> str:
         findings_lines.append(f"  - [{conf}%] {title}")
     findings_text = "\n".join(findings_lines) if findings_lines else "  (none yet)"
 
+    # Build rejection context if this is a rejection turn.
+    # Keep this block GENERIC — no entity-specific examples, no special phases.
+    # The IS brain's existing STEP 0 through STEP 7 methodology already handles
+    # rejections correctly: STEP 0 re-decomposes with the rejection as a
+    # constraint, STEP 1 asks discriminating questions, STEP 2 BROADENs from
+    # retained signals, STEP 5 runs the adversarial check against rejected
+    # evidence. Do not duplicate or pre-empt those phases here.
+    rejection_section = ""
+    if is_rejection_turn(current_message):
+        try:
+            from app.pipeline.fusion.grade_feedback import extract_near_probable_seeds
+            seeds = extract_near_probable_seeds(key_findings)
+            rejected_titles = [f.get("title", "?") for f in key_findings[:5]]
+            rejected_block = (
+                "\n".join(f"  - {t}" for t in rejected_titles)
+                if rejected_titles else "  (none recorded)"
+            )
+            retained_block = (
+                "\n".join(f"  - {s}" for s in seeds)
+                if seeds else "  (none — re-derive from genesis query)"
+            )
+            rejection_section = f"""
+[USER REJECTION — E5]
+The user has confirmed the prior findings do not match their direct observation.
+Apply E5 grading (primary-observer rejection) to the rejected items below and
+re-run the standard methodology from STEP 0 with this rejection as a constraint.
+
+Rejected findings (do not re-propose; treat as disconfirming evidence in ACH):
+{rejected_block}
+
+Retained signals (still valid; use as BROADEN seeds):
+{retained_block}
+
+Re-enter the methodology at STEP 0. Decompose the genesis query against the
+retained signals, run STEP 1's clarification gate if a critical gap remains,
+BROADEN from the retained signals (not from the rejected entity's family),
+and apply the STEP 5 adversarial check against the rejected evidence before
+delivering. H_COMPOSITE remains available as a hypothesis. Confidence on any
+new candidate is bounded by H_COMPOSITE and ACH consistency with the rejection.
+"""
+        except Exception as exc:
+            log.warning("Rejection context build failed (non-fatal): %s", exc)
+
     return f"""## SESSION CONTEXT
 This is turn {turn_count + 1} of an ongoing investigation session.
 
@@ -116,7 +184,7 @@ What has been found so far:
 
 Key confirmed findings from prior turns:
 {findings_text}
-
+{rejection_section}
 Current message (the latest refinement/direction):
   "{current_message}"
 
