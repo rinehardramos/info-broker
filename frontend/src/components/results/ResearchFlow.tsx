@@ -8,8 +8,9 @@
  *   IS BRAIN → PIR node → Hypothesis nodes → Search/tool nodes
  */
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
+import { useChatStore } from '../../stores/chatStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,7 +141,16 @@ interface Props {
 }
 
 export function ResearchFlow({ runId: filterRunId }: Props) {
+  const sessionRunIds = useChatStore(s => s.sessionRunIds)
   const [flows, _setFlows] = useState<Map<string, FlowState>>(() => new Map(_flowCache))
+
+  // When the session is cleared (sessionRunIds becomes empty), evict old flows from cache
+  useEffect(() => {
+    if (sessionRunIds.length === 0) {
+      _flowCache.clear()
+      _setFlows(new Map())
+    }
+  }, [sessionRunIds.length])
   // Wrapper that updates both state and cache
   const setFlows = (updater: (prev: Map<string, FlowState>) => Map<string, FlowState>) => {
     _setFlows(prev => {
@@ -394,13 +404,14 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
 
   useWebSocket(handleEvent)
 
-  // Pick which flow to display
+  // Pick which flow to display — scoped to current session runs
   const activeFlow = useMemo(() => {
     if (filterRunId) return flows.get(filterRunId)
-    // Show latest running, or latest overall
-    const all = [...flows.values()]
+    // Only consider flows that belong to the current session
+    const sessionSet = new Set(sessionRunIds)
+    const all = [...flows.values()].filter(f => sessionSet.size === 0 || sessionSet.has(f.runId))
     return all.find(f => f.status === 'running') ?? all[all.length - 1]
-  }, [flows, filterRunId])
+  }, [flows, filterRunId, sessionRunIds])
 
   if (!activeFlow || activeFlow.nodes.length === 0) {
     return (

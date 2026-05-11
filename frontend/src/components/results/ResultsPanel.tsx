@@ -1706,9 +1706,12 @@ export default function ResultsPanel() {
 
   // Keep the most recent runs as dynamic tabs (running first, then latest completed)
   // Dismissed tabs are excluded unless they become active again (e.g. clicked from Live panel)
+  // When a session is active, only show runs from that session (session isolation)
+  const sessionRunIdSet = new Set(sessionRunIds)
   const runTabs = runs
     .filter(r => !dismissedTabs.has(r.id))
     .filter(r => !sessionFollowUpIds.has(r.id))
+    .filter(r => sessionRunIds.length === 0 || sessionRunIdSet.has(r.id))
     .sort((a, b) => {
       // confirm_pending sorts like running (active, needs attention)
       const aActive = a.status === 'running' || a.status === 'confirm_pending'
