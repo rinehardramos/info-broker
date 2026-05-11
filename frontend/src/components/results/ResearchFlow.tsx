@@ -717,19 +717,22 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         const descText = (() => {
           const q = node.queryPreview ?? ''
           if (!q) return ''
-          const t = node.tool
-          if (t.includes('web_search') || t.includes('ddg') || t.includes('serper') || t.includes('qdrant')) return `Searching: ${q}`
-          if (t.includes('crawl') || t.includes('headless')) return `Crawling: ${q.replace(/^https?:\/\//, '').split('/')[0]}`
-          if (t.includes('google_news') || t.includes('rss')) return `News: ${q}`
+          // Normalize: lowercase + strip underscores so WebSearch == web_search
+          const t = node.tool.toLowerCase().replace(/_/g, '')
+          if (t.includes('websearch') || t.includes('ddgsearch') || t.includes('toolsearch') ||
+              t.includes('serpersearch') || t.includes('qdrantsearch') || t.includes('multisearch')) return `Searching: ${q}`
+          if (t.includes('crawl') || t.includes('headless') || t.includes('fetch')) return `Crawling: ${q.replace(/^https?:\/\//, '').split('/')[0]}`
+          if (t.includes('news') || t.includes('rss')) return `News: ${q}`
           if (t.includes('linkedin')) return `LinkedIn: ${q}`
           if (t.includes('apollo')) return `Apollo: ${q}`
           if (t.includes('tmdb')) return `TMDB: ${q}`
-          if (t.includes('opencorporates') || t.includes('sec_dti') || t.includes('bir')) return `Registry: ${q}`
-          if (t.includes('past_research')) return `Prior: ${q}`
+          if (t.includes('opencorporates') || t.includes('secdti') || t.includes('bir')) return `Registry: ${q}`
+          if (t.includes('pastresearch') || t.includes('past_research')) return `Prior: ${q}`
           if (t.includes('wikipedia')) return `Wikipedia: ${q}`
           if (t.includes('hunter')) return `Hunter.io: ${q}`
           if (t.includes('shodan')) return `Shodan: ${q}`
-          return q
+          if (t.includes('linkedin')) return `LinkedIn: ${q}`
+          return `Searching: ${q}`
         })()
         return (
           <g key={node.id}>

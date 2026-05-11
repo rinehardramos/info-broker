@@ -417,6 +417,10 @@ async def _run_is_research(
                     inp.get("feed_url") or
                     inp.get("title") or
                     inp.get("search_query") or
+                    inp.get("pattern") or
+                    inp.get("keyword") or
+                    inp.get("term") or
+                    inp.get("q") or
                     ""
                 )[:120]
                 await push_event(uid, {
