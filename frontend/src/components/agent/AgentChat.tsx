@@ -112,10 +112,12 @@ export default function AgentChat() {
     }
     if (event.type === 'brain.question') {
       const qEvent = event as WsEvent & { question?: string; options?: string[] }
-      // Track that this run has a question — prevents "Researching…" from being added later
       if (event.run_id) pendingQuestionsRef.current.add(event.run_id)
       setMessages(prev => {
-        // Remove the "Researching…" optimistic placeholder for this run (handles non-race case)
+        // Deduplicate: PreFlight may have already added this question via HTTP response.
+        // Skip if the identical question text is already in the message list.
+        const alreadyShown = prev.some(m => m.type === 'question' && m.payload?.question === qEvent.question)
+        if (alreadyShown) return prev
         const filtered = event.run_id
           ? prev.filter(m => m.id !== event.run_id)
           : prev

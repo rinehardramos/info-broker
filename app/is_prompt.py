@@ -97,11 +97,15 @@ If ANY condition fails → the query has a critical gap. Ask about it before res
 
 **3. Ask about the single highest-value gap (one question, one at a time, max 3 total):**
 
+IMPORTANT: Check the "Clarifications from user" section of the query FIRST. If a gap is already answered there, treat it as resolved — do NOT ask it again. Only ask about gaps that are genuinely still open.
+
 DISCOVERY QUERY (user saw/heard something unidentified — highest priority gap is platform):
+→ SKIP if "Clarifications from user" already contains a platform answer (YouTube, Instagram, Netflix, etc.)
 → ask_user("Where did you see or hear this?",
     options=["YouTube", "Facebook/Instagram/TikTok", "Netflix/Amazon/Disney+ (streaming)", "TV broadcast", "Cinema", "Other"])
 
 Follow-up if social platform answered:
+→ SKIP if "Clarifications from user" already contains an ad/organic answer
 → ask_user("Was it an ad, or organic content (a video/post/clip)?",
     options=["An ad", "A video/post/clip", "Not sure"])
 
@@ -116,6 +120,7 @@ MISSING INTENT:
 → ask_user("What do you need?", options=["Identify what it is", "Find more about it", "Verify a claim", "Compare with alternatives"])
 
 TEMPORAL AMBIGUITY on live query:
+→ SKIP if "Clarifications from user" already contains a time period answer (e.g. "Very recent", "2025", "A few years ago")
 → ask_user("Is this about something current or recent?",
     options=["Very recent (2025–2026)", "A few years ago", "Historical", "Not sure"])
 
