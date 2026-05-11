@@ -1030,6 +1030,7 @@ async def send_message(
                 "past_research": past_research,
                 "session_id": sid,
                 "session_context": session_context,
+                "question": preflight_result.first_question,
             }
             return AgentMessageOut(
                 job_id=run_id,
