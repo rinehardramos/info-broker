@@ -404,6 +404,103 @@ def update_plugin_request_status(
     return {"status": "updated"}
 
 
+@router.post("/plugin-requests/create-all")
+def create_all_plugin_requests(user: dict = Depends(get_current_user)):
+    """Deduplicate pending plugin requests by name and create/enable each unique plugin."""
+    rows = fetch_all(
+        "SELECT * FROM plugin_requests WHERE user_id = %s AND status = 'pending' ORDER BY created_at ASC",
+        (str(user["id"]),),
+    )
+
+    from app.pipeline.nodes import NodeRegistry
+    NodeRegistry.auto_discover()
+    existing = {n.node_type for n in NodeRegistry.all()}
+
+    seen_names: dict[str, str] = {}  # normalized_name -> first request_id (kept)
+    created = []
+    dismissed = []
+
+    for row in rows:
+        spec = row.get("spec") or {}
+        name = spec.get("name", "")
+        node_type = name.lower().replace("-", "_").replace(" ", "_")
+        rid = str(row["id"])
+
+        if node_type in seen_names:
+            # Duplicate — dismiss it
+            execute(
+                "UPDATE plugin_requests SET status = 'dismissed', reviewed_at = now() WHERE id = %s",
+                (rid,),
+            )
+            dismissed.append(rid)
+            continue
+
+        seen_names[node_type] = rid
+
+        # Enable node if it exists
+        enabled = False
+        actual_type = node_type
+        if node_type in existing:
+            _set_node_enabled(node_type, True)
+            enabled = True
+        else:
+            for et in existing:
+                if node_type in et or et in node_type:
+                    _set_node_enabled(et, True)
+                    enabled = True
+                    actual_type = et
+                    break
+
+        execute(
+            "UPDATE plugin_requests SET status = 'approved', reviewed_at = now() WHERE id = %s",
+            (rid,),
+        )
+        created.append({"request_id": rid, "node_type": actual_type, "node_enabled": enabled})
+
+    return {"created": created, "dismissed_duplicates": dismissed}
+
+
+@router.post("/plugin-requests/{request_id}/create")
+def create_plugin_from_request(request_id: str, user: dict = Depends(get_current_user)):
+    """Mark a suggested plugin as approved and enable the node if it already exists."""
+    row = fetch_one(
+        "SELECT * FROM plugin_requests WHERE id = %s AND user_id = %s",
+        (request_id, str(user["id"])),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="Plugin request not found")
+
+    spec = row.get("spec") or {}
+    name = spec.get("name", "")
+    node_type = name.lower().replace("-", "_").replace(" ", "_")
+
+    # Enable node if it already exists in the registry
+    enabled = False
+    try:
+        from app.pipeline.nodes import NodeRegistry
+        NodeRegistry.auto_discover()
+        existing = {n.node_type for n in NodeRegistry.all()}
+        if node_type in existing:
+            _set_node_enabled(node_type, True)
+            enabled = True
+        else:
+            # Try partial match
+            for et in existing:
+                if node_type in et or et in node_type:
+                    _set_node_enabled(et, True)
+                    enabled = True
+                    node_type = et
+                    break
+    except Exception:
+        pass
+
+    execute(
+        "UPDATE plugin_requests SET status = 'approved', reviewed_at = now() WHERE id = %s AND user_id = %s",
+        (request_id, str(user["id"])),
+    )
+    return {"status": "approved", "node_type": node_type, "node_enabled": enabled}
+
+
 @router.get("/{pipeline_id}", response_model=PipelineDetailOut)
 def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(

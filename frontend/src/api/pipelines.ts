@@ -78,12 +78,24 @@ export interface ResearchFinding {
   confidence?: number
   branch?: string
   depth?: number
+  source_class?: string
+  image_url?: string
+  thumbnail_url?: string
+  media_type?: 'image' | 'video' | 'audio' | 'document'
 }
 
 export interface ResearchTrail {
   query: string
   entity_type: string | null
   findings: ResearchFinding[]
+  pir_answered?: string
+  working_assumptions?: string[]
+  temporal_sensitivity?: 'high' | 'low'
+  open_questions?: Array<{
+    question: string
+    status: 'provisionally_absent' | 'confirmed_absent' | 'needs_tool' | 'needs_clarification'
+    note?: string
+  }>
   trail: {
     total_branches?: number
     resolved?: number
@@ -175,7 +187,7 @@ export const cancelPipelineRun = (runId: string): Promise<void> =>
 
 export interface PluginRequest {
   id: string
-  spec: { name: string; description: string; reason: string }
+  spec: { name: string; description: string; reason: string; skip_note?: string }
   status: string
   created_at: string
   reviewed_at: string | null
@@ -186,3 +198,9 @@ export const listPluginRequests = (): Promise<PluginRequest[]> =>
 
 export const updatePluginRequestStatus = (id: string, status: string): Promise<void> =>
   api.put(`/v3/pipelines/plugin-requests/${id}/status`, { status }).then(() => undefined)
+
+export const createPluginFromRequest = (id: string): Promise<{ status: string; node_type: string; node_enabled: boolean }> =>
+  api.post(`/v3/pipelines/plugin-requests/${id}/create`).then(r => r.data)
+
+export const createAllPluginRequests = (): Promise<{ created: Array<{ request_id: string; node_type: string; node_enabled: boolean }>; dismissed_duplicates: string[] }> =>
+  api.post('/v3/pipelines/plugin-requests/create-all').then(r => r.data)
