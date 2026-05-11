@@ -453,6 +453,34 @@ def create_all_plugin_requests(user: dict = Depends(get_current_user)):
                     actual_type = et
                     break
 
+        # If no existing node found, generate a stub in auto/ and register it dynamically
+        if not enabled:
+            try:
+                import os as _os, importlib.util as _il
+                _auto_dir = _os.path.join(
+                    _os.path.dirname(_os.path.abspath(__file__)),
+                    '../../pipeline/nodes/auto'
+                )
+                _os.makedirs(_auto_dir, exist_ok=True)
+                _class_name = ''.join(w.capitalize() for w in node_type.split('_')) + 'Node'
+                _display = name.replace('-', ' ').replace('_', ' ').title()
+                _desc = spec.get('description', '')
+                _stub = f'''"""Auto-generated stub: {name}\n\n{_desc}\n"""\nfrom __future__ import annotations\n\n\nclass {_class_name}:\n    node_type = "{node_type}"\n    display_name = "{_display}"\n    category = "source"\n    generated = True\n    config_schema = {{"type": "object", "properties": {{"query": {{"type": "string"}}}}, "required": ["query"]}}\n\n    async def execute(self, config: dict, inputs: list, context) -> list:\n        return []\n'''
+                _fp = _os.path.join(_auto_dir, f'{node_type}.py')
+                with open(_fp, 'w') as _f:
+                    _f.write(_stub)
+                _spec2 = _il.spec_from_file_location(f'app.pipeline.nodes.auto.{node_type}', _fp)
+                _mod = _il.module_from_spec(_spec2)
+                _spec2.loader.exec_module(_mod)
+                _node_cls = getattr(_mod, _class_name)
+                NodeRegistry.register(_node_cls())
+                _set_node_enabled(node_type, True)
+                enabled = True
+                actual_type = node_type
+            except Exception as _exc:
+                import logging
+                logging.getLogger(__name__).warning('Auto-node generation failed for %s: %s', node_type, _exc)
+
         execute(
             "UPDATE plugin_requests SET status = 'approved', reviewed_at = now() WHERE id = %s",
             (rid,),
@@ -496,6 +524,33 @@ def create_plugin_from_request(request_id: str, user: dict = Depends(get_current
                     break
     except Exception:
         pass
+
+    # If no existing node found, generate a stub in auto/ and register it dynamically
+    if not enabled:
+        try:
+            import os as _os, importlib.util as _il
+            _auto_dir = _os.path.join(
+                _os.path.dirname(_os.path.abspath(__file__)),
+                '../../pipeline/nodes/auto'
+            )
+            _os.makedirs(_auto_dir, exist_ok=True)
+            _class_name = ''.join(w.capitalize() for w in node_type.split('_')) + 'Node'
+            _display = name.replace('-', ' ').replace('_', ' ').title()
+            _desc = spec.get('description', '')
+            _stub = f'''"""Auto-generated stub: {name}\n\n{_desc}\n"""\nfrom __future__ import annotations\n\n\nclass {_class_name}:\n    node_type = "{node_type}"\n    display_name = "{_display}"\n    category = "source"\n    generated = True\n    config_schema = {{"type": "object", "properties": {{"query": {{"type": "string"}}}}, "required": ["query"]}}\n\n    async def execute(self, config: dict, inputs: list, context) -> list:\n        return []\n'''
+            _fp = _os.path.join(_auto_dir, f'{node_type}.py')
+            with open(_fp, 'w') as _f:
+                _f.write(_stub)
+            _spec2 = _il.spec_from_file_location(f'app.pipeline.nodes.auto.{node_type}', _fp)
+            _mod = _il.module_from_spec(_spec2)
+            _spec2.loader.exec_module(_mod)
+            _node_cls = getattr(_mod, _class_name)
+            NodeRegistry.register(_node_cls())
+            _set_node_enabled(node_type, True)
+            enabled = True
+        except Exception as _exc:
+            import logging
+            logging.getLogger(__name__).warning('Auto-node generation failed for %s: %s', node_type, _exc)
 
     execute(
         "UPDATE plugin_requests SET status = 'approved', reviewed_at = now() WHERE id = %s AND user_id = %s",

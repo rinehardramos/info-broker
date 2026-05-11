@@ -263,10 +263,6 @@ export default function PluginsPage() {
     .filter(r => r.status === 'pending')
     .filter(r => !q || r.spec.name.toLowerCase().includes(q) || r.spec.description?.toLowerCase().includes(q))
 
-  const approvedRequests = pluginRequests
-    .filter(r => r.status === 'approved')
-    .filter(r => !q || r.spec.name.toLowerCase().includes(q) || r.spec.description?.toLowerCase().includes(q))
-
   // Deduplicate skipped by name, keep latest
   const skippedMap = new Map<string, typeof pluginRequests[number]>()
   for (const r of pluginRequests) {
@@ -401,35 +397,6 @@ export default function PluginsPage() {
                       </div>
                     </div>
                     <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
-                      {req.spec.description}
-                    </p>
-                    <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Created (approved) plugins — approved but awaiting node implementation */}
-          {approvedRequests.length > 0 && (
-            <section style={{ marginBottom: 28 }}>
-              <h2 style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#f59e0b', margin: '0 0 12px' }}>
-                CREATED PLUGINS ({approvedRequests.length})
-              </h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                {approvedRequests.map(req => (
-                  <div key={req.id} style={{ background: 'var(--panel2)', border: '1px solid #f59e0b44', borderRadius: 8, padding: 14 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{req.spec.name}</span>
-                      <span style={{
-                        fontSize: 8, fontWeight: 700, padding: '2px 7px', borderRadius: 10,
-                        background: '#f59e0b22', color: '#f59e0b', border: '1px solid #f59e0b55',
-                        flexShrink: 0, marginLeft: 8,
-                      }}>
-                        Queued
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.4 }}>
                       {req.spec.description}
                     </p>
                     <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>

@@ -140,3 +140,27 @@ class NodeRegistry:
             H1bdataSearchNode(), IcijSearchNode(),
         ]:
             cls.register(node)
+
+        # Auto-discover generated nodes from the auto/ directory
+        import os as _os, importlib.util as _il, glob as _glob
+        _auto_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'auto')
+        for _fp in sorted(_glob.glob(_os.path.join(_auto_dir, '*.py'))):
+            if _os.path.basename(_fp).startswith('_'):
+                continue
+            _mod_name = _os.path.basename(_fp)[:-3]
+            try:
+                _spec = _il.spec_from_file_location(f'app.pipeline.nodes.auto.{_mod_name}', _fp)
+                _mod = _il.module_from_spec(_spec)
+                _spec.loader.exec_module(_mod)
+                for _attr_name in dir(_mod):
+                    _attr = getattr(_mod, _attr_name)
+                    if (isinstance(_attr, type)
+                            and hasattr(_attr, 'node_type')
+                            and hasattr(_attr, 'execute')
+                            and _attr.node_type not in cls._nodes):
+                        try:
+                            cls.register(_attr())
+                        except Exception:
+                            pass
+            except Exception:
+                pass
