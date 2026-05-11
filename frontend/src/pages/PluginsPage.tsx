@@ -391,9 +391,9 @@ export default function PluginsPage() {
                         </button>
                         <button
                           onClick={() => dismissMutation.mutate(req.id)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: 'var(--muted)', padding: '0 2px' }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', padding: '0 2px', lineHeight: 1 }}
                           title="Dismiss"
-                        >×</button>
+                        >✕</button>
                       </div>
                     </div>
                     <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
