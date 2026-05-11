@@ -420,8 +420,10 @@ def create_all_plugin_requests(user: dict = Depends(get_current_user)):
     created = []
     dismissed = []
 
+    import json as _json
     for row in rows:
-        spec = row.get("spec") or {}
+        raw_spec = row.get("spec") or {}
+        spec = _json.loads(raw_spec) if isinstance(raw_spec, str) else (raw_spec or {})
         name = spec.get("name", "")
         node_type = name.lower().replace("-", "_").replace(" ", "_")
         rid = str(row["id"])
@@ -470,7 +472,9 @@ def create_plugin_from_request(request_id: str, user: dict = Depends(get_current
     if not row:
         raise HTTPException(status_code=404, detail="Plugin request not found")
 
-    spec = row.get("spec") or {}
+    import json as _json
+    raw_spec = row.get("spec") or {}
+    spec = _json.loads(raw_spec) if isinstance(raw_spec, str) else (raw_spec or {})
     name = spec.get("name", "")
     node_type = name.lower().replace("-", "_").replace(" ", "_")
 
@@ -484,7 +488,6 @@ def create_plugin_from_request(request_id: str, user: dict = Depends(get_current
             _set_node_enabled(node_type, True)
             enabled = True
         else:
-            # Try partial match
             for et in existing:
                 if node_type in et or et in node_type:
                     _set_node_enabled(et, True)

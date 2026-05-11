@@ -376,30 +376,30 @@ export default function PluginsPage() {
                   <div key={req.id} style={{ background: 'var(--panel2)', border: '1px solid #f8717133', borderRadius: 8, padding: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{req.spec.name}</span>
-                      <button
-                        onClick={() => dismissMutation.mutate(req.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: 'var(--muted)', padding: '0 4px' }}
-                        title="Dismiss"
-                      >×</button>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
+                        <button
+                          onClick={() => createMutation.mutate(req.id)}
+                          disabled={createMutation.isPending}
+                          style={{
+                            fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                            background: '#f87171', color: '#fff', border: 'none',
+                            cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
+                            opacity: createMutation.isPending ? 0.6 : 1,
+                          }}
+                        >
+                          Create
+                        </button>
+                        <button
+                          onClick={() => dismissMutation.mutate(req.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 9, color: 'var(--muted)', padding: '0 2px' }}
+                          title="Dismiss"
+                        >×</button>
+                      </div>
                     </div>
                     <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
                       {req.spec.description}
                     </p>
-                    <p style={{ fontSize: 9, color: '#fb923c', margin: '0 0 8px' }}>Reason: {req.spec.reason}</p>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={() => createMutation.mutate(req.id)}
-                        disabled={createMutation.isPending}
-                        style={{
-                          fontSize: 9, fontWeight: 700, padding: '3px 10px', borderRadius: 6,
-                          background: '#f87171', color: '#fff', border: 'none',
-                          cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
-                          opacity: createMutation.isPending ? 0.6 : 1,
-                        }}
-                      >
-                        Create
-                      </button>
-                    </div>
+                    <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>
                   </div>
                 ))}
               </div>
