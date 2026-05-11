@@ -28,7 +28,8 @@ PIVOT_TOOL_MAP: dict[str, str] = {
     "facebook_pages": "full_name",
     "instagram_profile": "full_name",
     "twitter_search": "full_name",
-    "ddg_search": "full_name",
+    "multi_search": "full_name",
+    "ddg_search": "full_name",     # deprecated alias
     "web_crawl": "full_name",
     "web_search_fetch": "full_name",
     "google_news": "full_name",

@@ -5,15 +5,30 @@ from collections import defaultdict
 
 log = logging.getLogger(__name__)
 
-# Grade to numeric value for averaging
-_GRADE_VALUES = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1, "F": 0}
-_VALUE_GRADES = {5: "A", 4: "B", 3: "C", 2: "D", 1: "E", 0: "F"}
+# Admiralty source → numeric (A=5 best, F=0)
+_SOURCE_VALUES = {"A": 5, "B": 4, "C": 3, "D": 2, "E": 1, "F": 0}
+_VALUE_SOURCES = {5: "A", 4: "B", 3: "C", 2: "D", 1: "E", 0: "F"}
+# Credibility → numeric (1=5 best, 6=0)
+_CRED_VALUES = {"1": 5, "2": 4, "3": 3, "4": 2, "5": 1, "6": 0}
+_VALUE_CREDS = {5: "1", 4: "2", 3: "3", 2: "4", 1: "5", 0: "6"}
 
 
-def _numeric_to_grade(value: float) -> str:
-    """Convert a numeric average back to a letter grade."""
-    rounded = round(value)
-    return _VALUE_GRADES.get(max(0, min(5, rounded)), "C")
+def _parse_grade(grade: str) -> tuple[str, str]:
+    """Parse Admiralty code 'B2' into ('B', '2'). Handles legacy single-letter."""
+    if len(grade) == 2 and grade[0] in _SOURCE_VALUES and grade[1] in _CRED_VALUES:
+        return grade[0], grade[1]
+    if len(grade) == 1 and grade in _SOURCE_VALUES:
+        return grade, "3"
+    return "F", "6"
+
+
+def _numeric_to_grade(src_val: float, cred_val: float | None = None) -> str:
+    """Convert numeric averages back to Admiralty code."""
+    src = _VALUE_SOURCES.get(max(0, min(5, round(src_val))), "C")
+    if cred_val is None:
+        return src
+    cred = _VALUE_CREDS.get(max(0, min(5, round(cred_val))), "3")
+    return src + cred
 
 
 def build_dashboard() -> dict:
@@ -59,13 +74,15 @@ def build_dashboard() -> dict:
     # Build technique leaderboard
     techniques = []
     for tool, stats in technique_stats.items():
-        avg_numeric = sum(_GRADE_VALUES.get(g, 3) for g in stats["grades"]) / max(
-            len(stats["grades"]), 1
-        )
+        src_vals = [_SOURCE_VALUES.get(_parse_grade(g)[0], 2) for g in stats["grades"]]
+        cred_vals = [_CRED_VALUES.get(_parse_grade(g)[1], 3) for g in stats["grades"]]
+        avg_src = sum(src_vals) / max(len(src_vals), 1)
+        avg_cred = sum(cred_vals) / max(len(cred_vals), 1)
+        avg_numeric = avg_src  # sort by source reliability
         techniques.append(
             {
                 "tool": tool,
-                "avg_grade": _numeric_to_grade(avg_numeric),
+                "avg_grade": _numeric_to_grade(avg_src, avg_cred),
                 "avg_numeric": round(avg_numeric, 1),
                 "runs": stats["runs"],
                 "total_results": stats["results"],
@@ -78,14 +95,16 @@ def build_dashboard() -> dict:
     # Build tactic summary
     tactics = []
     for name, stats in tactic_stats.items():
-        avg_numeric = sum(_GRADE_VALUES.get(g, 3) for g in stats["grades"]) / max(
-            len(stats["grades"]), 1
-        )
+        src_vals = [_SOURCE_VALUES.get(_parse_grade(g)[0], 2) for g in stats["grades"]]
+        cred_vals = [_CRED_VALUES.get(_parse_grade(g)[1], 3) for g in stats["grades"]]
+        avg_src = sum(src_vals) / max(len(src_vals), 1)
+        avg_cred = sum(cred_vals) / max(len(cred_vals), 1)
+        avg_numeric = avg_src
         avg_yield = sum(stats["yield_rates"]) / max(len(stats["yield_rates"]), 1)
         tactics.append(
             {
                 "name": name,
-                "avg_grade": _numeric_to_grade(avg_numeric),
+                "avg_grade": _numeric_to_grade(avg_src, avg_cred),
                 "avg_numeric": round(avg_numeric, 1),
                 "runs": stats["runs"],
                 "avg_yield": round(avg_yield, 2),
