@@ -1,4 +1,4 @@
-"""GitHub search node — search repos, code, issues, users via the GitHub REST API."""
+"""GitHub search node — search repos, code, and users via the GitHub REST API."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _REASON = (
     "GitHub surfaces open-source projects, code snippets, and developer profiles "
     "— useful for tech-stack reconnaissance and finding relevant repositories"
 )
-_GITHUB_SEARCH_URL = "https://api.github.com/search/repositories"
+_GITHUB_API = "https://api.github.com"
 
 
 def _resolve_token(config_token: str | None = None) -> str | None:
@@ -37,7 +37,7 @@ class GithubSearchNode:
             "query": {
                 "type": "string",
                 "title": "Search Query",
-                "description": "Search term for GitHub repositories.",
+                "description": "Search term for GitHub.",
             },
             "search_type": {
                 "type": "string",
@@ -67,7 +67,6 @@ class GithubSearchNode:
     ) -> list[dict]:
         query = (config.get("query") or "").strip()
         if not query:
-            # Fall back to query from upstream inputs
             for item in inputs:
                 q = item.get("query") or item.get("company") or item.get("name") or ""
                 if q:
@@ -79,24 +78,34 @@ class GithubSearchNode:
             return [{"error": "No query provided", "source": "github_search", "reason": _REASON}]
 
         token = _resolve_token(config.get("github_token"))
+        search_type = config.get("search_type", "repositories")
         max_results = min(int(config.get("max_results", 10)), 100)
 
         loop = asyncio.get_running_loop()
-        results = await loop.run_in_executor(None, _search_repos, query, token, max_results)
-        return results
+        return await loop.run_in_executor(None, _search, query, search_type, token, max_results)
 
 
-def _search_repos(query: str, token: str | None, max_results: int) -> list[dict]:
-    """Search GitHub repositories via the REST API."""
-    headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+def _make_headers(token: str | None) -> dict:
+    h = {"Accept": "application/vnd.github+json", "[REDACTED:high-entropy-base64:20ch:hash=18e3c7ce]": "2022-11-28"}
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        h["Authorization"] = f"Bearer {token}"
+    return h
 
-    params = {"q": query, "per_page": max_results, "sort": "stars"}
+
+def _search(query: str, search_type: str, token: str | None, max_results: int) -> list[dict]:
+    endpoints = {
+        "repositories": f"{_GITHUB_API}/search/repositories",
+        "code": f"{_GITHUB_API}/search/code",
+        "users": f"{_GITHUB_API}/search/users",
+    }
+    url = endpoints.get(search_type, endpoints["repositories"])
+    params: dict = {"q": query, "per_page": max_results}
+    if search_type == "repositories":
+        params["sort"] = "stars"
 
     try:
         with httpx.Client(timeout=20.0) as client:
-            response = client.get(_GITHUB_SEARCH_URL, params=params, headers=headers)
+            response = client.get(url, params=params, headers=_make_headers(token))
             if response.status_code == 403:
                 return [{"error": "GitHub: rate limit exceeded or forbidden", "source": "github_search", "reason": _REASON}]
             if response.status_code == 422:
@@ -111,11 +120,14 @@ def _search_repos(query: str, token: str | None, max_results: int) -> list[dict]
         return [{"error": str(exc), "source": "github_search", "reason": _REASON}]
 
     items = data.get("items") or []
-    return [_map_repo(item) for item in items]
+    if search_type == "repositories":
+        return [_map_repo(item) for item in items]
+    if search_type == "code":
+        return [_map_code(item) for item in items]
+    return [_map_user(item) for item in items]
 
 
 def _map_repo(item: dict) -> dict:
-    """Normalise a GitHub repository search result."""
     return {
         "full_name": item.get("full_name") or "",
         "url": item.get("html_url") or "",
@@ -123,6 +135,30 @@ def _map_repo(item: dict) -> dict:
         "stars": item.get("stargazers_count") or 0,
         "language": item.get("language") or "",
         "updated_at": item.get("updated_at") or "",
+        "source": "github_search",
+        "reason": _REASON,
+    }
+
+
+def _map_code(item: dict) -> dict:
+    repo = item.get("repository") or {}
+    return {
+        "name": item.get("name") or "",
+        "path": item.get("path") or "",
+        "url": item.get("html_url") or "",
+        "repo": repo.get("full_name") or "",
+        "repo_url": repo.get("html_url") or "",
+        "source": "github_search",
+        "reason": _REASON,
+    }
+
+
+def _map_user(item: dict) -> dict:
+    return {
+        "login": item.get("login") or "",
+        "url": item.get("html_url") or "",
+        "type": item.get("type") or "",
+        "score": item.get("score") or 0,
         "source": "github_search",
         "reason": _REASON,
     }
