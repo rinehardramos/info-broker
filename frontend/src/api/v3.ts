@@ -52,7 +52,9 @@ export interface AgentMessageOut {
   session_id: string
   status: string
   reply: string | null
-  mode: 'investigation' | 'conversational'
+  mode: 'investigation' | 'conversational' | 'question'
+  question?: string | null
+  options?: string[] | null
 }
 
 export interface AgentSession {
@@ -64,6 +66,7 @@ export interface AgentSession {
   run_count: number
   accumulated_summary: string
   entity_type: string
+  conversation_thread?: Array<{ role: string; content: string; timestamp?: string }>
 }
 
 export interface AgentPipelineOut {
@@ -112,6 +115,9 @@ export const archiveSession = (sessionId: string): Promise<void> =>
 
 export const listSessions = (): Promise<AgentSession[]> =>
   api.get('/v3/agent/sessions').then(r => r.data)
+
+export const getSession = (sessionId: string): Promise<AgentSession> =>
+  api.get(`/v3/agent/sessions/${sessionId}`).then(r => r.data)
 
 export const getAgentPipeline = (): Promise<AgentPipelineOut> =>
   api.get<AgentPipelineOut>('/v3/agent/pipeline').then(r => r.data)
@@ -207,7 +213,7 @@ export interface NodeHealthOut {
   display_name: string
   healthy: boolean
   error: string | null
-  requires_key: boolean
+  requires_key: string | null
   setup_url: string | null
   setup_instructions: string | null
 }

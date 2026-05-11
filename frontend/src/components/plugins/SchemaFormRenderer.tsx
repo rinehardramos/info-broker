@@ -27,7 +27,7 @@ const inputStyle = {
 
 export default function SchemaFormRenderer({ schema }: Props) {
   const { register } = useFormContext()
-  const s = schema as SchemaObject
+  const s = schema as unknown as SchemaObject
 
   if (!s.properties) {
     return <p className="text-xs" style={{ color: 'var(--muted)' }}>No configuration options.</p>

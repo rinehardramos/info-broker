@@ -260,7 +260,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     if (connected) {
       const newEdge: PipelineEdgeOut = {
         id: crypto.randomUUID(),
-        pipeline_id: selectedPipelineId ?? '',
         source_node_id: sourceId,
         target_node_id: targetId,
         edge_type: 'default',
@@ -276,7 +275,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     if (connected) {
       const newEdge: PipelineEdgeOut = {
         id: crypto.randomUUID(),
-        pipeline_id: selectedPipelineId ?? '',
         source_node_id: sourceId,
         target_node_id: targetId,
         edge_type: 'tool',

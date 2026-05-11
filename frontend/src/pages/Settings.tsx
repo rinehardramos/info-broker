@@ -10,6 +10,13 @@ const CORE_FIELDS = [
   { key: 'llm.reasoning_model',    label: 'Reasoning Model (Analysis, Orchestration)',  secret: false, hint: 'claude-opus-4-7' },
   { key: 'llm.general_model',      label: 'General Model (Scoring, Summarizing)',       secret: false, hint: 'claude-sonnet-4-6' },
   { key: 'anthropic_api_key',      label: 'Anthropic API Key (Claude)',                 secret: true },
+  // Search engines (multi_search)
+  { key: 'serper_api_key',         label: 'Serper API Key (Google Search)',             secret: true, hint: 'serper.dev — 2,500 free queries/mo' },
+  { key: 'brave_api_key',          label: 'Brave Search API Key',                       secret: true, hint: 'brave.com/search/api — free tier available' },
+  { key: 'exa_api_key',            label: 'Exa API Key (semantic web search)',          secret: true, hint: 'exa.ai — neural search engine' },
+  { key: 'tavily_api_key',         label: 'Tavily API Key (AI-optimised search)',       secret: true, hint: 'tavily.com — 1,000 free queries/mo' },
+  { key: 'yandex_api_key',         label: 'Yandex XML Search API Key',                  secret: true, hint: 'yandex.com/dev/xml — free 10,000/mo; without key falls back to HTML scrape' },
+  { key: 'bing_api_key',           label: 'Bing Search API Key (Azure)',                secret: true, hint: 'azure.microsoft.com/bing-search — without key falls back to Yahoo HTML' },
   // LLM Providers
   { key: 'llm.active_provider',    label: 'Active LLM Provider',  secret: false },
   { key: 'openai_api_key',          label: 'OpenAI API Key',       secret: true },
