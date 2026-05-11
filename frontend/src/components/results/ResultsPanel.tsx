@@ -1,15 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query'
 import { useSessionStore } from '../../stores/sessionStore'
-import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail } from '../../api/pipelines'
+import { useChatStore } from '../../stores/chatStore'
+import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail, type ResearchFinding } from '../../api/pipelines'
 import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback, exportResearch } from '../../api/v3'
 import { ResearchFlow } from './ResearchFlow'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
 import { InvestigationBreakdown } from './InvestigationBreakdown'
-import { Sparkles, ArrowDownToLine, Save, ThumbsUp, ThumbsDown, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
+import { Sparkles, ArrowDownToLine, Save, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
 
 // Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | `run:${string}`
@@ -32,17 +33,17 @@ function SwipeToDelete({ children, onDelete }: { children: React.ReactNode; onDe
     let currentX = 0
     let swiped = false
 
-    function begin(x: number) {
+    const begin = (x: number) => {
       startX = x; currentX = 0; swiped = false
       el.style.transition = ''
     }
-    function move(x: number) {
+    const move = (x: number) => {
       const dx = x - startX
       currentX = Math.min(0, dx)
       if (currentX < -SWIPE_DEAD_ZONE) swiped = true
       if (swiped) el.style.transform = `translateX(${currentX}px)`
     }
-    function end() {
+    const end = () => {
       if (swiped && currentX < -SWIPE_THRESHOLD) {
         el.style.transition = 'transform 0.2s ease, opacity 0.2s ease'
         el.style.transform = 'translateX(-100%)'
@@ -216,6 +217,26 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
     )
   }
 
+  // IS research awaiting user confirmation
+  if (run.trigger_type === 'agent_is' && run.status === 'confirm_pending') {
+    return (
+      <div className="p-3 flex flex-col h-full">
+        <div
+          className="rounded p-3 mb-3 text-xs"
+          style={{ background: 'var(--panel2)', border: '1px solid #f59e0b' }}
+        >
+          <div className="flex items-center gap-2">
+            <span style={{ fontSize: 8, color: '#f59e0b' }}>◆</span>
+            <span style={{ color: '#f59e0b', fontWeight: 600 }}>IS Research — awaiting your confirmation</span>
+          </div>
+          <p style={{ color: 'var(--muted)', fontSize: 10, marginTop: 4 }}>
+            A result was found. Check the chat to confirm or reject it.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   // IS research run — still running, show live streaming view
   if (run.trigger_type === 'agent_is' && (run.status === 'queued' || run.status === 'running')) {
     return (
@@ -350,6 +371,48 @@ function confidenceLevel(score: number): 'high' | 'medium' | 'low' {
   return 'low'
 }
 
+// ---------------------------------------------------------------------------
+// Source Integrity Badge — compact header indicator for deception risk
+// ---------------------------------------------------------------------------
+
+function SourceIntegrityBadge({ analysis }: { analysis: any }) {
+  if (!analysis) return null
+  const risk: number = analysis.deception_risk ?? 0
+  const conflicts: any[] = analysis.conflicts ?? []
+
+  const effectiveRisk = conflicts.length > 0 && risk < 0.3 ? 0.3 : risk
+
+  let label: string
+  let color: string
+  let bg: string
+
+  if (effectiveRisk > 0.5) {
+    label = '⚠ Source concerns'
+    color = '#f87171'
+    bg = '#f8717122'
+  } else if (effectiveRisk >= 0.3) {
+    label = '⚠ Check sources'
+    color = '#facc15'
+    bg = '#facc1522'
+  } else {
+    label = '✓ Sources verified'
+    color = '#4ade80'
+    bg = '#4ade8022'
+  }
+
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center',
+      fontSize: 9, fontWeight: 600,
+      color, background: bg,
+      border: `1px solid ${color}55`,
+      borderRadius: 4, padding: '1px 6px', marginTop: 4,
+    }}>
+      {label}
+    </span>
+  )
+}
+
 // Module-level caches: persist across tab switches / remounts
 const _analysisCache = new Map<string, any>()
 const _analyzingRuns = new Set<string>()
@@ -372,14 +435,15 @@ function ResearchResults({
   const [pipelineSaved, setPipelineSaved] = useState(false)
   const [savingPipeline, setSavingPipeline] = useState(false)
   // Initialize from: module cache > server DB > null
-  // Initialize analyzing from: module set > DB status marker
+  // Initialize analyzing from: module set > DB status marker (only if actively in _analyzingRuns, not stuck DB state)
   const _rid = runId ?? ''
   const initAnalysis = _analysisCache.get(_rid) ?? (research.analysis && !(research.analysis as any)._status ? research.analysis : null)
-  const initAnalyzing = _analyzingRuns.has(_rid) || (research.analysis && (research.analysis as any)._status === 'analyzing')
+  const initAnalyzing = _analyzingRuns.has(_rid)
 
   const [analyzing, setAnalyzing] = useState(!!initAnalyzing)
   const [analysis, setAnalysis] = useState<any>(initAnalysis)
-  const [feedback, setFeedback] = useState<Record<number, number>>({})
+  const [feedback, setFeedback] = useState<Record<number, { src: string; cred: number }>>({})
+  const [openRating, setOpenRating] = useState<Record<number, boolean>>({})
   const [exportOpen, setExportOpen] = useState(false)
   const [exporting, setExporting] = useState(false)
   const mountedRef = useRef(true)
@@ -393,8 +457,17 @@ function ResearchResults({
     if (runId) {
       getRunFeedback(runId).then(fb => {
         if (!mountedRef.current) return
-        const mapped: Record<number, number> = {}
-        Object.entries(fb).forEach(([idx, val]) => { mapped[Number(idx)] = val.score })
+        const mapped: Record<number, { src: string; cred: number }> = {}
+        Object.entries(fb).forEach(([idx, val]) => {
+          const reason = val.reason ?? ''
+          if (reason.length >= 2) {
+            const src = reason[0]
+            const cred = parseInt(reason[1])
+            if ('ABCDEF'.includes(src) && cred >= 1 && cred <= 6) {
+              mapped[Number(idx)] = { src, cred }
+            }
+          }
+        })
         setFeedback(mapped)
       }).catch(() => {})
     }
@@ -467,41 +540,79 @@ function ResearchResults({
     }
   }
 
-  const handleFeedback = async (index: number, score: number, title: string) => {
-    setFeedback(prev => ({ ...prev, [index]: score }))
+  const admiraltyToScore = (src: string, cred: number): number => {
+    if ((src === 'A' || src === 'B') && (cred === 1 || cred === 2)) return 1
+    if ((src === 'D' || src === 'E') && (cred === 4 || cred === 5)) return -1
+    if (src === 'E' && cred === 5) return -1
+    if (src === 'D' && cred === 4) return -1
+    return 0
+  }
+
+  const admiraltyColor = (src: string, cred: number): string => {
+    if ((src === 'A' || src === 'B') && (cred === 1 || cred === 2)) return '#4ade80'
+    if ((src === 'C' && cred === 2) || (src === 'B' && cred === 3) || (src === 'C' && cred === 3)) return '#facc15'
+    if ((src === 'D' && (cred === 3 || cred === 4)) || (src === 'C' && cred === 4)) return '#fb923c'
+    if ((src === 'E' || src === 'D') && (cred === 4 || cred === 5)) return '#f87171'
+    if (src === 'F' || cred === 6 || cred === 5) return '#f87171'
+    if (src === 'F') return '#6b7280'
+    return '#6b7280'
+  }
+
+  const handleFeedback = async (index: number, src: string, cred: number, title: string) => {
+    setFeedback(prev => ({ ...prev, [index]: { src, cred } }))
+    setOpenRating(prev => ({ ...prev, [index]: false }))
     if (runId) {
-      await submitFindingFeedback(runId, index, score, undefined, title)
+      const score = admiraltyToScore(src, cred)
+      const reason = `${src}${cred}`
+      await submitFindingFeedback(runId, index, score, reason, title)
     }
   }
   const { findings, trail } = research
-  const canGoDeeper = trail.can_go_deeper && (trail.deeper_leads?.length ?? 0) > 0
-  const hasPipeline = research.suggested_pipeline != null && (research.suggested_pipeline.nodes?.length ?? 0) > 0
+  // Always allow Go Deeper when findings exist — use trail leads if available, else derive from findings
+  const canGoDeeper = findings.length > 0
+  const hasPipeline = findings.length > 0
 
   async function handleSavePipeline() {
-    if (!research.suggested_pipeline) return
     setSavingPipeline(true)
     try {
       const sp = research.suggested_pipeline
-      // Generate IDs for nodes and map source_index/target_index to node IDs
-      const nodeIds = sp.nodes.map(() => crypto.randomUUID())
-      const result = await createPipeline({
-        name: sp.name,
-        description: `Generated from IS research: "${research.query}"`,
-        nodes: sp.nodes.map((n, i) => ({
-          id: nodeIds[i],
-          node_type: n.node_type,
-          label: n.label,
-          config: n.config ?? {},
-          position_y: i,
-        })),
-        edges: sp.edges.map(e => ({
-          source_node_id: nodeIds[e.source_index],
-          target_node_id: nodeIds[e.target_index],
-        })),
-      })
+      let pipelineData: { name: string; description: string; nodes: object[]; edges: object[] }
+      if (sp && sp.nodes?.length > 0) {
+        const nodeIds = sp.nodes.map(() => crypto.randomUUID())
+        pipelineData = {
+          name: sp.name,
+          description: `Generated from IS research: "${research.query}"`,
+          nodes: sp.nodes.map((n: any, i: number) => ({
+            id: nodeIds[i],
+            node_type: n.node_type,
+            label: n.label,
+            config: n.config ?? {},
+            position_y: i,
+          })),
+          edges: (sp.edges ?? []).map((e: any) => ({
+            source_node_id: nodeIds[e.source_index],
+            target_node_id: nodeIds[e.target_index],
+          })),
+        }
+      } else {
+        // No suggested pipeline — generate a default IS research pipeline
+        const nodeId = crypto.randomUUID()
+        pipelineData = {
+          name: `IS Research: ${research.query?.slice(0, 50) ?? 'Research'}`,
+          description: `Saved from IS research run. Query: "${research.query}"`,
+          nodes: [{
+            id: nodeId,
+            node_type: 'intelligent_search',
+            label: 'Intelligent Search',
+            config: { query: research.query ?? '' },
+            position_y: 0,
+          }],
+          edges: [],
+        }
+      }
+      const result = await createPipeline(pipelineData as any)
       setPipelineSaved(true)
       qc.invalidateQueries({ queryKey: ['pipelines'] })
-      // Navigate to the new pipeline
       navigate(`/pipeline/${result.id}`)
     } catch (err) {
       console.error('Failed to save pipeline:', err)
@@ -551,6 +662,7 @@ function ResearchResults({
             {research.entity_type}
           </span>
         )}
+        <SourceIntegrityBadge analysis={(research as any).analysis} />
       </div>
 
       {/* Tree stats */}
@@ -623,12 +735,62 @@ function ResearchResults({
                 )}
               </div>
               {f.content && (
-                <p style={{ color: 'var(--muted)', fontSize: 10, lineHeight: 1.4, marginTop: 4, opacity: isError ? 0.6 : 1 }}>
-                  {f.content.slice(0, 300)}{f.content.length > 300 ? '...' : ''}
+                <p style={{ color: 'var(--text)', fontSize: 10, lineHeight: 1.5, marginTop: 4, opacity: isError ? 0.5 : 1 }}>
+                  {f.content}
                 </p>
               )}
+              {/* Multimedia preview — YouTube embed or image detected from URL */}
+              {(() => {
+                const mediaUrl = (f as any).image_url || (f as any).thumbnail_url ||
+                  (f.url && /\.(jpg|jpeg|png|gif|webp|svg)(\?|$)/i.test(f.url) ? f.url : null)
+                const ytMatch = f.url && f.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
+                const ytId = ytMatch ? ytMatch[1] : null
+                if (ytId) return (
+                  <div style={{ marginTop: 6, borderRadius: 6, overflow: 'hidden', maxWidth: 320 }}>
+                    <iframe
+                      src={`https://www.youtube-nocookie.com/embed/${ytId}`}
+                      width="320" height="180"
+                      style={{ display: 'block', border: 'none', borderRadius: 6 }}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      loading="lazy"
+                      title={f.title ?? 'Video'}
+                    />
+                  </div>
+                )
+                if (mediaUrl) return (
+                  <div style={{ marginTop: 6 }}>
+                    <img
+                      src={mediaUrl}
+                      alt={f.title ?? 'Media'}
+                      loading="lazy"
+                      style={{ maxWidth: 320, maxHeight: 200, borderRadius: 6, border: '1px solid var(--border)', display: 'block' }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                  </div>
+                )
+                return null
+              })()}
               <div className="flex items-center gap-2 mt-2" style={{ fontSize: 9, color: 'var(--muted)', opacity: isError ? 0.6 : 1 }}>
                 {f.source && <span>{f.source}</span>}
+                {f.source_class && (() => {
+                  const SC_COLORS: Record<string, string> = {
+                    live_search:        '#4ade80',
+                    prior_research:     '#60a5fa',
+                    primary_official:   '#a78bfa',
+                    primary_self:       '#facc15',
+                    training_generated: '#f87171',
+                  }
+                  const c = SC_COLORS[f.source_class] ?? '#94a3b8'
+                  return (
+                    <span style={{
+                      fontSize: 8, padding: '1px 4px', borderRadius: 3,
+                      background: `${c}26`, color: c, fontWeight: 600,
+                    }}>
+                      {f.source_class.replace(/_/g, ' ')}
+                    </span>
+                  )
+                })()}
                 {f.url && (
                   <a
                     href={f.url}
@@ -640,31 +802,81 @@ function ResearchResults({
                   </a>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+              <div style={{ marginTop: 4 }}>
+                {/* Admiralty Code rating badge/toggle */}
                 <button
-                  onClick={() => handleFeedback(i, 1, f.title ?? '')}
+                  onClick={() => setOpenRating(prev => ({ ...prev, [i]: !prev[i] }))}
                   style={{
-                    background: feedback[i] === 1 ? '#4ade8033' : 'transparent',
-                    border: `1px solid ${feedback[i] === 1 ? '#4ade80' : 'var(--border)'}`,
-                    color: feedback[i] === 1 ? '#4ade80' : 'var(--muted)',
-                    fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                    background: feedback[i]
+                      ? `${admiraltyColor(feedback[i].src, feedback[i].cred)}22`
+                      : 'transparent',
+                    border: `1px solid ${feedback[i] ? admiraltyColor(feedback[i].src, feedback[i].cred) : 'var(--border)'}`,
+                    color: feedback[i] ? admiraltyColor(feedback[i].src, feedback[i].cred) : 'var(--muted)',
+                    fontSize: 9, padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                    fontWeight: feedback[i] ? 700 : 400, letterSpacing: feedback[i] ? 0.5 : 0,
                   }}
                 >
-                  <ThumbsUp size={11} />
+                  {feedback[i] ? `${feedback[i].src}${feedback[i].cred}` : 'Rate'}
                 </button>
-                <button
-                  onClick={() => handleFeedback(i, -1, f.title ?? '')}
-                  style={{
-                    background: feedback[i] === -1 ? '#f8717133' : 'transparent',
-                    border: `1px solid ${feedback[i] === -1 ? '#f87171' : 'var(--border)'}`,
-                    color: feedback[i] === -1 ? '#f87171' : 'var(--muted)',
-                    fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
-                  }}
-                >
-                  <ThumbsDown size={11} />
-                </button>
-                {feedback[i] === -1 && (
-                  <span style={{ fontSize: 9, color: '#f87171', alignSelf: 'center' }}>Marked irrelevant</span>
+
+                {/* Inline rating panel */}
+                {openRating[i] && (
+                  <div style={{
+                    marginTop: 4, padding: '6px 8px', borderRadius: 6,
+                    background: 'var(--surface)', border: '1px solid var(--border)',
+                    display: 'inline-flex', flexDirection: 'column', gap: 4,
+                  }}>
+                    {/* Source reliability row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ fontSize: 8, color: 'var(--muted)', width: 14, flexShrink: 0 }}>SRC</span>
+                      {['A', 'B', 'C', 'D', 'E', 'F'].map(s => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            if (feedback[i]?.cred) {
+                              handleFeedback(i, s, feedback[i].cred, f.title ?? '')
+                            } else {
+                              setFeedback(prev => ({ ...prev, [i]: { src: s, cred: feedback[i]?.cred ?? 0 } }))
+                            }
+                          }}
+                          style={{
+                            width: 20, height: 20, fontSize: 9, borderRadius: 3, cursor: 'pointer',
+                            fontWeight: 700,
+                            background: feedback[i]?.src === s ? '#60a5fa33' : 'transparent',
+                            border: `1px solid ${feedback[i]?.src === s ? '#60a5fa' : 'var(--border)'}`,
+                            color: feedback[i]?.src === s ? '#60a5fa' : 'var(--muted)',
+                          }}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Credibility row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span style={{ fontSize: 8, color: 'var(--muted)', width: 14, flexShrink: 0 }}>CRD</span>
+                      {[1, 2, 3, 4, 5, 6].map(c => (
+                        <button
+                          key={c}
+                          onClick={() => {
+                            if (feedback[i]?.src) {
+                              handleFeedback(i, feedback[i].src, c, f.title ?? '')
+                            } else {
+                              setFeedback(prev => ({ ...prev, [i]: { src: feedback[i]?.src ?? '', cred: c } }))
+                            }
+                          }}
+                          style={{
+                            width: 20, height: 20, fontSize: 9, borderRadius: 3, cursor: 'pointer',
+                            fontWeight: 700,
+                            background: feedback[i]?.cred === c ? '#a78bfa33' : 'transparent',
+                            border: `1px solid ${feedback[i]?.cred === c ? '#a78bfa' : 'var(--border)'}`,
+                            color: feedback[i]?.cred === c ? '#a78bfa' : 'var(--muted)',
+                          }}
+                        >
+                          {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -705,8 +917,8 @@ function ResearchResults({
         </>
       )}
 
-      {/* Analyze button — shown before analysis is done */}
-      {status === 'succeeded' && findings.length > 0 && !analysis && (
+      {/* Analyze button — shown before analysis is done (or when previous attempt failed) */}
+      {findings.length > 0 && !analysis && !analyzing && (
         <div className="mt-3">
           <ActionDrawer
             label="Analyze"
@@ -888,12 +1100,16 @@ function ResearchResults({
         </div>
       )}
 
-      {/* Pre-analysis: show original Go Deeper (skip) + Save Pipeline if no analysis yet */}
-      {status === 'succeeded' && !analysis && (canGoDeeper || hasPipeline) && (
+      {/* Pre-analysis: show Go Deeper + Save Pipeline if no analysis yet */}
+      {!analysis && (canGoDeeper || hasPipeline) && (
         <div className="mt-2 flex gap-2">
           {canGoDeeper && (
             <button
-              onClick={() => onGoDeeper(trail.deeper_leads!)}
+              onClick={() => onGoDeeper(
+                (trail.deeper_leads ?? []).length > 0
+                  ? trail.deeper_leads!
+                  : findings.slice(0, 5).map((f: any) => f.title ?? f.content?.slice(0, 80) ?? 'Expand research')
+              )}
               disabled={goingDeeper}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -933,6 +1149,304 @@ function ResearchResults({
   )
 }
 
+
+// ---------------------------------------------------------------------------
+// Session Stage Bar — horizontal pipeline stages for session runs
+// ---------------------------------------------------------------------------
+
+function SessionStageBar({ runIds, activeJobId }: { runIds: string[]; activeJobId: string | null }) {
+  const runQueries = useQueries({
+    queries: runIds.map(id => ({
+      queryKey: ['pipeline-run', id],
+      queryFn: () => getPipelineRun(id),
+      refetchInterval: (q: any) => {
+        const s = q.state.data?.status
+        return s === 'running' || s === 'queued' ? 2000 : false
+      },
+    })),
+  })
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 0,
+      overflowX: 'auto', scrollbarWidth: 'none',
+      height: 32, paddingLeft: 8, paddingRight: 8,
+      background: 'var(--panel2)', borderBottom: '1px solid var(--border)',
+      flexShrink: 0,
+    }}>
+      {runIds.map((id, index) => {
+        const run = runQueries[index]?.data
+        const status = run?.status ?? 'queued'
+        const labelFull = run?.research?.pir_answered ?? `run${index + 1}`
+        const label = labelFull.length > 28 ? labelFull.slice(0, 28) + '…' : labelFull
+        const isActive = id === activeJobId
+
+        const dotColor = status === 'running' ? '#facc15'
+          : status === 'succeeded' ? '#4ade80'
+          : status === 'failed' ? '#ef4444'
+          : '#475569'
+
+        return (
+          <div key={id} style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0 }}>
+            <div
+              title={`Run ${index + 1}: ${status}`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 9, color: isActive ? 'var(--accent)' : 'var(--muted)',
+                padding: '0 6px', whiteSpace: 'nowrap',
+                animation: isActive && status === 'running' ? 'pulse 1.5s ease-in-out infinite' : undefined,
+              }}
+            >
+              <span style={{
+                fontSize: 7, color: dotColor,
+                animation: isActive && status === 'running' ? 'pulse 1.5s ease-in-out infinite' : undefined,
+              }}>
+                {index === 0 ? '◆' : '◎'}
+              </span>
+              <span style={{ fontWeight: 600 }}>{index + 1}</span>
+              <span title={labelFull} style={{ color: 'var(--muted)', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                · {label}
+              </span>
+            </div>
+            {index < runIds.length - 1 && (
+              <span style={{ fontSize: 9, color: 'var(--muted)', flexShrink: 0 }}>─→</span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Session Canvas — merged findings across all session runs
+// ---------------------------------------------------------------------------
+
+const SC_COLORS: Record<string, string> = {
+  live_search:        '#4ade80',
+  prior_research:     '#60a5fa',
+  primary_official:   '#a78bfa',
+  primary_self:       '#facc15',
+  training_generated: '#f87171',
+}
+
+type FindingWithMeta = ResearchFinding & { runIndex: number; runId: string }
+
+const REJECTION_WORDS = /none of (the|these)|not (the one|what i|right|correct|it)|wrong (answer|result)|not (what|the one) i/i
+
+function SessionCanvas({ runIds }: { runIds: string[] }) {
+  const activeJobId = useSessionStore(s => s.activeJobId)
+  const messages = useChatStore(s => s.messages)
+  const sessionRunIds = useChatStore(s => s.sessionRunIds)
+
+  // Build the set of run IDs that the user explicitly rejected via a follow-up message.
+  const rejectedRunIds = useMemo(() => {
+    const rejected = new Set<string>()
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i]
+      if (m.role === 'user' && REJECTION_WORDS.test(m.content)) {
+        // Find the most recent run that was added before message index i.
+        // messages[j].id matches sessionRunIds entries when the run was pushed.
+        const priorRunId = sessionRunIds
+          .slice()
+          .reverse()
+          .find(rid => messages.slice(0, i).some(pm => pm.id === rid))
+        if (priorRunId) {
+          rejected.add(priorRunId)
+        }
+      }
+    }
+    return rejected
+  }, [messages, sessionRunIds])
+
+  const runQueries = useQueries({
+    queries: runIds.map(id => ({
+      queryKey: ['pipeline-run', id],
+      queryFn: () => getPipelineRun(id),
+      refetchInterval: (q: any) => {
+        const s = q.state.data?.status
+        return s === 'running' || s === 'queued' ? 2000 : false
+      },
+    })),
+  })
+
+  // Merge findings across all completed runs
+  const allFindings: FindingWithMeta[] = []
+  for (let i = 0; i < runIds.length; i++) {
+    const run = runQueries[i]?.data
+    if (run?.research?.findings) {
+      for (const f of run.research.findings) {
+        allFindings.push({ ...f, runIndex: i, runId: runIds[i] })
+      }
+    }
+  }
+
+  // Group by branch
+  const byBranch: Record<string, FindingWithMeta[]> = {}
+  for (const f of allFindings) {
+    const branch = f.branch || 'general'
+    ;(byBranch[branch] ??= []).push(f)
+  }
+
+  // Sort branches: branches with findings from latest run first
+  const latestRunIndex = runIds.length - 1
+  const sortedBranches = Object.keys(byBranch).sort((a, b) => {
+    const aHasLatest = byBranch[a].some(f => f.runIndex === latestRunIndex) ? 1 : 0
+    const bHasLatest = byBranch[b].some(f => f.runIndex === latestRunIndex) ? 1 : 0
+    return bHasLatest - aHasLatest
+  })
+
+  // Latest completed run's pir_answered
+  let latestPirAnswered: string | undefined
+  for (let i = runIds.length - 1; i >= 0; i--) {
+    const run = runQueries[i]?.data
+    if (run?.status === 'succeeded' && run.research?.pir_answered) {
+      latestPirAnswered = run.research.pir_answered
+      break
+    }
+  }
+
+  const hasAnyFindings = allFindings.length > 0
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Stage bar */}
+      <SessionStageBar runIds={runIds} activeJobId={activeJobId} />
+
+      {/* Summary strip */}
+      {latestPirAnswered && (
+        <div style={{
+          padding: '4px 10px', fontSize: 10,
+          background: '#a78bfa11', borderBottom: '1px solid #a78bfa22',
+          color: '#a78bfa', flexShrink: 0,
+        }}>
+          <span style={{ fontWeight: 700, marginRight: 4 }}>◎ Latest:</span>
+          <span>"{latestPirAnswered}"</span>
+        </div>
+      )}
+
+      {/* Findings by branch cluster */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
+        {!hasAnyFindings && (
+          <p style={{ color: 'var(--muted)', fontSize: 11, textAlign: 'center', marginTop: 32 }}>
+            Investigation in progress…
+          </p>
+        )}
+
+        {sortedBranches.map(branch => {
+          const findings = byBranch[branch]
+          // Which run indices contributed to this branch
+          const contributingRuns = [...new Set(findings.map(f => f.runIndex))].sort()
+          const isLatestBranch = findings.some(f => f.runIndex === latestRunIndex)
+          const allRejected = findings.every(f => rejectedRunIds.has(f.runId || ''))
+
+          return (
+            <div key={branch} style={{ marginBottom: 14, opacity: allRejected ? 0.5 : 1 }}>
+              {/* Branch header */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                marginBottom: 6, flexWrap: 'wrap',
+              }}>
+                <span style={{ fontSize: 8, color: isLatestBranch ? '#a78bfa' : 'var(--muted)' }}>
+                  {isLatestBranch ? '●' : '◎'}
+                </span>
+                <span style={{
+                  fontSize: 10, fontWeight: 700,
+                  color: isLatestBranch ? 'var(--subtext)' : 'var(--muted)',
+                  textDecoration: allRejected ? 'line-through' : 'none',
+                }}>
+                  {branch.replace(/_/g, ' ')}
+                </span>
+                {contributingRuns.map(ri => (
+                  <span key={ri} style={{
+                    fontSize: 8, padding: '1px 5px', borderRadius: 3, fontWeight: 600,
+                    background: '#60a5fa18', color: '#60a5fa', border: '1px solid #60a5fa33',
+                  }}>
+                    Run {ri + 1}
+                  </span>
+                ))}
+                <span style={{ fontSize: 9, color: 'var(--muted)', marginLeft: 'auto' }}>
+                  {findings.length} finding{findings.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Finding cards */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {findings.map((f, fi) => {
+                  const conf = f.confidence ?? 0
+                  const level = conf >= 75 ? 'high' : conf >= 50 ? 'medium' : 'low'
+                  const confColor = CONFIDENCE_COLORS[level]
+                  const isError = (f as any).error_flagged === true || (f as any).finding_type === 'error'
+                  const isRejected = f.runId ? rejectedRunIds.has(f.runId) : false
+
+                  return (
+                    <div
+                      key={`${f.runId}-${fi}`}
+                      style={{
+                        background: 'var(--panel2)',
+                        border: `1px solid ${isError ? '#f8717133' : 'var(--border)'}`,
+                        borderLeft: isRejected ? '2px solid #f8717144' : isError ? '3px solid #f87171' : undefined,
+                        borderRadius: 6, padding: '8px 10px', fontSize: 11,
+                        opacity: isRejected ? 0.4 : 1,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: isError ? '#f87171' : confColor }}>
+                          {isError ? 'error' : `${conf}%`}
+                        </span>
+                        <span style={{ color: 'var(--subtext)', fontWeight: 600, flex: 1, textDecoration: isRejected ? 'line-through' : 'none' }}>
+                          {f.title ?? 'Finding'}
+                        </span>
+                        {isRejected && (
+                          <span style={{ fontSize: 8, color: '#f87171', fontWeight: 700 }}>E5</span>
+                        )}
+                        <span style={{
+                          fontSize: 8, padding: '1px 4px', borderRadius: 3, fontWeight: 600,
+                          background: '#60a5fa18', color: '#60a5fa88',
+                        }}>
+                          R{f.runIndex + 1}
+                        </span>
+                      </div>
+                      {f.content && (
+                        <p style={{ color: 'var(--text)', fontSize: 10, lineHeight: 1.5, margin: 0, opacity: isError ? 0.5 : 1 }}>
+                          {f.content}
+                        </p>
+                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 9, color: 'var(--muted)' }}>
+                        {f.source && <span>{f.source}</span>}
+                        {f.source_class && (() => {
+                          const c = SC_COLORS[f.source_class] ?? '#94a3b8'
+                          return (
+                            <span style={{
+                              fontSize: 8, padding: '1px 4px', borderRadius: 3,
+                              background: `${c}26`, color: c, fontWeight: 600,
+                            }}>
+                              {f.source_class.replace(/_/g, ' ')}
+                            </span>
+                          )
+                        })()}
+                        {f.url && (
+                          <a
+                            href={f.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ color: '#60a5fa', textDecoration: 'none' }}
+                          >
+                            link
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function PipelineTabContent() {
   const navigate = useNavigate()
@@ -1171,6 +1685,7 @@ export default function ResultsPanel() {
   const tabBarRef = useRef<HTMLDivElement>(null)
   const col1Content = useSessionStore(s => s.col1Content)
   const setCol1Content = useSessionStore(s => s.setCol1Content)
+  const sessionRunIds = useChatStore(s => s.sessionRunIds)
 
   const { data: runs = [] } = useQuery({
     queryKey: ['all-pipeline-runs'],
@@ -1178,11 +1693,21 @@ export default function ResultsPanel() {
     refetchInterval: 5000,
   })
 
+  // Follow-up runs (everything after the genesis) should not get their own tab —
+  // they belong to the same session and display within the genesis run's tab.
+  const sessionFollowUpIds = new Set(sessionRunIds.slice(1))
+
   // Keep the most recent runs as dynamic tabs (running first, then latest completed)
   // Dismissed tabs are excluded unless they become active again (e.g. clicked from Live panel)
   const runTabs = runs
     .filter(r => !dismissedTabs.has(r.id))
+    .filter(r => !sessionFollowUpIds.has(r.id))
     .sort((a, b) => {
+      // confirm_pending sorts like running (active, needs attention)
+      const aActive = a.status === 'running' || a.status === 'confirm_pending'
+      const bActive = b.status === 'running' || b.status === 'confirm_pending'
+      if (aActive && !bActive) return -1
+      if (bActive && !aActive) return 1
       if (a.status === 'running' && b.status !== 'running') return -1
       if (b.status === 'running' && a.status !== 'running') return 1
       return new Date(b.started_at).getTime() - new Date(a.started_at).getTime()
@@ -1249,7 +1774,7 @@ export default function ResultsPanel() {
           {tabsToRender.map(run => {
             const tabId: Tab = `run:${run.id}`
             const isActive = activeTab === tabId
-            const statusDot = run.status === 'running' ? '#facc15' : run.status === 'succeeded' ? '#4ade80' : run.status === 'failed' ? '#ef4444' : '#475569'
+            const statusDot = run.status === 'running' ? '#facc15' : run.status === 'succeeded' ? '#4ade80' : run.status === 'failed' ? '#ef4444' : run.status === 'confirm_pending' ? '#f59e0b' : '#475569'
             return (
               <div
                 key={run.id}
@@ -1279,6 +1804,14 @@ export default function ResultsPanel() {
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {run.pipeline_name?.slice(0, 14) ?? 'Run'}
                   </span>
+                  {run.id === sessionRunIds[0] && sessionRunIds.length > 1 && (
+                    <span style={{
+                      fontSize: 8, background: 'var(--accent)', color: 'var(--bg)',
+                      borderRadius: 8, padding: '0 4px', marginLeft: 3, flexShrink: 0,
+                    }}>
+                      {sessionRunIds.length}
+                    </span>
+                  )}
                 </button>
                 {/* Close tab */}
                 <button
@@ -1321,11 +1854,17 @@ export default function ResultsPanel() {
         {activeTab === 'Pipeline' && <PipelineTabContent />}
 
         {activeRunId && (
-          <div key={activeRunId} style={{ flex: 1, overflowY: 'auto' }}>
-            <PipelineRunResults
-              runId={activeRunId}
-              onNavigateRun={(newRunId) => setActiveTab(`run:${newRunId}`)}
-            />
+          <div key={activeRunId} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+            {sessionRunIds.length > 1 && sessionRunIds[0] === activeRunId ? (
+              // Session mode: show unified canvas across all session runs
+              <SessionCanvas runIds={sessionRunIds} />
+            ) : (
+              // Single run: existing behavior
+              <PipelineRunResults
+                runId={activeRunId}
+                onNavigateRun={(newRunId) => setActiveTab(`run:${newRunId}`)}
+              />
+            )}
           </div>
         )}
       </div>
