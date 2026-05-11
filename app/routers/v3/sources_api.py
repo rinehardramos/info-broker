@@ -1,4 +1,4 @@
-"""Sources REST API — file upload, listing, and async parsing into research_memory."""
+"""Sources REST API — upload, ingest, and query research source files."""
 
 from __future__ import annotations
 
@@ -18,8 +18,9 @@ from app.routers.v3.db import execute, fetch_all, fetch_one
 router = APIRouter(prefix="/v3/sources", tags=["v3-sources"])
 log = logging.getLogger(__name__)
 
-_MAX_FILE_BYTES = 50 * 1024 * 1024  # 50 MB
-_ACCEPTED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".pdf", ".doc", ".docx", ".txt"}
+_MAX_FILE_BYTES = int(os.getenv("SOURCE_MAX_FILE_BYTES", str(2 * 1024 * 1024 * 1024)))
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+_ACCEPTED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".parquet", ".pdf", ".doc", ".docx", ".txt"}
 
 
 # ---------------------------------------------------------------------------
@@ -28,39 +29,30 @@ _ACCEPTED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".pdf", ".doc", ".docx", ".txt"
 
 async def _process_source(source_id: str, user_id: str, file_path: str, filename: str) -> None:
     from app.sources.parser import estimate_tokens, parse_file
+    from app.sources.datastore import ingest_tabular_source, is_tabular_file, tabular_manifest_findings
     from app.memory.writer import index_research_findings
     from app.routers.v3.stream import push_event
 
     try:
-        findings = parse_file(file_path, filename)
+        if is_tabular_file(filename):
+            manifest = ingest_tabular_source(source_id, user_id, file_path, filename)
+            findings = tabular_manifest_findings(filename, manifest)
+        else:
+            findings = parse_file(file_path, filename)
+            # Build enhanced manifest with schema info extracted from findings
+            manifest = {
+                "storage": "memory_index",
+                "findings_count": len(findings),
+                "filename": filename,
+            }
         total_text = " ".join(f.get("content", "") for f in findings)
         token_count = estimate_tokens(total_text)
 
         await index_research_findings(source_id, filename, findings)
 
-        # Build enhanced manifest with schema info extracted from findings
-        manifest: dict = {
-            "findings_count": len(findings),
-            "token_count": token_count,
-            "filename": filename,
-        }
-        # Extract column names and sample rows from the schema finding (CSV/Excel)
-        schema_finding = next(
-            (f for f in findings if "Schema" in f.get("title", "")), None
-        )
-        if schema_finding:
-            # Parse column names from content lines like "- **col**: dtype"
-            import re as _re
-            content = schema_finding.get("content", "")
-            cols = _re.findall(r"\*\*(.+?)\*\*:", content)
-            if cols:
-                manifest["columns"] = cols
-            # Include first data-row finding as sample
-            data_finding = next(
-                (f for f in findings if "rows 1-" in f.get("title", "")), None
-            )
-            if data_finding:
-                manifest["sample_rows_preview"] = data_finding.get("content", "")[:500]
+        manifest["findings_count"] = len(findings)
+        manifest["token_count"] = token_count
+        manifest["filename"] = filename
 
         execute(
             "UPDATE research_sources SET status='indexed', findings_count=%s, token_count=%s, manifest=%s WHERE id=%s",
@@ -114,11 +106,6 @@ async def upload_source(
             detail=f"Unsupported file type {suffix!r}. Accepted: {', '.join(sorted(_ACCEPTED_EXTENSIONS))}",
         )
 
-    # Read content and validate size
-    content = await file.read()
-    if len(content) > _MAX_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="File exceeds 50 MB limit")
-
     user_id = str(user["id"])
     source_id = str(uuid.uuid4())
     filename = file.filename or f"upload{suffix}"
@@ -128,8 +115,17 @@ async def upload_source(
     upload_dir = f"/tmp/uploads/{user_id}/{source_id}"
     os.makedirs(upload_dir, exist_ok=True)
     file_path = f"{upload_dir}/{filename}"
+    file_size_bytes = 0
     with open(file_path, "wb") as fh:
-        fh.write(content)
+        while chunk := await file.read(_UPLOAD_CHUNK_BYTES):
+            file_size_bytes += len(chunk)
+            if file_size_bytes > _MAX_FILE_BYTES:
+                try:
+                    os.unlink(file_path)
+                except OSError:
+                    pass
+                raise HTTPException(status_code=413, detail="File exceeds configured source upload limit")
+            fh.write(chunk)
 
     # Insert research_sources row
     execute(
@@ -137,7 +133,7 @@ async def upload_source(
         INSERT INTO research_sources (id, user_id, run_id, filename, file_type, file_size_bytes, status)
         VALUES (%s, %s, %s, %s, %s, %s, 'processing')
         """,
-        (source_id, user_id, run_id or None, filename, file_type, len(content)),
+        (source_id, user_id, run_id or None, filename, file_type, file_size_bytes),
     )
 
     # Launch background processing
@@ -147,7 +143,7 @@ async def upload_source(
         "source_id": source_id,
         "filename": filename,
         "file_type": file_type,
-        "file_size_bytes": len(content),
+        "file_size_bytes": file_size_bytes,
         "status": "processing",
     }
 
@@ -176,7 +172,7 @@ def get_source(source_id: str, user: dict = Depends(get_current_user)) -> dict:
 
 @router.post("/query")
 async def query_all_sources(body: dict, _key: str = Depends(require_api_key)) -> list[dict]:
-    """Search across uploaded file content using Qdrant filtered vector search.
+    """Search uploaded sources.
 
     Body params:
         query: search text (required)
@@ -195,6 +191,15 @@ async def query_all_sources(body: dict, _key: str = Depends(require_api_key)) ->
 
     if not query:
         return []
+
+    row_results = _query_data_plane_rows(
+        query=query,
+        filename=filename,
+        source_id=source_id,
+        limit=limit,
+    )
+    if row_results:
+        return row_results
 
     client = QdrantClient(
         host=os.getenv("QDRANT_HOST", "localhost"),
@@ -232,6 +237,43 @@ async def query_all_sources(body: dict, _key: str = Depends(require_api_key)) ->
     ]
 
 
+def _query_data_plane_rows(
+    query: str,
+    filename: str = "",
+    source_id: str = "",
+    limit: int = 20,
+) -> list[dict]:
+    """Query normalized tabular artifacts from the data plane."""
+    from app.sources.datastore import query_tabular_source
+
+    if not source_id and not filename:
+        return []
+
+    source = _find_data_plane_source(filename=filename, source_id=source_id)
+    if not source:
+        return []
+    return query_tabular_source(source, query, limit=limit)
+
+
+def _find_data_plane_source(filename: str = "", source_id: str = "") -> dict | None:
+    if source_id:
+        return fetch_one(
+            "SELECT * FROM research_sources WHERE id = %s AND manifest->>'storage' = %s",
+            (source_id, "data_plane"),
+        )
+    if filename:
+        return fetch_one(
+            """
+            SELECT * FROM research_sources
+             WHERE filename ILIKE %s AND manifest->>'storage' = %s
+             ORDER BY created_at DESC
+             LIMIT 1
+            """,
+            (f"%{filename}%", "data_plane"),
+        )
+    return None
+
+
 @router.post("/{source_id}/query")
 async def query_source_data(
     source_id: str,
@@ -250,6 +292,11 @@ async def query_source_data(
 
     query = body.get("query", "")
     limit = int(body.get("limit", 20))
+
+    source = fetch_one("SELECT * FROM research_sources WHERE id = %s", (source_id,))
+    if source and (source.get("manifest") or {}).get("storage") == "data_plane":
+        from app.sources.datastore import query_tabular_source
+        return query_tabular_source(source, query, limit=limit)
 
     results = await fused_retrieve(query, limit=limit * 3)
     filtered = [r for r in results if r.run_id == source_id]
