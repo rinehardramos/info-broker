@@ -61,3 +61,60 @@ def test_past_research_is_delimited():
                           session_context="", user_sources="")
     assert "<past_research>" in prompt
     assert "</past_research>" in prompt
+
+
+# --- PIR-bounded cycle structural assertions ---
+
+from app.is_prompt import RESEARCH_PROMPT
+
+
+def test_log_cycle_declaration_required():
+    """log_cycle must be called before any search — core PIR cycle gate."""
+    assert "log_cycle" in RESEARCH_PROMPT
+    assert "CANNOT run any search before calling log_cycle" in RESEARCH_PROMPT
+
+
+def test_hypothesis_first_broaden_gate():
+    """Minimum searches = number of hypotheses (hard gate)."""
+    assert "HYPOTHESIS-FIRST BROADEN" in RESEARCH_PROMPT
+
+
+def test_dead_end_rehypothesization_required():
+    """Dead ends must trigger re-hypothesization, not immediate closure."""
+    assert "RE-HYPOTHESIZE" in RESEARCH_PROMPT or "re-hypothesize" in RESEARCH_PROMPT.lower()
+    # The old "mark and stop" behavior must be gone
+    assert "mark and stop" not in RESEARCH_PROMPT
+
+
+def test_prior_collapse_replan_trigger():
+    """PRIOR COLLAPSE must trigger a replan when hypothesis is contradicted."""
+    assert "PRIOR COLLAPSE" in RESEARCH_PROMPT
+
+
+def test_unconventional_branch_mandatory():
+    """STEP 6 unconventional branch must be declared mandatory."""
+    assert "UNCONVENTIONAL" in RESEARCH_PROMPT
+    assert "mandatory" in RESEARCH_PROMPT.lower()
+
+
+def test_pir_criteria_scoring():
+    """PIR scoring criteria with penalty weighting must be present."""
+    assert "PIR" in RESEARCH_PROMPT
+    assert "penalty" in RESEARCH_PROMPT.lower()
+
+
+def test_child_pir_spawning():
+    """Child PIRs must be spawnable mid-investigation (parent_cycle_id)."""
+    assert "parent_cycle_id" in RESEARCH_PROMPT
+
+
+def test_build_prompt_preserves_all_slots():
+    """build_prompt must accept all injection slots without crashing on None."""
+    result = build_prompt(
+        query="test query",
+        past_research=None,
+        user_sources="",
+        session_context="",
+    )
+    assert "test query" in result or "<user_query>" in result
+    assert len(result) > 100
