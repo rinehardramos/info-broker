@@ -248,4 +248,57 @@ describe('PipelineBuilder — save flow', () => {
     // Save is disabled unless dirty — just verify createPipeline is never called
     expect(mockCreatePipeline).not.toHaveBeenCalled()
   })
+
+  it('shows "Saved ✓" on the Save button after a successful save', async () => {
+    mockUpdatePipeline.mockResolvedValue({
+      id: 'pipe-1', name: 'Updated Name', description: null,
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    })
+    wrap(<PipelineBuilder initialPipelineId="pipe-1" />)
+    await waitFor(() => screen.getByText('Pipeline One'))
+
+    // Make it dirty so Save is enabled
+    const nameInput = screen.getByDisplayValue('Pipeline One')
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Updated Name')
+
+    const saveBtn = screen.getByRole('button', { name: /save/i })
+    await userEvent.click(saveBtn)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /saved/i })).toBeInTheDocument()
+    })
+  })
+
+  it('calls updatePipeline with the correct pipeline ID, not a stale closure value', async () => {
+    mockUpdatePipeline.mockResolvedValue({
+      id: 'pipe-1', name: 'Updated Name', description: null,
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    })
+    wrap(<PipelineBuilder initialPipelineId="pipe-1" />)
+    await waitFor(() => screen.getByText('Pipeline One'))
+
+    const nameInput = screen.getByDisplayValue('Pipeline One')
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Updated Name')
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => expect(mockUpdatePipeline).toHaveBeenCalled())
+    expect(mockUpdatePipeline).toHaveBeenCalledWith('pipe-1', expect.any(Object))
+  })
+
+  it('shows an inline error message when save fails', async () => {
+    mockUpdatePipeline.mockRejectedValue(new Error('Network error'))
+    wrap(<PipelineBuilder initialPipelineId="pipe-1" />)
+    await waitFor(() => screen.getByText('Pipeline One'))
+
+    const nameInput = screen.getByDisplayValue('Pipeline One')
+    await userEvent.clear(nameInput)
+    await userEvent.type(nameInput, 'Updated Name')
+    await userEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/save failed/i)).toBeInTheDocument()
+    })
+  })
 })

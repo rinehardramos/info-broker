@@ -31,6 +31,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   descRef.current = localDesc
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle')
   const [creatingNew, setCreatingNew] = useState(false)
   const [newName, setNewName] = useState('')
   const [newDesc, setNewDesc] = useState('')
@@ -61,10 +62,15 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const updateMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updatePipeline>[1] }) =>
       updatePipeline(id, body),
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ['pipelines'] })
-      qc.invalidateQueries({ queryKey: ['pipeline', selectedPipelineId] })
+      qc.invalidateQueries({ queryKey: ['pipeline', variables.id] })
       setDirty(false)
+      setSaveStatus('saved')
+      setTimeout(() => setSaveStatus('idle'), 2000)
+    },
+    onError: () => {
+      setSaveStatus('error')
     },
   })
   const deleteMutation = useMutation({
@@ -512,29 +518,36 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
                     </div>
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
-                    <button
-                      onClick={handleSave}
-                      disabled={!canSave || isSystemPipeline}
-                      style={{
-                        flex: 1, padding: '5px 0', fontSize: 11,
-                        background: (canSave && !isSystemPipeline) ? (dirty ? '#1e3a5f' : '#1e293b') : 'transparent',
-                        border: `1px solid ${(canSave && !isSystemPipeline) ? (dirty ? '#60a5fa' : '#334155') : '#1e293b'}`,
-                        borderRadius: 4,
-                        color: (canSave && !isSystemPipeline) ? '#e2e8f0' : '#475569',
-                        cursor: (canSave && !isSystemPipeline) ? 'pointer' : 'default',
-                      }}
-                    >
-                      Save{dirty ? ' *' : ''}
-                    </button>
-                    {selectedPipelineId && !isSystemPipeline && (
-                      <button
-                        onClick={() => setConfirmDelete(true)}
-                        style={{ padding: '5px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}
-                      >
-                        Delete
-                      </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', borderTop: '1px solid #1e293b', flexShrink: 0 }}>
+                    {saveStatus === 'error' && (
+                      <div style={{ padding: '4px 10px', fontSize: 10, color: '#f87171', background: '#ef444411' }}>
+                        Save failed — check connection and try again
+                      </div>
                     )}
+                    <div style={{ display: 'flex', gap: 6, padding: '8px 10px' }}>
+                      <button
+                        onClick={handleSave}
+                        disabled={!canSave || isSystemPipeline || updateMutation.isPending}
+                        style={{
+                          flex: 1, padding: '5px 0', fontSize: 11,
+                          background: saveStatus === 'saved' ? '#14532d' : (canSave && !isSystemPipeline) ? (dirty ? '#1e3a5f' : '#1e293b') : 'transparent',
+                          border: `1px solid ${saveStatus === 'saved' ? '#4ade80' : (canSave && !isSystemPipeline) ? (dirty ? '#60a5fa' : '#334155') : '#1e293b'}`,
+                          borderRadius: 4,
+                          color: saveStatus === 'saved' ? '#4ade80' : (canSave && !isSystemPipeline) ? '#e2e8f0' : '#475569',
+                          cursor: (canSave && !isSystemPipeline && !updateMutation.isPending) ? 'pointer' : 'default',
+                        }}
+                      >
+                        {saveStatus === 'saved' ? 'Saved ✓' : updateMutation.isPending ? 'Saving…' : `Save${dirty ? ' *' : ''}`}
+                      </button>
+                      {selectedPipelineId && !isSystemPipeline && (
+                        <button
+                          onClick={() => setConfirmDelete(true)}
+                          style={{ padding: '5px 10px', fontSize: 11, background: 'transparent', border: '1px solid #334155', borderRadius: 4, color: '#f87171', cursor: 'pointer' }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
