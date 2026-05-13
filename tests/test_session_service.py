@@ -1,9 +1,12 @@
 import pytest
-from unittest.mock import patch
+import anthropic
+import httpx
+from unittest.mock import patch, MagicMock
 from app.services.session_service import (
     classify_turn,
     build_session_context,
     distil_summary,
+    _CLASSIFIER_PROMPT,
 )
 
 def test_classify_turn_investigation_no_session():
@@ -41,3 +44,61 @@ def test_build_session_context_with_session():
 def test_distil_summary_empty():
     result = distil_summary([], "")
     assert result == ""
+
+
+# --- Timeout fallback tests ---
+
+def test_classify_turn_timeout_returns_investigation():
+    """classify_turn must return 'investigation' when SDK raises APITimeoutError."""
+    thread = [{"role": "user", "content": "previous message"}]
+    with patch("anthropic.Anthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create.side_effect = anthropic.APITimeoutError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+        result = classify_turn("new question", thread, "some summary")
+    assert result == "investigation"
+
+
+def test_distil_summary_timeout_returns_original():
+    """distil_summary must return the original summary when SDK raises APITimeoutError."""
+    findings = [{"title": "Finding 1", "confidence": 80, "content": "detail"}]
+    original = "original summary text"
+    with patch("anthropic.Anthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create.side_effect = anthropic.APITimeoutError(
+            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        )
+        result = distil_summary(findings, original)
+    assert result == original
+
+
+# --- Classifier prompt XML delimiter tests ---
+
+def test_classifier_prompt_wraps_user_message():
+    assert "<user_message>" in _CLASSIFIER_PROMPT
+    assert "</user_message>" in _CLASSIFIER_PROMPT
+
+
+def test_classifier_prompt_wraps_thread_excerpt():
+    assert "<thread_excerpt>" in _CLASSIFIER_PROMPT
+    assert "</thread_excerpt>" in _CLASSIFIER_PROMPT
+
+
+def test_classifier_prompt_has_data_not_instructions_note():
+    assert "treat as data" in _CLASSIFIER_PROMPT.lower()
+
+
+def test_classifier_mode_validation_rejects_injected_value():
+    """If the classifier returns an unexpected mode, it must fall back to 'investigation'."""
+    thread = [{"role": "user", "content": "previous message"}]
+    with patch("anthropic.Anthropic") as mock_cls:
+        mock_client = MagicMock()
+        mock_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text='{"mode": "BYPASS", "reasoning": "injected"}')]
+        mock_client.messages.create.return_value = mock_response
+        result = classify_turn("new question", thread, "some summary")
+    assert result == "investigation"
