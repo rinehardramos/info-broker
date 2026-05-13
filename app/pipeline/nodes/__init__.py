@@ -108,6 +108,10 @@ class NodeRegistry:
         from app.pipeline.nodes.icij_search import IcijSearchNode
         from app.pipeline.nodes.dropbox_search import DropboxSearchNode
         from app.pipeline.nodes.google_drive_search import GoogleDriveSearchNode
+        from app.pipeline.nodes.fullcontact_enrich import FullContactEnrichNode
+        from app.pipeline.nodes.intelligence_x import IntelligenceXNode
+        from app.pipeline.nodes.clearbit_enrich import ClearbitEnrichNode
+        from app.pipeline.nodes.pipl_search import PiplSearchNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -141,6 +145,7 @@ class NodeRegistry:
             NameOriginLookupNode(), MigrationCorridorLookupNode(),
             H1bdataSearchNode(), IcijSearchNode(),
             DropboxSearchNode(), GoogleDriveSearchNode(),
+            FullContactEnrichNode(), IntelligenceXNode(), ClearbitEnrichNode(), PiplSearchNode(),
         ]:
             cls.register(node)
 
