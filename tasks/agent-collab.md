@@ -4,7 +4,6 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
-- [2026-05-13] - [Claude/main] - [fix #36: pipeline save stale closure + success/error feedback] - [frontend/src/components/pipeline/PipelineBuilder.tsx, frontend/src/components/pipeline/PipelineBuilder.test.tsx]
 - [2026-05-08] - [Claude/software-developer] - [URE Phase B Task 1: category selectors module (TDD)] - [app/pipeline/strategies/selectors.py, tests/pipeline/strategies/test_selectors.py]
 - [2026-05-08] - [Claude/software-developer] - [File Import Task 1: add pdfplumber, python-docx deps and research_sources schema] - [pyproject.toml, uv.lock, app/routers/v3/db.py]
 - [2026-05-08] - [Claude/software-developer] - [Universal Research Engine Phase A Task 3: brain question/answer queue module] - [app/routers/v3/brain_questions.py, app/main.py]
@@ -31,6 +30,7 @@
 - [2026-04-07] - [Gemini CLI] - [Feature: Light Data Export & Personalized Email Generation] - [None]
 - [2026-04-07] - [Gemini CLI] - [Feature: Data Export System (JSON, CSV, XLSX)] - [None]
 - [2026-04-07] - [Gemini CLI] - [Phase 1 MVP: ReAct Loop for Research Agent] - [None]
+- [2026-05-13] - [Claude/main] - [fix #36: stale closure + save feedback in PipelineBuilder - PR #49] - [PipelineBuilder.tsx]
 
 ## 🔴 BLOCKED / Needs User Input
 - 
