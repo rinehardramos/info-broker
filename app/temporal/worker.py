@@ -17,6 +17,10 @@ async def run_is_worker() -> None:
     from temporalio.client import Client
     from temporalio.worker import Worker
     from app.temporal.workflows.is_run import ISRunWorkflow
+    from app.temporal.activities.brain import run_is_brain
+    from app.temporal.activities.budget import reserve_budget, release_budget_and_mark_failed
+    from app.temporal.activities.post_process import post_process
+    from app.temporal.activities.preflight import preflight_validation, mark_awaiting_input
 
     host = os.getenv("TEMPORAL_HOST", "localhost")
     port = int(os.getenv("TEMPORAL_PORT", "7233"))
@@ -24,9 +28,16 @@ async def run_is_worker() -> None:
     client = await Client.connect(f"{host}:{port}")
     worker = Worker(
         client,
-        task_queue=IS_TASK_QUEUE,
+        IS_TASK_QUEUE,
         workflows=[ISRunWorkflow],
-        activities=[],  # Phase 1 will add activities
+        activities=[
+            run_is_brain,
+            reserve_budget,
+            release_budget_and_mark_failed,
+            post_process,
+            preflight_validation,
+            mark_awaiting_input,
+        ],
     )
     log.info("IS Temporal worker starting on queue %s", IS_TASK_QUEUE)
     await worker.run()

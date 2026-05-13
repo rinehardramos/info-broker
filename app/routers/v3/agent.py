@@ -1157,34 +1157,41 @@ async def send_message(
             )
 
         # Fire and forget — research runs async, pushes WS events when done.
-        # Phase 0: Feature flag scaffolding. Phase 1 will activate this branch.
-        # if IS_USE_TEMPORAL:
-        #     from app.temporal.workflows.is_run import ISRunWorkflow, ISRunInput
-        #     from temporalio.client import Client
-        #     _host = _os.getenv("TEMPORAL_HOST", "localhost")
-        #     _port = int(_os.getenv("TEMPORAL_PORT", "7233"))
-        #     _client = await Client.connect(f"{_host}:{_port}")
-        #     await _client.start_workflow(
-        #         ISRunWorkflow.run,
-        #         ISRunInput(
-        #             run_id=run_id, user_id=uid, org_id=org_id, query=body.message,
-        #             pipeline_id=pipeline_id, session_id=sid,
-        #         ),
-        #         id=f"is-run-{run_id}",
-        #         task_queue="is-run-tasks",
-        #     )
-        # else:
-        #     asyncio.create_task(_run_is_research(...))  # current path
-        task = asyncio.create_task(
-            _run_is_research(
-                run_id, uid, pipeline_id, body.message,
-                past_research=past_research,
-                session_id=sid,
-                session_context=session_context,
-                preflight_result=preflight_result,
+        if IS_USE_TEMPORAL:
+            from app.temporal.workflows.is_run import ISRunWorkflow, ISRunInput
+            from temporalio.client import Client
+            _host = _os.getenv("TEMPORAL_HOST", "localhost")
+            _port = int(_os.getenv("TEMPORAL_PORT", "7233"))
+            _t_client = await Client.connect(f"{_host}:{_port}")
+            await _t_client.start_workflow(
+                ISRunWorkflow.run,
+                ISRunInput(
+                    run_id=run_id,
+                    user_id=uid,
+                    org_id=user_org_id(user),
+                    query=body.message,
+                    pipeline_id=pipeline_id,
+                    session_id=sid,
+                    session_context=session_context,
+                    past_research=past_research or [],
+                    budget=_raw_budget,
+                    callback_url=getattr(body, "callback_url", None),
+                    preflight_prior_slots=dict(_SESSION_SLOTS.get(sid or "", {}) or {}),
+                ),
+                id=f"is-run-{run_id}",
+                task_queue="is-run-tasks",
             )
-        )  # current path (Phase 0)
-        task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
+        else:
+            task = asyncio.create_task(
+                _run_is_research(
+                    run_id, uid, pipeline_id, body.message,
+                    past_research=past_research,
+                    session_id=sid,
+                    session_context=session_context,
+                    preflight_result=preflight_result,
+                )
+            )
+            task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
 
         return AgentMessageOut(job_id=run_id, session_id=sid, status="pending", mode="investigation")
 
