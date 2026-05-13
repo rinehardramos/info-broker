@@ -14,7 +14,7 @@ export default function Research() {
     queryKey: ['me'],
     queryFn: async () => {
       const user = await getMe()
-      setUser(user.id, user.username)
+      setUser(user.id, user.username, user.is_admin)
       return user
     },
   })

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.crypto import decrypt_value, encrypt_value
-from app.routers.v3.auth import get_current_user
+from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.models import CoreSettingIn, CoreSettingsOut
 
@@ -19,7 +19,7 @@ def get_core_settings(user: dict = Depends(get_current_user)):
 
 
 @router.put("/core", response_model=CoreSettingsOut)
-def update_core_settings(body: list[CoreSettingIn], user: dict = Depends(get_current_user)):
+def update_core_settings(body: list[CoreSettingIn], user: dict = Depends(require_admin)):
     for item in body:
         stored_value = encrypt_value(item.value) if item.is_secret else item.value
         execute(
@@ -45,7 +45,7 @@ def get_plugin_enabled(plugin_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.put("/plugins/{plugin_id}/enabled", status_code=204)
-def set_plugin_enabled(plugin_id: str, body: dict, user: dict = Depends(get_current_user)):
+def set_plugin_enabled(plugin_id: str, body: dict, user: dict = Depends(require_admin)):
     key = f"plugin.{plugin_id}.enabled"
     execute(
         "INSERT INTO core_settings (key, value, is_secret) VALUES (%s, %s, false) "

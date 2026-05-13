@@ -51,6 +51,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(_bearer
     return user
 
 
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    """Raise 403 if the authenticated user is not an admin."""
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest):
     user = fetch_one("SELECT * FROM ui_users WHERE username = %s AND is_active = true", (body.username,))
