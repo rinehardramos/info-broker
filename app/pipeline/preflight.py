@@ -86,10 +86,15 @@ def extract(query: str) -> ExtractionResult:
         if term in q_lower:
             platform_hints.append(term)
 
-    # First-person evidence: multi-word phrases first, then single words
+    # First-person evidence: match full phrases/words only so terms like
+    # "founder" do not trigger the "found" evidence verb.
     first_person_evidence = False
     for verb in EVIDENCE_VERBS:
-        if verb in q_lower:
+        if " " in verb:
+            pattern = rf"(?<!\w){re.escape(verb)}(?!\w)"
+        else:
+            pattern = rf"\b{re.escape(verb)}\b"
+        if re.search(pattern, q_lower):
             first_person_evidence = True
             break
 
