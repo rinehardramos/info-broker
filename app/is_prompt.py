@@ -547,6 +547,21 @@ def _build_tools_section(available_nodes: list[dict] | None) -> str:
     return "\n".join(lines) if lines else _STATIC_TOOLS
 
 
+def _render_budget_section(plan) -> str:
+    """Render the RUN BUDGET CONTRACT block for prompt injection."""
+    if plan is None:
+        return ""
+    lim = plan.execution_limits
+    return (
+        "\n## RUN BUDGET CONTRACT (ENFORCED)\n"
+        f"Effort: {plan.effort_label}\n"
+        f"Max depth: {lim.max_depth} | Max branches: {lim.max_branches} | "
+        f"Max tool calls: {lim.max_tool_calls} | Timeout: {lim.timeout_seconds}s\n"
+        f"Optimization: {plan.budget.optimization_mode}\n"
+        "These are hard server-enforced limits. Do not plan beyond them.\n"
+    )
+
+
 def build_prompt(
     query: str,
     max_depth: int = 3,
@@ -561,6 +576,7 @@ def build_prompt(
     user_sources: str = "",
     meta_strategies_section: str = "",
     session_context: str = "",
+    budget_plan=None,
 ) -> str:
     """Build the full research prompt with context."""
     context_parts: list[str] = []
@@ -611,6 +627,9 @@ def build_prompt(
         """Escape curly braces in injected content so .format() treats them as literals."""
         return s.replace("{", "{{").replace("}", "}}")
 
+    budget_section = _render_budget_section(budget_plan)
+    full_session_context = (session_context + budget_section).strip()
+
     return RESEARCH_PROMPT.format(
         query=_esc(query),
         context_section=_esc(context_section),
@@ -624,5 +643,5 @@ def build_prompt(
         research_plan=_esc(research_plan),
         user_sources=_esc(user_sources),
         meta_strategies_section=_esc(meta_strategies_section),
-        session_context=_esc(session_context),
+        session_context=_esc(full_session_context),
     )
