@@ -1,7 +1,7 @@
 """Tests for PIR (Priority Intelligence Requirements) decomposition."""
 from app.pipeline.fusion.pir import (
     decompose_query_to_pirs, map_findings_to_pirs, generate_coverage_report,
-    PERSON_PIRS,
+    _keyword_matches, PERSON_PIRS,
 )
 
 def test_person_pirs_defined():
@@ -75,3 +75,32 @@ def test_full_pir_flow():
     # Should have some high-confidence PIRs
     high_conf = [p for p in report["pirs"] if p["confidence"] in ("high", "moderate")]
     assert len(high_conf) >= 1
+
+
+# ---------------------------------------------------------------------------
+# New tests: word-boundary keyword matching
+# ---------------------------------------------------------------------------
+
+def test_panamerican_does_not_match_american():
+    """'panamerican' should NOT match the keyword 'american' (substring false positive)."""
+    assert not _keyword_matches("american", "panamerican airlines flies routes")
+
+
+def test_anti_fraud_does_not_match_fraud():
+    """'anti-fraud certification' should NOT match the keyword 'fraud' at word boundary."""
+    assert not _keyword_matches("fraud", "anti-fraud certification completed")
+
+
+def test_exact_word_matches():
+    """'american' should match when it appears as a standalone word."""
+    assert _keyword_matches("american", "american company based in new york")
+
+
+def test_at_symbol_matches_email():
+    """The '@' keyword should match when an email address is present."""
+    assert _keyword_matches("@", "contact@example.com for more info")
+
+
+def test_at_symbol_no_match_without_email():
+    """The '@' keyword should not match plain text without an email pattern."""
+    assert not _keyword_matches("@", "no email address here at all")
