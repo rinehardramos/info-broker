@@ -39,7 +39,9 @@
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  letter-spacing: 0.01em;
   overflow: hidden;
 }
 

@@ -18,9 +18,9 @@ export type LogoProps = {
 
 // Size table from spec §3.4
 const SIZE_MAP: Record<LogoSize, { markPx: number; wordmarkPx: number; taglinePx: number; gapPx: number }> = {
-  sm: { markPx: 24, wordmarkPx: 14, taglinePx: 8,  gapPx: 8  },
-  md: { markPx: 32, wordmarkPx: 18, taglinePx: 10, gapPx: 10 },
-  lg: { markPx: 48, wordmarkPx: 24, taglinePx: 13, gapPx: 14 },
+  sm: { markPx: 28, wordmarkPx: 15, taglinePx: 9,  gapPx: 10 },
+  md: { markPx: 40, wordmarkPx: 20, taglinePx: 11, gapPx: 12 },
+  lg: { markPx: 56, wordmarkPx: 28, taglinePx: 14, gapPx: 16 },
 }
 
 const FONT_STACK = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif"

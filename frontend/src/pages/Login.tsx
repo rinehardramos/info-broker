@@ -57,7 +57,7 @@ export default function Login() {
     >
       <Card className="w-full max-w-sm border" style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}>
         <CardHeader className="items-center pb-2 pt-8">
-          <Logo size="md" variant="dark" />
+          <Logo size="lg" variant="dark" />
           <p className="text-xs mt-3 text-center" style={{ color: 'var(--muted)' }}>
             Sign in to your workspace
           </p>

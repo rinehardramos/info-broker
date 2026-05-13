@@ -82,7 +82,7 @@ export default function IconRail() {
           flexShrink: 0,
         }}
       >
-        <LogoMark size={22} />
+        <LogoMark size={28} />
       </button>
 
       {/* Divider */}
