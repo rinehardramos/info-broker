@@ -11,8 +11,10 @@ interface SessionState {
     | { type: 'pipeline_run'; runId: string }
     | null
 
+  isAdmin: boolean
   setTokens: (access: string, refresh: string) => void
-  setUser: (id: string, username: string) => void
+  setUser: (id: string, username: string, isAdmin?: boolean) => void
+  setIsAdmin: (isAdmin: boolean) => void
   setActiveJobId: (id: string | null) => void
   setAgentInput: (text: string) => void
   setCol1Content: (content: SessionState['col1Content']) => void
@@ -23,6 +25,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   accessToken: localStorage.getItem('access_token'),
   username: null,
   userId: null,
+  isAdmin: false,
   activeJobId: null,
   agentInput: '',
   col1Content: null,
@@ -33,7 +36,8 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({ accessToken: access })
   },
 
-  setUser: (id, username) => set({ userId: id, username }),
+  setUser: (id, username, isAdmin = false) => set({ userId: id, username, isAdmin }),
+  setIsAdmin: (isAdmin) => set({ isAdmin }),
 
   setActiveJobId: (id) => set({ activeJobId: id }),
 
@@ -44,6 +48,6 @@ export const useSessionStore = create<SessionState>((set) => ({
   logout: () => {
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
-    set({ accessToken: null, username: null, userId: null, activeJobId: null, col1Content: null })
+    set({ accessToken: null, username: null, userId: null, activeJobId: null, col1Content: null, isAdmin: false })
   },
 }))

@@ -9,7 +9,7 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.routers.v3.auth import get_current_user
+from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.tenancy import user_org_id
 from app.routers.v3.models import (
@@ -116,7 +116,7 @@ def get_node_type_enabled(node_type: str, user: dict = Depends(get_current_user)
 def set_node_type_enabled(
     node_type: str,
     body: dict,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_admin),
 ):
     from app.pipeline.nodes import NodeRegistry
     NodeRegistry.auto_discover()

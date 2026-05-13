@@ -25,6 +25,7 @@ class UserOut(BaseModel):
     username: str
     email: str | None
     is_active: bool
+    is_admin: bool = False
     created_at: datetime
 
 

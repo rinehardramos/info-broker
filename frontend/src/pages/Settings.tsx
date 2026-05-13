@@ -4,6 +4,7 @@ import { getCoreSettings, updateCoreSettings, getAgentPipeline, setAgentPipeline
 import { listPipelines } from '../api/pipelines'
 import { useForm } from 'react-hook-form'
 import IconRail from '../components/layout/IconRail'
+import { useSessionStore } from '../stores/sessionStore'
 
 const CORE_FIELDS = [
   // LLM Model Tiers
@@ -412,36 +413,45 @@ function NodeHealthSection() {
 
 export default function Settings() {
   const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health'>('core')
+  const isAdmin = useSessionStore(s => s.isAdmin)
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <div className="flex h-full flex-1 overflow-hidden">
         <div className="w-40 flex-shrink-0 col-scroll py-3 px-2" style={{ background: 'var(--panel)', borderRight: '1px solid var(--border)' }}>
-          <div className="text-[10px] font-semibold mb-2 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
-          <button
-            onClick={() => setSection('core')}
-            className="w-full text-left px-2 py-1 rounded text-xs mb-1"
-            style={{
-              background: section === 'core' ? 'var(--panel2)' : 'transparent',
-              color: section === 'core' ? 'var(--accent)' : 'var(--text)',
-              border: 'none', cursor: 'pointer',
-            }}
-          >
-            Core Settings
-          </button>
+          {isAdmin && (
+            <>
+              <div className="text-[10px] font-semibold mb-2 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
+              <button
+                onClick={() => setSection('core')}
+                className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+                style={{
+                  background: section === 'core' ? 'var(--panel2)' : 'transparent',
+                  color: section === 'core' ? 'var(--accent)' : 'var(--text)',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                Core Settings
+              </button>
+            </>
+          )}
 
-          <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>PLUGINS</div>
-          <button
-            onClick={() => setSection('plugins')}
-            className="w-full text-left px-2 py-1 rounded text-xs mb-1"
-            style={{
-              background: section === 'plugins' ? 'var(--panel2)' : 'transparent',
-              color: section === 'plugins' ? 'var(--accent)' : 'var(--text)',
-              border: 'none', cursor: 'pointer',
-            }}
-          >
-            General
-          </button>
+          {isAdmin && (
+            <>
+              <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>PLUGINS</div>
+              <button
+                onClick={() => setSection('plugins')}
+                className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+                style={{
+                  background: section === 'plugins' ? 'var(--panel2)' : 'transparent',
+                  color: section === 'plugins' ? 'var(--accent)' : 'var(--text)',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                General
+              </button>
+            </>
+          )}
 
           <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>AGENT</div>
           <button
@@ -477,8 +487,8 @@ export default function Settings() {
               : section === 'node-health' ? 'Node Health'
               : 'Plugin Settings'}
           </h2>
-          {section === 'core' && <CoreSettingsForm />}
-          {section === 'plugins' && <PluginSettingsForm />}
+          {isAdmin && section === 'core' && <CoreSettingsForm />}
+          {isAdmin && section === 'plugins' && <PluginSettingsForm />}
           {section === 'agent' && <AgentSettingsForm />}
           {section === 'node-health' && <NodeHealthSection />}
         </div>
