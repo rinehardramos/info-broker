@@ -283,7 +283,14 @@ For each branch, explore recursively as deep as the research requires (suggested
    - Found a review? Search for more reviews, aggregate scores
 4. Assess each result:
    - FRUIT: specific, verifiable finding — store it with source URL
-   - DEAD END: no data after 2+ searches — mark and stop
+   - DEAD END: no data after 2+ searches on this angle.
+     Do NOT close the PIR immediately. Instead:
+     1. Re-hypothesize: form a new interpretation of the same PIR from a different angle
+        (different locale, name variant, source type, or medium-type assumption).
+     2. Run ≥1 new BROADEN search from the re-hypothesized angle.
+     3. Only mark the PIR closed when BOTH the original AND re-hypothesized angles yield no signal,
+        OR when all declared hypotheses in log_cycle have been exhausted.
+     Log: "DEAD END: [what failed]. RE-HYPOTHESIZE: [new angle tried]. OUTCOME: [result]."
    - BLOCKED: tool returned HTTP 403 / API key missing / rate limit / structural error
      → DO NOT retry. Run the BLOCK CLASSIFICATION + PIVOT PROTOCOL:
 
