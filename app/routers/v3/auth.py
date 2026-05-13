@@ -91,7 +91,7 @@ def refresh(body: RefreshRequest):
 def list_users(current_user: dict = Depends(get_current_user)) -> list[dict]:
     """List all users. Admin only."""
     rows = fetch_all(
-        """SELECT id, username, email, is_admin, is_active, org_id, created_at
+        """SELECT id, username, email, is_admin, role, is_active, org_id, created_at
            FROM ui_users
            ORDER BY created_at DESC""",
         (),
@@ -105,18 +105,21 @@ def update_user(
     body: dict,
     current_user: dict = Depends(get_current_user),
 ) -> dict:
-    """Update user is_admin or is_active. Admin only."""
+    """Update user is_admin, role, or is_active. Admin only."""
     if str(user_id) == str(current_user["id"]) and body.get("is_admin") is False:
         raise HTTPException(status_code=400, detail="Cannot remove your own admin status")
 
-    allowed = {k: v for k, v in body.items() if k in ("is_admin", "is_active")}
+    if "role" in body and body["role"] not in ("admin", "analyst", "viewer"):
+        raise HTTPException(status_code=422, detail="role must be admin, analyst, or viewer")
+
+    allowed = {k: v for k, v in body.items() if k in ("is_admin", "is_active", "role")}
     if not allowed:
-        raise HTTPException(status_code=422, detail="Only is_admin and is_active are patchable")
+        raise HTTPException(status_code=422, detail="Only is_admin, role, and is_active are patchable")
 
     set_clause = ", ".join(f"{k} = %s" for k in allowed)
     values = list(allowed.values()) + [user_id]
     row = fetch_one(
-        f"UPDATE ui_users SET {set_clause} WHERE id = %s RETURNING id, username, is_admin, is_active",
+        f"UPDATE ui_users SET {set_clause} WHERE id = %s RETURNING id, username, is_admin, role, is_active",
         tuple(values),
     )
     if not row:

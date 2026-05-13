@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 
 from app.routers.v3.db import fetch_one
 
@@ -23,6 +23,37 @@ def require_system_user(user_id: str, org_id: str) -> dict:
     if not user:
         raise HTTPException(status_code=404, detail="User not found in organization")
     return user
+
+
+def _user_role(user: dict) -> str:
+    """Resolve effective role: explicit role column falls back to is_admin flag."""
+    if user.get("is_admin"):
+        return "admin"
+    return user.get("role") or "analyst"
+
+
+def require_analyst(user: dict) -> dict:
+    """Dependency: passes for admin and analyst; blocks viewers."""
+    if _user_role(user) not in ("admin", "analyst"):
+        raise HTTPException(status_code=403, detail="Analyst or admin role required")
+    return user
+
+
+def require_viewer(user: dict) -> dict:
+    """Dependency: passes for any authenticated user (admin / analyst / viewer)."""
+    return user
+
+
+def _make_analyst_dep():
+    from app.routers.v3.auth import get_current_user
+
+    def _dep(user: dict = Depends(get_current_user)) -> dict:
+        return require_analyst(user)
+
+    return _dep
+
+
+require_analyst_user = _make_analyst_dep()
 
 
 def require_user_run(run_id: str, user_id: str, org_id: str) -> dict:

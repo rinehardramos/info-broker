@@ -509,9 +509,14 @@ ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_status    VARCHAR(32);
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_exhausted_at TIMESTAMPTZ;
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_stop_reason  TEXT;
 
--- RBAC: admin flag on ui_users
+-- RBAC: admin flag + org role on ui_users
 ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 UPDATE ui_users SET is_admin = true WHERE username = 'admin';
+
+-- Org membership role: admin | analyst | viewer
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'analyst';
+UPDATE ui_users SET role = 'admin' WHERE is_admin = true OR username = 'admin';
+
 
 -- Session multi-turn hypothesis memory
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS investigated_hypotheses JSONB DEFAULT '[]'::jsonb;
