@@ -486,8 +486,34 @@ export interface RunMetrics {
   avg_duration_seconds: number
 }
 
+// GET /v3/pipelines/runs/all — returns PipelineRunSummaryOut[]
+// Map to RunRow shape for the Dashboard/History table
 export const listRuns = (): Promise<RunRow[]> =>
-  api.get('/v3/agent/runs').then(r => r.data)
+  api.get('/v3/pipelines/runs/all').then(r =>
+    (r.data as any[]).map(row => ({
+      id: row.id,
+      status: row.status,
+      query: row.query ?? row.pipeline_name ?? '—',
+      pipeline_name: row.pipeline_name ?? null,
+      trigger_type: row.trigger_type ?? null,
+      created_at: row.started_at ?? row.created_at,
+      finished_at: row.finished_at ?? null,
+    }) as RunRow)
+  )
 
+// GET /v3/metrics/summary — maps backend shape to RunMetrics
 export const getRunMetrics = (): Promise<RunMetrics> =>
-  api.get('/v3/metrics/summary').then(r => r.data)
+  api.get('/v3/metrics/summary').then(r => {
+    const d = r.data
+    const total = d.total_runs ?? 0
+    const succeeded = d.succeeded ?? 0
+    const today = d.runs_today ?? total  // backend may or may not have runs_today
+    return {
+      total_runs:           total,
+      runs_today:           today,
+      success_rate:         total > 0 ? succeeded / total : 0,
+      live_runs:            d.live_runs ?? 0,
+      error_count:          d.failed ?? d.error_count ?? 0,
+      avg_duration_seconds: d.avg_latency_seconds ?? d.avg_duration_seconds ?? 0,
+    } as RunMetrics
+  })

@@ -19,13 +19,15 @@ def get_metrics_summary(
     org = user_org_id(user)
     uid = str(user["id"])
 
-    # Run stats — total, succeeded, failed, budget_exhausted
+    # Run stats — total, succeeded, failed, budget_exhausted, today, live
     run_stats = fetch_one(
         """SELECT
              COUNT(*) as total_runs,
              COUNT(*) FILTER (WHERE status = 'succeeded') as succeeded,
              COUNT(*) FILTER (WHERE status = 'failed') as failed,
              COUNT(*) FILTER (WHERE status = 'budget_exhausted') as budget_exhausted,
+             COUNT(*) FILTER (WHERE status IN ('running', 'queued')) as live_runs,
+             COUNT(*) FILTER (WHERE started_at > NOW() - INTERVAL '1 day') as runs_today,
              AVG(EXTRACT(EPOCH FROM (finished_at - started_at)))
                FILTER (WHERE status = 'succeeded' AND finished_at IS NOT NULL) as avg_latency_seconds,
              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EXTRACT(EPOCH FROM (finished_at - started_at)))
@@ -72,19 +74,26 @@ def get_metrics_summary(
         (uid, org, days),
     )
 
+    total = run_stats.get("total_runs") or 0
+    succeeded = run_stats.get("succeeded") or 0
+    failed = run_stats.get("failed") or 0
     return {
+        # Flat fields for Dashboard stat cards
+        "total_runs":           total,
+        "runs_today":           run_stats.get("runs_today") or 0,
+        "succeeded":            succeeded,
+        "failed":               failed,
+        "live_runs":            run_stats.get("live_runs") or 0,
+        "error_count":          failed,
+        "avg_latency_seconds":  round(float(run_stats.get("avg_latency_seconds") or 0), 1),
+        # Nested shape retained for Performance Dashboard
         "period_days": days,
         "runs": {
-            "total": run_stats.get("total_runs") or 0,
-            "succeeded": run_stats.get("succeeded") or 0,
-            "failed": run_stats.get("failed") or 0,
+            "total": total,
+            "succeeded": succeeded,
+            "failed": failed,
             "budget_exhausted": run_stats.get("budget_exhausted") or 0,
-            "success_rate": round(
-                (run_stats.get("succeeded") or 0)
-                / max((run_stats.get("total_runs") or 1), 1)
-                * 100,
-                1,
-            ),
+            "success_rate": round(succeeded / max(total, 1) * 100, 1),
         },
         "latency": {
             "avg_seconds": round(float(run_stats.get("avg_latency_seconds") or 0), 1),
