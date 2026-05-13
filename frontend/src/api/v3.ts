@@ -337,6 +337,24 @@ export const getToolStats = () =>
 export const exportResearch = (runId: string, format: 'pdf' | 'csv' | 'xlsx') =>
   api.post<{ filename: string; url: string }>(`/v3/exports/research/${runId}`, { format, include_analysis: true }).then(r => r.data)
 
+export type ExportFormat = 'csv' | 'xlsx'
+
+export interface RunExport {
+  id: string
+  run_id: string
+  format: ExportFormat
+  status: 'pending' | 'ready' | 'failed'
+  size_bytes: number | null
+  error: string | null
+  download_url: string | null
+}
+
+export const createExport = (runId: string, format: ExportFormat): Promise<RunExport> =>
+  api.post<RunExport>(`/v3/exports/research/${runId}`, { format }).then(r => r.data)
+
+export const getExport = (exportId: string): Promise<RunExport> =>
+  api.get<RunExport>(`/v3/exports/${exportId}`).then(r => r.data)
+
 // --- Scorecard ---
 
 export async function getScorecard(runId: string): Promise<any> {

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useResultDrawerStore } from '@/stores/resultDrawerStore'
+import { DownloadMenu } from './DownloadMenu'
 
 export function ResultDrawer() {
   const { isOpen, runId, close } = useResultDrawerStore()
@@ -51,7 +52,7 @@ export function ResultDrawer() {
         </Tabs>
 
         <SheetFooter className="mt-4">
-          {/* DownloadMenu added in Task 3 */}
+          {runId ? <DownloadMenu runId={runId} /> : null}
         </SheetFooter>
       </SheetContent>
     </Sheet>
