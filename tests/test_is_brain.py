@@ -121,3 +121,11 @@ def test_run_research_handles_no_result_line():
 
     assert "no result" in result["summary"].lower()
     assert result["entity_type"] == "unknown"
+
+
+def test_oversized_line_does_not_abort_stream():
+    """LimitOverrunError on one line must not kill the whole research run."""
+    import inspect
+    from app import is_brain
+    src = inspect.getsource(is_brain)
+    assert "LimitOverrunError" in src

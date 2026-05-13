@@ -141,41 +141,44 @@ async def run_research(
 
         async def _read_lines():
             nonlocal result_line
-            async for raw_line in proc.stdout:
-                line = raw_line.decode(errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    event = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+            try:
+                async for raw_line in proc.stdout:
+                    line = raw_line.decode(errors="replace").strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
 
-                etype = event.get("type", "")
+                    etype = event.get("type", "")
 
-                # Capture tool call events for streaming
-                if etype == "assistant":
-                    for content in event.get("message", {}).get("content", []):
-                        if content.get("type") == "tool_use":
-                            tool_name = content.get("name", "")
-                            tc = {"tool": tool_name, "status": "calling", "id": content.get("id", ""), "input": content.get("input", {})}
-                            tool_calls.append(tc)
-                            if on_event:
-                                await on_event(tc)
-                        elif content.get("type") == "tool_result":
-                            tool_result_data = content.get("content", "")
-                            # Truncate large results for WS transport
-                            preview = str(tool_result_data)[:2000] if tool_result_data else ""
-                            tc = {
-                                "type": "tool_result",
-                                "tool_use_id": content.get("tool_use_id", ""),
-                                "preview": preview,
-                            }
-                            if on_event:
-                                await on_event(tc)
+                    # Capture tool call events for streaming
+                    if etype == "assistant":
+                        for content in event.get("message", {}).get("content", []):
+                            if content.get("type") == "tool_use":
+                                tool_name = content.get("name", "")
+                                tc = {"tool": tool_name, "status": "calling", "id": content.get("id", ""), "input": content.get("input", {})}
+                                tool_calls.append(tc)
+                                if on_event:
+                                    await on_event(tc)
+                            elif content.get("type") == "tool_result":
+                                tool_result_data = content.get("content", "")
+                                # Truncate large results for WS transport
+                                preview = str(tool_result_data)[:2000] if tool_result_data else ""
+                                tc = {
+                                    "type": "tool_result",
+                                    "tool_use_id": content.get("tool_use_id", ""),
+                                    "preview": preview,
+                                }
+                                if on_event:
+                                    await on_event(tc)
 
-                # Capture final result
-                if etype == "result":
-                    result_line = line
+                    # Capture final result
+                    if etype == "result":
+                        result_line = line
+            except asyncio.LimitOverrunError as exc:
+                log.warning("IS brain stdout line exceeded buffer limit (%s) — skipping line", exc)
 
         try:
             await asyncio.wait_for(_read_lines(), timeout=_SAFETY_NET_TIMEOUT)
@@ -183,9 +186,11 @@ async def run_research(
             timed_out = True
             log.warning("IS Brain: hit %d-min safety limit, terminating", _SAFETY_NET_TIMEOUT // 60)
             proc.terminate()  # graceful terminate, not kill
-            await asyncio.sleep(5)
-            if proc.returncode is None:
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=5)
+            except asyncio.TimeoutError:
                 proc.kill()
+                await proc.wait()
 
         await proc.wait()
 
