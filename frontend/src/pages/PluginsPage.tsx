@@ -1,8 +1,9 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
 import { getPipelineNodeEnabled, setPipelineNodeEnabled, getAppPluginEnabled, setAppPluginEnabled } from '../api/v3'
-import { listNodeTypes, listPluginRequests, updatePluginRequestStatus, type NodeType, type PluginRequest } from '../api/pipelines'
+import { listNodeTypes, listPluginRequests, updatePluginRequestStatus, createPluginFromRequest, createAllPluginRequests, type NodeType, type PluginRequest } from '../api/pipelines'
 
 // ─── Static integrations (non-pipeline-node plugins) ─────────────────────────
 
@@ -217,14 +218,24 @@ function NodePluginCard({ node }: { node: NodeType }) {
   )
 }
 
-// ─── Category sort order ────────────────────────────────────────────────────
+// ─── Category sort order + labels ───────────────────────────────────────────
 
 const CATEGORY_ORDER = ['source', 'enrich', 'score', 'filter', 'datastore']
+const CATEGORY_LABELS: Record<string, string> = {
+  source:    'Sources',
+  enrich:    'Enrichment',
+  score:     'Scoring',
+  filter:    'Filter',
+  datastore: 'Datastores',
+}
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function PluginsPage() {
   const qc = useQueryClient()
+  const [search, setSearch] = useState('')
+  const [showSkipped, setShowSkipped] = useState(false)
+
   const { data: nodeTypes = [], isLoading } = useQuery({
     queryKey: ['all-node-types'],
     queryFn: listNodeTypes,
@@ -237,17 +248,60 @@ export default function PluginsPage() {
     mutationFn: (id: string) => updatePluginRequestStatus(id, 'dismissed'),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-requests'] }),
   })
-  const pendingRequests = pluginRequests.filter(r => r.status === 'pending')
-
-  // Sort by category order, then alphabetically within category
-  const sortedNodes = [...nodeTypes].sort((a, b) => {
-    const ai = CATEGORY_ORDER.indexOf(a.category)
-    const bi = CATEGORY_ORDER.indexOf(b.category)
-    const ao = ai === -1 ? 99 : ai
-    const bo = bi === -1 ? 99 : bi
-    if (ao !== bo) return ao - bo
-    return a.display_name.localeCompare(b.display_name)
+  const createMutation = useMutation({
+    mutationFn: (id: string) => createPluginFromRequest(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-requests'] }),
   })
+  const createAllMutation = useMutation({
+    mutationFn: () => createAllPluginRequests(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-requests'] }),
+  })
+
+  const q = search.trim().toLowerCase()
+
+  const pendingRequests = pluginRequests
+    .filter(r => r.status === 'pending')
+    .filter(r => !q || r.spec.name.toLowerCase().includes(q) || r.spec.description?.toLowerCase().includes(q))
+
+  // Deduplicate skipped by name, keep latest
+  const skippedMap = new Map<string, typeof pluginRequests[number]>()
+  for (const r of pluginRequests) {
+    if ((r.status === 'rejected' || r.status === 'enhancement') && r.spec.skip_note) {
+      const key = r.spec.name.toLowerCase()
+      if (!skippedMap.has(key) || r.created_at > skippedMap.get(key)!.created_at) {
+        skippedMap.set(key, r)
+      }
+    }
+  }
+  const skippedRequests = [...skippedMap.values()]
+    .filter(r => !q || r.spec.name.toLowerCase().includes(q) || r.spec.skip_note!.toLowerCase().includes(q))
+    .sort((a, b) => a.spec.name.localeCompare(b.spec.name))
+
+  // Group nodes by category, filtered by search
+  const filteredNodes = nodeTypes.filter(n =>
+    !q ||
+    n.display_name.toLowerCase().includes(q) ||
+    n.node_type.toLowerCase().includes(q) ||
+    n.category.toLowerCase().includes(q) ||
+    (NODE_DESCRIPTIONS[n.node_type] ?? '').toLowerCase().includes(q)
+  )
+
+  const nodesByCategory = CATEGORY_ORDER.reduce<Record<string, typeof nodeTypes>>((acc, cat) => {
+    const nodes = filteredNodes
+      .filter(n => n.category === cat)
+      .sort((a, b) => a.display_name.localeCompare(b.display_name))
+    if (nodes.length) acc[cat] = nodes
+    return acc
+  }, {})
+  // Catch any uncategorized nodes
+  const uncategorized = filteredNodes
+    .filter(n => !CATEGORY_ORDER.includes(n.category))
+    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+  if (uncategorized.length) nodesByCategory['other'] = uncategorized
+
+  const integrationMatches = !q || APP_PLUGINS.some(
+    p => p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
+  )
 
   return (
     <div className="flex h-screen" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
@@ -260,118 +314,168 @@ export default function PluginsPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 16,
           }}
         >
-          <div>
+          <div style={{ flexShrink: 0 }}>
             <h1 style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>Plugins</h1>
             <p style={{ fontSize: 11, color: 'var(--muted)', margin: '2px 0 0' }}>
               Integrations and pipeline nodes ({nodeTypes.length} available)
             </p>
           </div>
+          <input
+            type="search"
+            placeholder="Search plugins…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              flex: 1, maxWidth: 320, fontSize: 12, padding: '6px 10px',
+              borderRadius: 6, border: '1px solid var(--border)',
+              background: 'var(--panel2)', color: 'var(--text)', outline: 'none',
+            }}
+          />
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-auto" style={{ padding: 20 }}>
-          {/* App/Hybrid plugins */}
-          <section style={{ marginBottom: 28 }}>
-            <h2
-              style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-                color: 'var(--muted)', margin: '0 0 12px',
-              }}
-            >
-              INTEGRATIONS
-            </h2>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                gap: 12,
-              }}
-            >
-              {APP_PLUGINS.map(p => <HybridAppPluginCard key={p.id} plugin={p} />)}
-            </div>
-          </section>
+          {/* Integrations */}
+          {integrationMatches && (
+            <section style={{ marginBottom: 28 }}>
+              <h2 style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--muted)', margin: '0 0 12px' }}>
+                INTEGRATIONS
+              </h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                {APP_PLUGINS.map(p => <HybridAppPluginCard key={p.id} plugin={p} />)}
+              </div>
+            </section>
+          )}
 
-          {/* Plugin requests from IS brain */}
+          {/* Suggested (pending) */}
           {pendingRequests.length > 0 && (
             <section style={{ marginBottom: 28 }}>
-              <h2
-                style={{
-                  fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-                  color: '#f87171', margin: '0 0 12px',
-                }}
-              >
-                SUGGESTED PLUGINS ({pendingRequests.length})
-              </h2>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                  gap: 12,
-                }}
-              >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <h2 style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#f87171', margin: 0 }}>
+                  SUGGESTED PLUGINS ({pendingRequests.length})
+                </h2>
+                <button
+                  onClick={() => createAllMutation.mutate()}
+                  disabled={createAllMutation.isPending || pendingRequests.length === 0}
+                  style={{
+                    fontSize: 9, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
+                    background: createAllMutation.isPending ? '#1e293b' : '#f87171',
+                    color: createAllMutation.isPending ? '#64748b' : '#fff',
+                    border: 'none', cursor: createAllMutation.isPending ? 'not-allowed' : 'pointer',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  {createAllMutation.isPending ? 'Creating...' : 'Create All'}
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                 {pendingRequests.map(req => (
-                  <div
-                    key={req.id}
-                    style={{
-                      background: 'var(--panel2)',
-                      border: '1px solid #f8717133',
-                      borderRadius: 8,
-                      padding: 14,
-                    }}
-                  >
+                  <div key={req.id} style={{ background: 'var(--panel2)', border: '1px solid #f8717133', borderRadius: 8, padding: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
-                        {req.spec.name}
-                      </span>
-                      <button
-                        onClick={() => dismissMutation.mutate(req.id)}
-                        style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          fontSize: 9, color: 'var(--muted)', padding: '0 4px',
-                        }}
-                        title="Dismiss"
-                      >
-                        ×
-                      </button>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{req.spec.name}</span>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
+                        <button
+                          onClick={() => createMutation.mutate(req.id)}
+                          disabled={createMutation.isPending}
+                          style={{
+                            fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                            background: '#f87171', color: '#fff', border: 'none',
+                            cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
+                            opacity: createMutation.isPending ? 0.6 : 1,
+                          }}
+                        >
+                          Create
+                        </button>
+                        <button
+                          onClick={() => dismissMutation.mutate(req.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', padding: '0 2px', lineHeight: 1 }}
+                          title="Dismiss"
+                        >✕</button>
+                      </div>
                     </div>
                     <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
                       {req.spec.description}
                     </p>
-                    <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>
-                      Reason: {req.spec.reason}
-                    </p>
+                    <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>
                   </div>
                 ))}
               </div>
             </section>
           )}
 
-          {/* Pipeline node plugins — fetched from API */}
-          <section>
-            <h2
-              style={{
-                fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-                color: 'var(--muted)', margin: '0 0 12px',
-              }}
-            >
-              PIPELINE NODES
-            </h2>
-            {isLoading ? (
-              <p style={{ fontSize: 11, color: 'var(--muted)' }}>Loading nodes...</p>
-            ) : (
-              <div
+          {/* Pipeline nodes grouped by category */}
+          {isLoading ? (
+            <p style={{ fontSize: 11, color: 'var(--muted)' }}>Loading nodes...</p>
+          ) : (
+            Object.entries(nodesByCategory).map(([cat, nodes]) => (
+              <section key={cat} style={{ marginBottom: 28 }}>
+                <h2 style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--muted)', margin: '0 0 12px' }}>
+                  {(CATEGORY_LABELS[cat] ?? cat.toUpperCase())} ({nodes.length})
+                </h2>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                  {nodes.map(n => <NodePluginCard key={n.node_type} node={n} />)}
+                </div>
+              </section>
+            ))
+          )}
+
+          {/* Skipped plugins — collapsible */}
+          {skippedRequests.length > 0 && (
+            <section style={{ marginBottom: 28 }}>
+              <button
+                onClick={() => setShowSkipped(v => !v)}
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                  gap: 12,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+                  color: 'var(--muted)', padding: 0, marginBottom: showSkipped ? 12 : 0,
                 }}
               >
-                {sortedNodes.map(n => <NodePluginCard key={n.node_type} node={n} />)}
-              </div>
-            )}
-          </section>
+                <span style={{ fontSize: 9 }}>{showSkipped ? '▼' : '▶'}</span>
+                SKIPPED PLUGINS ({skippedRequests.length})
+              </button>
+              {showSkipped && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 10 }}>
+                  {skippedRequests.map(req => (
+                    <div
+                      key={req.id}
+                      style={{
+                        background: 'var(--panel2)', border: '1px solid var(--border)',
+                        borderRadius: 8, padding: 12, opacity: 0.75,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>{req.spec.name}</span>
+                        <span style={{
+                          fontSize: 8, fontWeight: 700, padding: '1px 5px', borderRadius: 3,
+                          background: req.status === 'enhancement' ? '#1e3a5f' : '#1e1e1e',
+                          color: req.status === 'enhancement' ? '#60a5fa' : '#64748b',
+                        }}>
+                          {req.status === 'enhancement' ? 'ENHANCE' : 'SKIPPED'}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 10, color: '#64748b', margin: '0 0 5px', lineHeight: 1.4 }}>
+                        {req.spec.description}
+                      </p>
+                      <p style={{ fontSize: 9, color: '#475569', margin: 0, fontStyle: 'italic' }}>
+                        ↳ {req.spec.skip_note}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Empty state */}
+          {q && !pendingRequests.length && !skippedRequests.length && !Object.keys(nodesByCategory).length && !integrationMatches && (
+            <p style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', marginTop: 40 }}>
+              No plugins match "{search}"
+            </p>
+          )}
         </div>
       </div>
       <IconRail />

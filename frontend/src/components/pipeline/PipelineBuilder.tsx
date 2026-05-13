@@ -107,30 +107,60 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   // Sort nodes by topological order derived from edges so the step list numbers
   // match the DAG execution order. Nodes at the same topological depth retain
   // their relative insertion order (allowing move-up/down for unconnected nodes).
+  // Tool-target nodes are excluded from the execution topo sort and placed
+  // immediately after their tool-source parent so they don't float to the top.
   const topoSortedNodes = useMemo(() => {
-    // Only results edges affect execution order; tool edges are config-only
+    const toolEdges = localEdges.filter(e => e.edge_type === 'tool')
     const resultEdges = localEdges.filter(e => e.edge_type !== 'tool')
-    if (resultEdges.length === 0) return localNodes
-    const inDegree = new Map(localNodes.map(n => [n.id, 0]))
-    const adj = new Map(localNodes.map(n => [n.id, [] as string[]]))
-    for (const e of resultEdges) {
-      inDegree.set(e.target_node_id, (inDegree.get(e.target_node_id) ?? 0) + 1)
-      adj.get(e.source_node_id)?.push(e.target_node_id)
-    }
+    const toolTargetIds = new Set(toolEdges.map(e => e.target_node_id))
+    const execNodes = localNodes.filter(n => !toolTargetIds.has(n.id))
     const nodeMap = new Map(localNodes.map(n => [n.id, n]))
-    const queue = localNodes.filter(n => (inDegree.get(n.id) ?? 0) === 0)
-    const sorted: PipelineNodeOut[] = []
-    while (queue.length > 0) {
-      const node = queue.shift()!
-      sorted.push(node)
-      for (const tid of adj.get(node.id) ?? []) {
-        const deg = (inDegree.get(tid) ?? 1) - 1
-        inDegree.set(tid, deg)
-        if (deg === 0) { const t = nodeMap.get(tid); if (t) queue.push(t) }
+
+    // Topo sort only on execution nodes (non-tool-targets)
+    let sorted: PipelineNodeOut[]
+    if (resultEdges.length === 0) {
+      sorted = execNodes
+    } else {
+      const inDegree = new Map(execNodes.map(n => [n.id, 0]))
+      const adj = new Map(execNodes.map(n => [n.id, [] as string[]]))
+      for (const e of resultEdges) {
+        if (!toolTargetIds.has(e.target_node_id)) {
+          inDegree.set(e.target_node_id, (inDegree.get(e.target_node_id) ?? 0) + 1)
+          adj.get(e.source_node_id)?.push(e.target_node_id)
+        }
+      }
+      const queue = execNodes.filter(n => (inDegree.get(n.id) ?? 0) === 0)
+      sorted = []
+      while (queue.length > 0) {
+        const node = queue.shift()!
+        sorted.push(node)
+        for (const tid of adj.get(node.id) ?? []) {
+          const deg = (inDegree.get(tid) ?? 1) - 1
+          inDegree.set(tid, deg)
+          if (deg === 0) { const t = nodeMap.get(tid); if (t) queue.push(t) }
+        }
       }
     }
-    const sortedIds = new Set(sorted.map(n => n.id))
-    return [...sorted, ...localNodes.filter(n => !sortedIds.has(n.id))]
+
+    // Insert each tool-target node right after its tool-source parent
+    const toolSourceToTargets = new Map<string, string[]>()
+    for (const e of toolEdges) {
+      const arr = toolSourceToTargets.get(e.source_node_id) ?? []
+      arr.push(e.target_node_id)
+      toolSourceToTargets.set(e.source_node_id, arr)
+    }
+    const placed = new Set<string>()
+    const result: PipelineNodeOut[] = []
+    for (const node of sorted) {
+      result.push(node)
+      placed.add(node.id)
+      for (const tid of toolSourceToTargets.get(node.id) ?? []) {
+        const t = nodeMap.get(tid)
+        if (t && !placed.has(tid)) { result.push(t); placed.add(tid) }
+      }
+    }
+    result.push(...localNodes.filter(n => !placed.has(n.id)))
+    return result
   }, [localNodes, localEdges])
 
   const handleAddNode = (nodeType: string) => {
@@ -260,7 +290,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     if (connected) {
       const newEdge: PipelineEdgeOut = {
         id: crypto.randomUUID(),
-        pipeline_id: selectedPipelineId ?? '',
         source_node_id: sourceId,
         target_node_id: targetId,
         edge_type: 'default',
@@ -276,7 +305,6 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
     if (connected) {
       const newEdge: PipelineEdgeOut = {
         id: crypto.randomUUID(),
-        pipeline_id: selectedPipelineId ?? '',
         source_node_id: sourceId,
         target_node_id: targetId,
         edge_type: 'tool',

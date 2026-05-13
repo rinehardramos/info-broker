@@ -95,6 +95,17 @@ class NodeRegistry:
         from app.pipeline.nodes.google_maps_places import GoogleMapsPlacesNode
         from app.pipeline.nodes.ph_fda_lto import PhFdaLtoNode
         from app.pipeline.nodes.mcp_registry_search import MCPRegistrySearchNode
+        from app.pipeline.nodes.arxiv_search import ArxivSearchNode
+        from app.pipeline.nodes.github_repo_stats import GithubRepoStatsNode
+        from app.pipeline.nodes.ph_prc_license_search import PhPrcLicenseSearchNode
+        from app.pipeline.nodes.ph_comelec_voter_search import PhComelecVoterSearchNode
+        from app.pipeline.nodes.ph_psa_civil_registry import PhPsaCivilRegistryNode
+        from app.pipeline.nodes.ph_name_variants import PhNameVariantsNode
+        from app.pipeline.nodes.entity_lineage import EntityLineageNode
+        from app.pipeline.nodes.name_origin_lookup import NameOriginLookupNode
+        from app.pipeline.nodes.migration_corridor_lookup import MigrationCorridorLookupNode
+        from app.pipeline.nodes.h1bdata_search import H1bdataSearchNode
+        from app.pipeline.nodes.icij_search import IcijSearchNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -122,5 +133,34 @@ class NodeRegistry:
             OpenAlexSearchNode(), SemanticScholarNode(),
             TmdbSearchNode(), TavilySearchNode(), ExaSearchNode(),
             GoogleMapsPlacesNode(), PhFdaLtoNode(), MCPRegistrySearchNode(),
+            ArxivSearchNode(), GithubRepoStatsNode(),
+            PhPrcLicenseSearchNode(), PhComelecVoterSearchNode(), PhPsaCivilRegistryNode(),
+            PhNameVariantsNode(), EntityLineageNode(),
+            NameOriginLookupNode(), MigrationCorridorLookupNode(),
+            H1bdataSearchNode(), IcijSearchNode(),
         ]:
             cls.register(node)
+
+        # Auto-discover generated nodes from the auto/ directory
+        import os as _os, importlib.util as _il, glob as _glob
+        _auto_dir = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'auto')
+        for _fp in sorted(_glob.glob(_os.path.join(_auto_dir, '*.py'))):
+            if _os.path.basename(_fp).startswith('_'):
+                continue
+            _mod_name = _os.path.basename(_fp)[:-3]
+            try:
+                _spec = _il.spec_from_file_location(f'app.pipeline.nodes.auto.{_mod_name}', _fp)
+                _mod = _il.module_from_spec(_spec)
+                _spec.loader.exec_module(_mod)
+                for _attr_name in dir(_mod):
+                    _attr = getattr(_mod, _attr_name)
+                    if (isinstance(_attr, type)
+                            and hasattr(_attr, 'node_type')
+                            and hasattr(_attr, 'execute')
+                            and _attr.node_type not in cls._nodes):
+                        try:
+                            cls.register(_attr())
+                        except Exception:
+                            pass
+            except Exception:
+                pass

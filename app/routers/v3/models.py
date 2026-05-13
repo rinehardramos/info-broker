@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 from pydantic import BaseModel
 
@@ -78,14 +79,35 @@ class MonitorOut(BaseModel):
 
 class AgentMessageIn(BaseModel):
     message: str
+    session_id: str | None = None
     context_job_id: str | None = None
     use_intelligent_search: bool = False
-    parent_run_id: str | None = None  # For "Go Deeper" — links to prior IS run
+    parent_run_id: str | None = None
 
 
 class AgentMessageOut(BaseModel):
-    job_id: str
+    job_id: str | None = None
+    session_id: str = ""
     status: str = "pending"
+    reply: str | None = None
+    mode: str = "investigation"
+    question: str | None = None           # PreFlight clarification question (mode="question")
+    options: list[str] | None = None      # PreFlight answer options
+
+
+class AgentSessionOut(BaseModel):
+    id: str
+    user_id: str
+    genesis_query: str
+    status: str
+    created_at: datetime
+    archived_at: datetime | None = None
+    run_count: int = 0
+    turn_count: int = 0
+    accumulated_summary: str = ""
+    conversation_thread: list[dict[str, Any]] = []
+    key_findings: list[dict[str, Any]] = []
+    entity_type: str = "unknown"
 
 
 class AgentPipelineOut(BaseModel):

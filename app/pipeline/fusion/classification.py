@@ -36,7 +36,8 @@ SOURCE_RATINGS: dict[str, str] = {
     "glassdoor_reviews": "C",
     "messaging_check": "C",
     # D — Generic web / Unverified
-    "ddg_search": "D",
+    "multi_search": "D",   # consensus ranking improves signal but still unverified
+    "ddg_search": "D",     # deprecated alias
     "web_crawl": "D",
     "web_search_fetch": "D",
     "document_search": "D",

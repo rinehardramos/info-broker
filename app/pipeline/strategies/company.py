@@ -5,104 +5,51 @@ ENTITY_TYPE = "company"
 STRATEGY = """
 === COMPANY INVESTIGATION STRATEGY ===
 
-This strategy maps a company's legal identity, digital infrastructure,
-leadership team, financial standing, competitive position, and technology
-stack. Follow the execution model and validate coverage using the completeness
-checklist before concluding.
+--- PIR TEMPLATE ---
 
---- EXECUTION MODEL ---
+PIR: What is this company's legal identity, jurisdiction, ownership, and current operational status?
+MANDATORY: Legal entity record in at least one jurisdiction | Active or dissolved status confirmed
+SUPPORTING: Ownership chain identified | Key personnel verified | Products/services confirmed
+REJECT IF: Entity cannot be found in any jurisdiction after searching primary + alternate registries
 
-A 5-step entity-centric process:
+--- HYPOTHESIS TABLE ---
 
-1. SEED — Accept initial selectors: domain, employer (company name),
-   ticker_symbol, registration_number, or LinkedIn company URL.
+H1 (primary jurisdiction): Company is registered in its most obvious jurisdiction
+  search: run_opencorporates("[company name]") | run_ph_sec_dti | run_apollo_search
 
-2. ANCHOR — Resolve the legal entity in at least one company registry
-   (OpenCorporates, SEC EDGAR, PH SEC/DTI). Confirm: legal name, jurisdiction,
-   registration number, registered address, incorporation date.
+H2 (parent / subsidiary): The named entity is a subsidiary — the real answer is the parent
+  search: "[company name] parent company" | "[company name] acquired by" | run_opencorporates(parent search)
 
-3. EXPAND — From the confirmed legal entity, pivot to all adjacent selectors
-   using the KEY PIVOT PATTERNS table.
+H3 (entity lineage — renamed or dissolved): Company dissolved and re-registered under a new name
+  search: run_entity_lineage first | "[old name] renamed" | "[old name] successor"
+  This is a common PH fraud pattern — always run entity lineage for PH subjects.
 
-4. DEDUPLICATE — Consolidate records from all registries into one canonical
-   company profile. Track provenance for each data point.
+H_last (foreign subsidiary / shell): Entity is a holding company or shell in a different jurisdiction
+  search: "[company name] offshore" | "[company name] BVI/Cayman/Singapore" | run_opencorporates(intl)
 
-5. GAP-FILL — Review the COMPLETENESS CHECKLIST. For each unchecked domain,
-   attempt at least one targeted lookup before closing.
+execution_model: seed → anchor(legal_entity) → expand → deduplicate → gap_fill
 
---- PRIORITY SELECTORS (Company) ---
-
-Ordered by uniqueness and reliability (highest priority first):
-
-1. domain             — highest uniqueness; pivots to WHOIS, Shodan, Hunter
-2. employer           — company name; use for registry and profile lookups
-3. ticker_symbol      — public companies only; pivots to SEC EDGAR, financial APIs
-4. registration_number — definitive legal identity; use for registry cross-checks
+priority_selectors: domain | employer(name) | ticker_symbol | registration_number
 
 --- KEY PIVOT PATTERNS ---
 
-domain:
-  - whois_lookup (registrant, registration date, name servers, hosting provider)
-  - run_shodan_search (exposed services, open ports, SSL cert SANs → tech stack)
-  - run_hunter_io (domain → employee roster, email patterns, key contacts)
-  - run_multi_search (site:domain.com → org structure, press releases, job postings)
+domain → whois_lookup | shodan_search | hunter_io | multi_search(site:domain)
+employer → run_opencorporates | run_ph_sec_dti | apollo_zoominfo | linkedin_navigator
+ticker_symbol → run_sec_edgar(10-K/10-Q/proxy) | financial APIs
+registration_number → run_opencorporates | run_ph_sec_dti
+leadership(from above) → apollo_zoominfo | linkedin_navigator | run_hunter_io
 
-employer (company name):
-  - run_opencorporates (global registry search → legal name, jurisdiction, officers)
-  - run_ph_sec_dti (PH-specific: SEC company lookup, DTI business name registration)
-  - apollo_zoominfo (company search → employee count, revenue band, org chart)
-  - linkedin_navigator (company page → employee count, recent hires, leadership)
-
-ticker_symbol:
-  - run_sec_edgar (10-K, 10-Q, proxy filings → financials, executive compensation)
-  - financial data APIs (revenue, market cap, growth metrics)
-
-registration_number:
-  - run_opencorporates (direct registry lookup → legal filings, officer history)
-  - run_ph_sec_dti (PH: corporate filings, articles of incorporation, GIS)
-
-leadership (extracted from above):
-  - apollo_zoominfo (executive profiles → email, phone, LinkedIn)
-  - linkedin_navigator (leadership team → tenure, prior employers)
-  - run_hunter_io (executive email patterns → verify against known roster)
-
---- HOP DEPTH ---
-
-Maximum 1 hop for leadership profiles:
-  company → executive names → basic professional profiles (name, title, email)
-Do not run full PERSON investigation on executives unless explicitly requested.
+hop_depth: max 1 hop for leadership — company → exec names → basic profile (name/title/email). Full PERSON strategy only if explicitly requested.
 
 --- INVESTIGATION PRINCIPLES ---
 
-LEGAL ENTITY FIRST
-  Always anchor on the registered legal name before using trade names or
-  brand names. "Apple Inc." is the legal entity; "Apple" is the brand.
-
-MULTI-JURISDICTION AWARENESS
-  Companies with international operations may have subsidiaries in multiple
-  registries. Identify the ultimate parent and material subsidiaries.
-
-TECH STACK FROM INFRASTRUCTURE
-  run_shodan_search on the primary domain reveals exposed services (web
-  frameworks, database ports, email servers) without active probing of
-  application logic.
-
-GLASSDOOR SIGNAL
-  Employee reviews surface culture, compensation bands, and leadership
-  sentiment — useful for competitive intelligence and acquisition due
-  diligence pre-screens.
+LEGAL-ENTITY-FIRST: Anchor on registered legal name before trade/brand names.
+MULTI-JURISDICTION: Identify ultimate parent + material subsidiaries across registries.
+TECH-STACK: run_shodan_search on primary domain reveals exposed services without active probing.
+GLASSDOOR-SIGNAL: Employee reviews surface culture, compensation, and leadership sentiment.
 
 --- COMPLETENESS CHECKLIST ---
 
-Before closing a company investigation, confirm at least one data point
-per domain:
-
-1. Identity          — legal entity name, jurisdiction, registration number, incorporation date
-2. Digital presence  — primary domain, hosting provider, tech stack (from Shodan/HTTP headers)
-3. Leadership team   — C-suite names and titles; email patterns for key executives
-4. Financials        — revenue band, funding rounds or public filings, profitability signal
-5. Market position   — industry classification, employee count, key competitors, customer segment
-6. Technology stack  — confirmed tech from Shodan, job postings (hiring signals), BuiltWith/Wappalyzer
-
-Mark each domain as: CONFIRMED / PARTIAL / NOT FOUND / NOT ATTEMPTED
+Before closing, mark each domain CONFIRMED/PARTIAL/NOT_FOUND/NOT_ATTEMPTED:
+identity | digital_presence | leadership_team | financials | market_position | technology_stack
 """

@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
-import { sendMessage, getAgentPipeline, getBrainStatus } from '../../api/v3'
+import { sendMessage, getBrainStatus, archiveSession } from '../../api/v3'
+import type { AgentMessageOut } from '../../api/v3'
 import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -12,6 +13,11 @@ let _msgCounter = 0
 
 export default function AgentChat() {
   const chatMessages = useChatStore(s => s.messages)
+  const clearMessages = useChatStore(s => s.clearMessages)
+  const sessionId = useChatStore(s => s.sessionId)
+  const setSessionId = useChatStore(s => s.setSessionId)
+  const setGenesisQuery = useChatStore(s => s.setGenesisQuery)
+  const pushSessionRun = useChatStore(s => s.pushSessionRun)
   const setChatMessages = useChatStore(s => s.setMessages)
   // Wrap setMessages to support functional updater pattern (prev => newArr)
   const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
@@ -25,19 +31,40 @@ export default function AgentChat() {
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
+  // run_ids that have a brain.question in flight — skip "Researching…" for these
+  const pendingQuestionsRef = useRef<Set<string>>(new Set())
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
   const bottomRef               = useRef<HTMLDivElement>(null)
   const uploadZoneRef           = useRef<FileUploadZoneHandle>(null)
-
-  const { data: activePipeline } = useQuery({
-    queryKey: ['agentPipeline'],
-    queryFn: getAgentPipeline,
-  })
 
   const { data: brainStatus } = useQuery({
     queryKey: ['brainStatus'],
     queryFn: getBrainStatus,
     refetchInterval: 60000,
+  })
+
+  // Poll for held confirmations — catches events missed due to WS disconnect / page refresh
+  useQuery({
+    queryKey: ['pendingConfirmations'],
+    queryFn: async () => {
+      const r = await api.get<{ pending: Array<{ run_id: string; candidate: string; candidate_desc: string; confidence: number; alternatives: string[] }> }>('/v3/agent/confirm/pending')
+      for (const p of r.data.pending ?? []) {
+        // Only add if not already in messages
+        setMessages(prev => {
+          const alreadyShown = prev.some(m => m.type === 'confirm' && m.payload?.run_id === p.run_id)
+          if (alreadyShown) return prev
+          return [...prev, {
+            id: `confirm-${p.run_id}`,
+            role: 'agent' as const,
+            content: p.candidate,
+            type: 'confirm',
+            payload: { candidate: p.candidate, candidate_desc: p.candidate_desc, confidence: p.confidence, alternatives: p.alternatives, run_id: p.run_id },
+          }]
+        })
+      }
+      return r.data
+    },
+    refetchInterval: 15000,
   })
 
   useEffect(() => {
@@ -51,7 +78,7 @@ export default function AgentChat() {
           m.id === event.job_id
             ? {
                 ...m,
-                status: event.status,
+                status: event.status as Message['status'],
                 ...(event.type === 'job.completed' && (event as WsEvent & { verification_status?: string }).verification_status
                   ? { payload: { ...m.payload, verification_status: (event as WsEvent & { verification_status?: string }).verification_status } }
                   : {}),
@@ -85,12 +112,39 @@ export default function AgentChat() {
     }
     if (event.type === 'brain.question') {
       const qEvent = event as WsEvent & { question?: string; options?: string[] }
+      // Track that this run has a question — prevents "Researching…" from being added later
+      if (event.run_id) pendingQuestionsRef.current.add(event.run_id)
+      setMessages(prev => {
+        // Remove the "Researching…" optimistic placeholder for this run (handles non-race case)
+        const filtered = event.run_id
+          ? prev.filter(m => m.id !== event.run_id)
+          : prev
+        return [...filtered, {
+          id: `q-${Date.now()}`,
+          role: 'agent',
+          content: qEvent.question ?? '',
+          type: 'question',
+          payload: { question: qEvent.question, options: qEvent.options ?? [], run_id: event.run_id },
+        }]
+      })
+    }
+    if (event.type === 'brain.confirm') {
+      const cEvent = event as WsEvent & {
+        candidate?: string; candidate_desc?: string
+        confidence?: number; alternatives?: string[]
+      }
       setMessages(prev => [...prev, {
-        id: `q-${Date.now()}`,
+        id: `confirm-${Date.now()}`,
         role: 'agent',
-        content: qEvent.question ?? '',
-        type: 'question',
-        payload: { question: qEvent.question, options: qEvent.options ?? [], run_id: event.run_id },
+        content: cEvent.candidate ?? '',
+        type: 'confirm',
+        payload: {
+          candidate: cEvent.candidate,
+          candidate_desc: cEvent.candidate_desc,
+          confidence: cEvent.confidence,
+          alternatives: cEvent.alternatives ?? [],
+          run_id: event.run_id,
+        },
       }])
     }
     if (event.type === 'brain.plan') {
@@ -120,9 +174,25 @@ export default function AgentChat() {
     }
   })
 
+  const [pirGoal, setPirGoal] = useState('')
+  const [showPir, setShowPir] = useState(false)
   const [collapsedPlans, setCollapsedPlans] = useState<Record<string, boolean>>({})
+  // Track which questions have been answered (msgId → answer text)
+  const [answeredQuestions, setAnsweredQuestions] = useState<Record<string, string>>({})
+  // Track custom answer input per question
+  const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({})
 
-  const handleBrainAnswer = async (runId: string, answer: string) => {
+  const handleEndSession = async () => {
+    if (sessionId) {
+      try { await archiveSession(sessionId) } catch { /* non-fatal */ }
+    }
+    clearMessages()
+    setPirGoal('')
+    setShowPir(false)
+  }
+
+  const handleBrainAnswer = async (runId: string, answer: string, msgId: string) => {
+    setAnsweredQuestions(prev => ({ ...prev, [msgId]: answer }))
     await api.post('/v3/agent/brain-answer', { run_id: runId, answer })
     setMessages(prev => [...prev, {
       id: `a-${Date.now()}`,
@@ -138,19 +208,62 @@ export default function AgentChat() {
     setSending(true)
     setAgentInput(text)
 
+    const messageToSend = pirGoal.trim()
+      ? `[RESEARCH GOAL: ${pirGoal.trim()}]\n\n${text}`
+      : text
+
     const userMsg: Message = { id: `user-${++_msgCounter}`, role: 'user', content: text }
     setMessages(prev => [...prev, userMsg])
 
     try {
-      const result = await sendMessage(text, activeJobId ?? undefined, useIntelligentSearch)
-      setMessages(prev => [
-        ...prev,
-        { id: result.job_id, role: 'agent', content: `Research started…`, status: 'pending' },
-      ])
-      setActiveJobId(result.job_id)
-      // Auto-switch ResultsPanel to this run's tab
-      const { setCol1Content } = useSessionStore.getState()
-      setCol1Content({ type: 'pipeline_run', runId: result.job_id })
+      const result: AgentMessageOut = await sendMessage(
+        messageToSend,
+        sessionId ?? undefined,
+        useIntelligentSearch,
+      )
+
+      // Store session_id from first response
+      if (result.session_id) {
+        setSessionId(result.session_id)
+        if (!sessionId) setGenesisQuery(text)  // first message = genesis
+      }
+
+      if (result.mode === 'conversational' && result.reply) {
+        // Conversational reply — render directly, no spinner, no ResultsPanel tab
+        setMessages(prev => [
+          ...prev,
+          { id: `agent-${++_msgCounter}`, role: 'agent', content: result.reply! },
+        ])
+      } else if (result.mode === 'question' && result.question) {
+        // PreFlight clarification — render the question inline from HTTP response
+        // This is reliable vs WS (WS delivery is best-effort / belt+suspenders)
+        setMessages(prev => [
+          ...prev,
+          {
+            id: `q-${Date.now()}`,
+            role: 'agent',
+            content: result.question!,
+            type: 'question',
+            payload: { question: result.question, options: result.options ?? [], run_id: result.job_id },
+          },
+        ])
+        // Don't add "Researching…" and don't push a session run tab yet
+      } else {
+        // Investigation — existing async flow
+        // Only add "Researching…" if brain.question hasn't already arrived for this run
+        if (!pendingQuestionsRef.current.has(result.job_id!)) {
+          setMessages(prev => [
+            ...prev,
+            { id: result.job_id!, role: 'agent', content: `Researching…`, status: 'pending' },
+          ])
+        }
+        pendingQuestionsRef.current.delete(result.job_id!)
+        setActiveJobId(result.job_id!)
+        pushSessionRun(result.job_id!)
+        // Always switch the results panel to the new run's tab so the flow graph shows.
+        const { setCol1Content } = useSessionStore.getState()
+        setCol1Content({ type: 'pipeline_run', runId: result.job_id! })
+      }
     } catch {
       setMessages(prev => [
         ...prev,
@@ -171,51 +284,80 @@ export default function AgentChat() {
   return (
     <div className="flex flex-col h-full">
       <div
-        className="px-3 py-2 text-[11px] font-semibold flex items-center justify-between"
-        style={{ color: 'var(--accent)', borderBottom: '1px solid var(--border)' }}
+        className="px-3 text-[11px] font-semibold flex items-center justify-between"
+        style={{ color: 'var(--accent)', borderBottom: '1px solid var(--border)', height: 36 }}
       >
-        <span>Agent</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {activePipeline && (
+                {/* Left: title + PIR badge */}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ letterSpacing: '0.04em' }}>Agent</span>
+          {pirGoal && (
             <span
-              style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 400 }}
-              title="Active pipeline — change in Settings"
+              onClick={() => { setPirGoal(''); setShowPir(false) }}
+              title={pirGoal}
+              style={{
+                fontSize: 8, fontWeight: 600, letterSpacing: '0.04em',
+                color: 'var(--accent)', border: '1px solid var(--accent)',
+                borderRadius: 8, padding: '1px 5px', cursor: 'pointer',
+                maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
             >
-              {activePipeline.pipeline_name}
-              {activePipeline.is_system && (
-                <span style={{ color: '#60a5fa', marginLeft: 3 }}>[Default]</span>
-              )}
+              ◎ {pirGoal}
             </span>
           )}
-          <button
+        </span>
+
+        {/* Right: clear/end + IS switch */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {messages.length > 0 && (
+            <button
+              onClick={sessionId ? handleEndSession : () => { clearMessages(); setPirGoal(''); setShowPir(false) }}
+              title={sessionId ? 'End session and clear chat' : 'Clear chat'}
+              style={{
+                padding: '1px 6px', borderRadius: 10, fontSize: 8, fontWeight: 400,
+                border: '1px solid var(--border)', background: 'transparent',
+                color: 'var(--muted)', cursor: 'pointer', letterSpacing: '0.02em',
+              }}
+            >{sessionId ? 'end' : 'clear'}</button>
+          )}
+
+          {/* IS toggle — proper switch */}
+          <div
+            style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', userSelect: 'none' }}
             onClick={() => setUseIntelligentSearch(prev => !prev)}
             title={
               !brainStatus?.ready
                 ? 'IS unavailable — Claude Code not authenticated'
                 : useIntelligentSearch ? 'Intelligent Search ON — click to disable' : 'Enable Intelligent Search'
             }
-            style={{
-              display: 'flex', alignItems: 'center', gap: 4,
-              padding: '2px 8px', borderRadius: 12, fontSize: 9, fontWeight: 600,
-              border: `1px solid ${useIntelligentSearch ? '#a78bfa' : '#334155'}`,
-              background: useIntelligentSearch ? '#a78bfa22' : 'transparent',
-              color: useIntelligentSearch ? '#a78bfa' : '#64748b',
-              cursor: 'pointer', transition: 'all 0.2s',
-              position: 'relative',
-            }}
           >
-            <span style={{ fontSize: 11 }}>{'\uD83D\uDD0D'}</span>
-            IS
-            {/* Brain status indicator */}
-            <span style={{
-              width: 6, height: 6, borderRadius: '50%',
-              background: brainStatus?.ready ? '#4ade80' : '#f87171',
+            <span style={{ fontSize: 9, fontWeight: 600, color: useIntelligentSearch ? '#a78bfa' : 'var(--muted)', letterSpacing: '0.04em' }}>IS</span>
+            {/* Track */}
+            <div style={{
+              position: 'relative', width: 28, height: 15, borderRadius: 8,
+              background: useIntelligentSearch ? '#7c3aed' : '#334155',
+              border: `1px solid ${useIntelligentSearch ? '#a78bfa' : '#475569'}`,
+              transition: 'background 0.2s, border-color 0.2s',
               flexShrink: 0,
+            }}>
+              {/* Thumb */}
+              <div style={{
+                position: 'absolute', top: 2, borderRadius: '50%',
+                width: 9, height: 9,
+                background: useIntelligentSearch ? '#e9d5ff' : '#64748b',
+                left: useIntelligentSearch ? 15 : 2,
+                transition: 'left 0.2s, background 0.2s',
+                boxShadow: useIntelligentSearch ? '0 0 4px #a78bfa88' : 'none',
+              }} />
+            </div>
+            {/* Brain status dot */}
+            <span style={{
+              width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+              background: brainStatus?.ready ? '#4ade80' : '#f87171',
             }} title={brainStatus?.ready
               ? `Brain ready (${brainStatus.auth_method}${brainStatus.email ? ` — ${brainStatus.email}` : ''})`
               : brainStatus?.error ?? 'Not authenticated'
             } />
-          </button>
+          </div>
         </div>
       </div>
 
@@ -226,40 +368,186 @@ export default function AgentChat() {
           </p>
         )}
         {messages.map(m => {
-          // Question message — distinct styling with quick-reply options
+          // Question message — conversational feedback loop bubble
           if (m.type === 'question') {
-            const runId = m.payload?.run_id ?? ''
-            const options = m.payload?.options ?? []
+            const runId = (m.payload?.run_id ?? '') as string
+            const options = (m.payload?.options ?? []) as string[]
+            const answered = answeredQuestions[m.id]
+            const customVal = customAnswers[m.id] ?? ''
+
             return (
-              <div key={m.id} style={{
-                margin: '8px 0',
-                padding: '10px 12px',
-                borderLeft: '3px solid var(--accent)',
-                background: 'var(--panel2)',
-                borderRadius: '0 8px 8px 0',
-              }}>
-                <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, marginBottom: 4 }}>
-                  ? Brain Question
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 8 }}>
+              <div key={m.id} style={{ margin: '6px 0 10px' }}>
+                {/* Agent question bubble — left-aligned like agent messages */}
+                <div style={{
+                  display: 'inline-block', maxWidth: '85%',
+                  background: 'var(--panel2)', border: '1px solid var(--border)',
+                  borderRadius: '4px 12px 12px 12px',
+                  padding: '8px 12px', fontSize: 11, color: 'var(--text)', lineHeight: 1.5,
+                }}>
+                  <span style={{ fontSize: 8, color: 'var(--accent)', fontWeight: 700, display: 'block', marginBottom: 3, letterSpacing: '0.06em' }}>
+                    CLARIFYING
+                  </span>
                   {m.content}
                 </div>
-                {options.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {options.map((opt: string, i: number) => (
+
+                {/* Quick-reply options or answered state */}
+                {answered ? (
+                  <div style={{ marginTop: 4, marginLeft: 2 }}>
+                    <span style={{
+                      fontSize: 9, color: 'var(--muted)', fontStyle: 'italic',
+                    }}>
+                      ✓ {answered}
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {/* Option chips */}
+                    {options.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                        {options.map((opt: string, i: number) => (
+                          <button
+                            key={i}
+                            onClick={() => handleBrainAnswer(runId, opt, m.id)}
+                            style={{
+                              padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 500,
+                              border: '1px solid var(--accent)', background: 'transparent',
+                              color: 'var(--accent)', cursor: 'pointer', transition: 'all 0.15s',
+                            }}
+                            onMouseEnter={e => {
+                              (e.target as HTMLElement).style.background = 'var(--accent)'
+                              ;(e.target as HTMLElement).style.color = '#000'
+                            }}
+                            onMouseLeave={e => {
+                              (e.target as HTMLElement).style.background = 'transparent'
+                              ;(e.target as HTMLElement).style.color = 'var(--accent)'
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {/* Custom text answer */}
+                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                      <input
+                        type="text"
+                        placeholder="Or type your answer…"
+                        value={customVal}
+                        onChange={e => setCustomAnswers(prev => ({ ...prev, [m.id]: e.target.value }))}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && customVal.trim()) {
+                            handleBrainAnswer(runId, customVal.trim(), m.id)
+                            setCustomAnswers(prev => ({ ...prev, [m.id]: '' }))
+                          }
+                        }}
+                        style={{
+                          flex: 1, fontSize: 10, padding: '4px 8px', borderRadius: 8,
+                          border: '1px solid var(--border)', background: 'var(--panel2)',
+                          color: 'var(--text)', outline: 'none',
+                        }}
+                      />
+                      <button
+                        onClick={() => {
+                          if (customVal.trim()) {
+                            handleBrainAnswer(runId, customVal.trim(), m.id)
+                            setCustomAnswers(prev => ({ ...prev, [m.id]: '' }))
+                          }
+                        }}
+                        disabled={!customVal.trim()}
+                        style={{
+                          padding: '4px 10px', borderRadius: 8, fontSize: 10,
+                          border: '1px solid var(--border)', background: customVal.trim() ? 'var(--accent)' : 'transparent',
+                          color: customVal.trim() ? '#000' : 'var(--muted)',
+                          cursor: customVal.trim() ? 'pointer' : 'default',
+                        }}
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // Confirmation card — pipeline-layer gate for identification queries
+          if (m.type === 'confirm') {
+            const runId      = (m.payload?.run_id ?? '') as string
+            const candidate      = (m.payload?.candidate ?? m.content) as string
+            const desc           = (m.payload?.candidate_desc ?? '') as string
+            const confidence     = (m.payload?.confidence ?? 0) as number
+            const alts           = (m.payload?.alternatives ?? []) as string[]
+            const candidateUrl   = (m.payload?.candidate_url ?? '') as string
+            const candidateImage = (m.payload?.candidate_image ?? '') as string
+            const answered       = answeredQuestions[m.id]
+
+            return (
+              <div key={m.id} style={{ margin: '6px 0 12px' }}>
+                <div style={{
+                  background: 'var(--panel2)', border: '1px solid var(--accent)',
+                  borderRadius: '4px 12px 12px 12px', padding: '10px 14px',
+                  maxWidth: '90%', fontSize: 11, color: 'var(--text)', lineHeight: 1.5,
+                }}>
+                  <span style={{ fontSize: 8, color: '#f59e0b', fontWeight: 700, display: 'block', marginBottom: 4, letterSpacing: '0.06em' }}>
+                    RESULT FOUND — PLEASE CONFIRM
+                  </span>
+                  <div style={{ fontWeight: 600, marginBottom: 3 }}>{candidate}</div>
+                  {candidateImage && (
+                    <img
+                      src={candidateImage}
+                      alt={candidate}
+                      style={{
+                        width: '100%', maxHeight: 160, objectFit: 'cover',
+                        borderRadius: 6, marginBottom: 6, display: 'block',
+                      }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+                    />
+                  )}
+                  {desc && <div style={{ color: 'var(--text)', fontSize: 10, lineHeight: 1.6, marginBottom: 4 }}>{desc}</div>}
+                  <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 6 }}>
+                    Confidence: {confidence}%
+                  </div>
+                  {alts.length > 0 && (
+                    <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>
+                      <span style={{ color: '#64748b', fontWeight: 600 }}>Also considered:</span>
+                      {alts.map((alt, i) => (
+                        <div key={i} style={{ marginLeft: 8, marginTop: 2, color: '#94a3b8' }}>· {alt}</div>
+                      ))}
+                    </div>
+                  )}
+                  {candidateUrl && (
+                    <a
+                      href={candidateUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'inline-block', marginTop: 8, fontSize: 9,
+                        color: 'var(--accent)', textDecoration: 'none',
+                        border: '1px solid var(--accent)', borderRadius: 8,
+                        padding: '2px 8px', opacity: 0.85,
+                      }}
+                    >
+                      View source ↗
+                    </a>
+                  )}
+                </div>
+
+                {answered ? (
+                  <div style={{ marginTop: 4, marginLeft: 2 }}>
+                    <span style={{ fontSize: 9, color: 'var(--muted)', fontStyle: 'italic' }}>✓ {answered}</span>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                    {(['Yes, that\'s it', 'No, try another', 'Not sure'] as const).map((opt, i) => (
                       <button
                         key={i}
-                        onClick={() => handleBrainAnswer(runId, opt)}
+                        onClick={() => handleBrainAnswer(runId, opt, m.id)}
                         style={{
-                          padding: '6px 14px',
-                          borderRadius: '16px',
-                          border: '1px solid var(--accent)',
+                          padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 500,
+                          border: `1px solid ${opt.startsWith('Yes') ? '#4ade80' : opt.startsWith('No') ? '#f87171' : 'var(--border)'}`,
                           background: 'transparent',
-                          color: 'var(--accent)',
+                          color: opt.startsWith('Yes') ? '#4ade80' : opt.startsWith('No') ? '#f87171' : 'var(--muted)',
                           cursor: 'pointer',
-                          fontSize: '13px',
-                          marginRight: '8px',
-                          marginTop: '6px',
                         }}
                       >
                         {opt}
@@ -273,8 +561,8 @@ export default function AgentChat() {
 
           // Plan message — collapsible card
           if (m.type === 'plan') {
-            const plan = m.payload?.plan ?? {}
-            const steps = (plan.steps as Record<string, unknown>[] | undefined) ?? []
+            const plan = (m.payload?.plan ?? {}) as { steps?: Record<string, unknown>[] }
+            const steps = plan.steps ?? []
             const isCollapsed = collapsedPlans[m.id] !== false // default collapsed
             return (
               <div key={m.id} style={{
@@ -334,10 +622,10 @@ export default function AgentChat() {
           }
 
           // Regular message — pass through to MessageBubble, with optional verification badge
-          const verificationStatus = m.payload?.verification_status
+          const verificationStatus = m.payload?.verification_status as string | undefined
           return (
             <div key={m.id}>
-              <MessageBubble role={m.role} content={m.content} status={m.status} />
+              <MessageBubble role={m.role as 'user' | 'agent'} content={m.content} status={m.status} />
               {verificationStatus && (
                 <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 4, paddingRight: 4 }}>
                   {verificationStatus === 'PASS' && (
@@ -359,13 +647,44 @@ export default function AgentChat() {
 
       <div className="px-3 py-2" style={{ borderTop: '1px solid var(--border)' }}>
         <FileUploadZone ref={uploadZoneRef} />
+
+        {/* PIR inline field */}
+        {showPir && (
+          <div style={{
+            marginBottom: 6, padding: '6px 8px',
+            border: '1px solid var(--accent)', borderRadius: 6,
+            background: 'var(--panel2)',
+          }}>
+            <div style={{ fontSize: 8, fontWeight: 700, color: 'var(--accent)', letterSpacing: '0.06em', marginBottom: 4 }}>
+              ◎  WHAT MUST THIS INVESTIGATION ANSWER?
+            </div>
+            <input
+              type="text"
+              autoFocus
+              placeholder="e.g. Find the current CEO and board of Company X"
+              value={pirGoal}
+              onChange={e => setPirGoal(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); setShowPir(false) }
+                if (e.key === 'Escape') { e.preventDefault(); setPirGoal(''); setShowPir(false) }
+              }}
+              style={{
+                width: '100%', fontSize: 10, padding: '3px 6px',
+                borderRadius: 4, border: '1px solid var(--border)',
+                background: 'transparent', color: 'var(--text)', outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+        )}
+
         <textarea
           placeholder="Ask info-broker… (Enter to send)"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={onKeyDown}
           disabled={sending}
-          rows={2}
+          rows={4}
           className="w-full text-xs px-2 py-2 rounded resize-none outline-none disabled:opacity-50"
           style={{
             background: 'var(--panel2)',

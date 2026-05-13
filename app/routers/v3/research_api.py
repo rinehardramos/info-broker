@@ -42,6 +42,14 @@ def create_research_trail(body: dict, _key: str = Depends(require_api_key)) -> d
     return {"status": "ok"}
 
 
+@router.post("/strategy-rules/index")
+def index_strategy_rules(_key: str = Depends(require_api_key)):
+    """Index all strategy rules to Qdrant for RAG retrieval."""
+    from app.pipeline.strategies.meta.rule_store import index_from_meta_files
+    count = index_from_meta_files()
+    return {"count": count, "status": "ok"}
+
+
 @router.get("/research-trails/{run_id}")
 def get_research_trail_by_run(run_id: str, _key: str = Depends(require_api_key)) -> dict | None:
     """Get a research trail by its pipeline run ID."""
@@ -102,7 +110,7 @@ def backfill_scorecards_endpoint(_key: str = Depends(require_api_key)):
 
 
 @router.get("/research-trails/{run_id}/scorecard")
-def get_scorecard(run_id: str, _key: str = Depends(require_api_key)):
+def get_scorecard(run_id: str, user: dict = Depends(get_current_user)):
     """Get the scorecard for a research run."""
     row = fetch_one(
         "SELECT scorecard FROM research_trails WHERE run_id = %s",
@@ -120,8 +128,12 @@ def submit_scorecard_grade(run_id: str, body: dict, user: dict = Depends(get_cur
     name = body.get("name")    # tactic name or tool name
     grade = body.get("grade")  # "A"-"F"
 
-    if not level or not grade or grade not in "ABCDEF":
-        raise HTTPException(status_code=400, detail="level and grade (A-F) required")
+    # Accept Admiralty Code "A1"-"F6" or legacy single letter "A"-"F"
+    valid_grade = (
+        len(grade) == 2 and grade[0] in "ABCDEF" and grade[1] in "123456"
+    ) or (len(grade) == 1 and grade in "ABCDEF")
+    if not level or not grade or not valid_grade:
+        raise HTTPException(status_code=400, detail="level and grade (Admiralty A1-F6) required")
 
     # Fetch current scorecard
     row = fetch_one("SELECT scorecard FROM research_trails WHERE run_id = %s", (run_id,))
@@ -150,6 +162,40 @@ def submit_scorecard_grade(run_id: str, body: dict, user: dict = Depends(get_cur
         "UPDATE research_trails SET scorecard = %s WHERE run_id = %s",
         (json.dumps(scorecard), run_id),
     )
+
+    # Feed grade into strategy overlay self-learning system
+    try:
+        from app.pipeline.fusion.grade_feedback import apply_grade_feedback
+        entity_type = scorecard.get("entity_type", "person")
+        if level == "technique" and name:
+            # Find the parent tactic's selector_type for this tool
+            selector_type = "unknown"
+            for tactic in scorecard.get("tactics", []):
+                for tech in tactic.get("techniques", []):
+                    if tech.get("tool") == name:
+                        selector_type = tactic.get("selector_type") or tactic.get("name", "unknown")
+                        break
+            apply_grade_feedback(
+                entity_type=entity_type,
+                selector_type=selector_type,
+                tool_name=name,
+                grade=grade,
+            )
+        elif level == "tactic" and name:
+            # Apply grade to all techniques in this tactic
+            for tactic in scorecard.get("tactics", []):
+                if tactic.get("name") == name or tactic.get("selector_type") == name:
+                    selector_type = tactic.get("selector_type") or name
+                    for tech in tactic.get("techniques", []):
+                        apply_grade_feedback(
+                            entity_type=entity_type,
+                            selector_type=selector_type,
+                            tool_name=tech.get("tool", "unknown"),
+                            grade=grade,
+                        )
+                    break
+    except Exception as exc:
+        log.warning("Grade feedback overlay update failed (non-fatal): %s", exc)
 
     return {"status": "ok", "level": level, "name": name, "grade": grade}
 
@@ -326,7 +372,7 @@ async def analyze_findings(body: dict, background_tasks: "BackgroundTasks", user
 
 
 @router.get("/dashboard/technique-performance")
-def get_technique_performance_dashboard(_key: str = Depends(require_api_key)):
+def get_technique_performance_dashboard(user: dict = Depends(get_current_user)):
     """Global technique/tactic performance dashboard."""
     from app.pipeline.fusion.dashboard import build_dashboard
     return build_dashboard()

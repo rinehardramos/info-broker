@@ -3,10 +3,14 @@
  *
  * Subscribes to WebSocket events and renders a tree of tool calls as an SVG DAG
  * that updates in real-time.
+ *
+ * Supports the PIR-bounded INVESTIGATE cycle:
+ *   IS BRAIN → PIR node → Hypothesis nodes → Search/tool nodes
  */
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
+import { useChatStore } from '../../stores/chatStore'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,13 +19,22 @@ import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
 interface FlowNode {
   id: string            // call_id from backend
   tool: string          // tool name (e.g., "web_search")
+  nodeType: 'pir' | 'hypothesis' | 'tool'
   params: Record<string, unknown>
   status: 'running' | 'succeeded' | 'failed'
   resultCount?: number
   resultPreview?: string
+  queryPreview?: string
   parentId: string | null
   depth: number
   timestamp: number
+  // PIR node fields
+  pir?: string
+  cycleId?: string
+  parentCycleId?: string
+  // Hypothesis node fields
+  hypothesisIndex?: number
+  hypothesisText?: string
 }
 
 interface FlowState {
@@ -31,6 +44,11 @@ interface FlowState {
   callCount: number
   maxCalls: number
   status: 'idle' | 'running' | 'succeeded' | 'failed'
+  // Track latest cycle for hypothesis assignment
+  latestCycleId?: string
+  latestCyclePirNodeId?: string
+  hypothesisNodeIds?: string[]   // ordered list of hypothesis node IDs for current cycle
+  nextHypothesisIdx?: number     // which hypothesis to assign next search to
 }
 
 // ---------------------------------------------------------------------------
@@ -64,10 +82,14 @@ const TOOL_COLORS: Record<string, string> = {
   // Search tools (blue)
   run_ddg_search:         '#60a5fa',
   run_web_search_fetch:   '#60a5fa',
+  run_web_search:         '#60a5fa',
   run_google_news:        '#60a5fa',
   get_past_research:      '#60a5fa',
   search_obsidian:        '#60a5fa',
   run_qdrant_search:      '#60a5fa',
+  run_serper_search:      '#60a5fa',
+  run_tmdb_search:        '#60a5fa',
+  run_multi_search:       '#60a5fa',
   // Crawl/fetch tools (purple)
   run_web_crawl:          '#a78bfa',
   run_headless_crawler:   '#a78bfa',
@@ -103,6 +125,9 @@ const STATUS_COLORS: Record<string, string> = {
   failed:    '#f87171',
 }
 
+const HYPOTHESIS_COLORS = ['#60a5fa', '#a78bfa', '#4ade80', '#f87171', '#fb923c']
+const PIR_COLOR = '#f59e0b'
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -116,7 +141,16 @@ interface Props {
 }
 
 export function ResearchFlow({ runId: filterRunId }: Props) {
+  const sessionRunIds = useChatStore(s => s.sessionRunIds)
   const [flows, _setFlows] = useState<Map<string, FlowState>>(() => new Map(_flowCache))
+
+  // When the session is cleared (sessionRunIds becomes empty), evict old flows from cache
+  useEffect(() => {
+    if (sessionRunIds.length === 0) {
+      _flowCache.clear()
+      _setFlows(new Map())
+    }
+  }, [sessionRunIds.length])
   // Wrapper that updates both state and cache
   const setFlows = (updater: (prev: Map<string, FlowState>) => Map<string, FlowState>) => {
     _setFlows(prev => {
@@ -155,6 +189,7 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
         const node: FlowNode = {
           id: event.call_id!,
           tool: event.tool ?? 'unknown',
+          nodeType: 'tool',
           params: event.params ?? {},
           status: 'running',
           parentId: event.parent_call_id ?? null,
@@ -193,6 +228,65 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
       })
     }
 
+    // IS cycle events — PIR-bounded INVESTIGATE cycle declaration
+    if (event.type === 'is.cycle' && event.run_id) {
+      setFlows(prev => {
+        const next = new Map(prev)
+        const flow = next.get(event.run_id!) ?? {
+          runId: event.run_id!, query: '', nodes: [],
+          callCount: 0, maxCalls: 50, status: 'running' as const,
+        }
+
+        // Find parent node — parent cycle's PIR node, or BRAIN (null)
+        const parentPirNodeId = event.parent_cycle_id
+          ? flow.nodes.find(n => n.nodeType === 'pir' && n.cycleId === event.parent_cycle_id)?.id ?? null
+          : null
+
+        // Create PIR node
+        const pirNodeId = `pir_${event.call_id || event.cycle_id}`
+        const pirNode: FlowNode = {
+          id: pirNodeId,
+          tool: 'pir',
+          nodeType: 'pir',
+          params: {},
+          status: 'running',
+          parentId: parentPirNodeId,
+          depth: 0,
+          timestamp: Date.now(),
+          pir: event.pir ?? '',
+          cycleId: event.cycle_id ?? '',
+          parentCycleId: event.parent_cycle_id ?? '',
+        }
+
+        // Create hypothesis nodes, each parented to the PIR node
+        const hypotheses: string[] = event.hypotheses ?? []
+        const hypothesisNodes: FlowNode[] = hypotheses.map((h, i) => ({
+          id: `hyp_${event.call_id || event.cycle_id}_${i}`,
+          tool: 'hypothesis',
+          nodeType: 'hypothesis' as const,
+          params: {},
+          status: 'running' as const,
+          parentId: pirNodeId,
+          depth: 1,
+          timestamp: Date.now(),
+          hypothesisIndex: i,
+          hypothesisText: h,
+        }))
+
+        const hypothesisNodeIds = hypothesisNodes.map(n => n.id)
+
+        next.set(event.run_id!, {
+          ...flow,
+          nodes: [...flow.nodes, pirNode, ...hypothesisNodes],
+          latestCycleId: event.cycle_id ?? '',
+          latestCyclePirNodeId: pirNodeId,
+          hypothesisNodeIds,
+          nextHypothesisIdx: 0,
+        })
+        return next
+      })
+    }
+
     // IS brain events (from Claude Code subprocess — is.tool_call / is.tool_result)
     if (event.type === 'is.tool_call' && event.run_id && event.call_id) {
       setFlows(prev => {
@@ -203,35 +297,56 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
         }
         if (flow.nodes.some(n => n.id === event.call_id)) return prev
 
-        // Infer depth from tool type and call sequence
         const tool = event.tool ?? 'unknown'
-        const searchTools = ['run_ddg_search', 'run_web_search_fetch', 'run_google_news', 'get_past_research', 'search_obsidian', 'run_qdrant_search']
-        const enrichTools = ['run_web_crawl', 'run_headless_crawler', 'run_wikipedia_api', 'run_ph_sec_dti', 'run_opencorporates', 'run_whois_lookup', 'run_facebook_pages', 'run_twitter_search', 'run_instagram_profile']
-        const personTools = ['run_linkedin_profile_search', 'run_linkedin_lookup', 'run_apollo_search', 'run_hunter_io', 'run_clutch_goodfirms', 'run_clutch_buyer']
-        const analysisTools = ['run_ai_scoring', 'run_summarizer', 'run_analyzer', 'suggest_plugin']
+        const searchTools = ['run_ddg_search', 'run_web_search_fetch', 'run_web_search', 'run_google_news', 'get_past_research', 'search_obsidian', 'run_qdrant_search', 'run_serper_search', 'run_tmdb_search', 'run_multi_search']
+        const isSearchTool = searchTools.includes(tool)
 
-        let depth = 1
-        if (enrichTools.includes(tool)) depth = 2
-        else if (personTools.includes(tool)) depth = 3
-        else if (analysisTools.includes(tool)) depth = 4
+        // Assign BROADEN search nodes to hypothesis parents (round-robin by sequence)
+        let parentId: string | null = null
+        let depth = 2
+        let nextHypothesisIdx = flow.nextHypothesisIdx ?? 0
 
-        // Chain to the most recent node at the previous depth as parent
-        const prevDepthNodes = flow.nodes.filter(n => n.depth === depth - 1)
-        const parentId = prevDepthNodes.length > 0 ? prevDepthNodes[prevDepthNodes.length - 1].id : null
+        if (isSearchTool && flow.hypothesisNodeIds && flow.hypothesisNodeIds.length > 0) {
+          const assignIdx = nextHypothesisIdx % flow.hypothesisNodeIds.length
+          parentId = flow.hypothesisNodeIds[assignIdx]
+          depth = 2
+          nextHypothesisIdx = nextHypothesisIdx + 1
+        } else if (flow.latestCyclePirNodeId) {
+          // Non-search tools (crawl, person lookup, analysis) link to PIR
+          parentId = flow.latestCyclePirNodeId
+          const enrichTools = ['run_web_crawl', 'run_headless_crawler', 'run_wikipedia_api', 'run_ph_sec_dti', 'run_opencorporates', 'run_whois_lookup', 'run_facebook_pages', 'run_twitter_search', 'run_instagram_profile', 'run_shodan_search']
+          const personTools = ['run_linkedin_profile_search', 'run_linkedin_lookup', 'run_apollo_search', 'run_hunter_io', 'run_clutch_goodfirms', 'run_clutch_buyer']
+          const analysisTools = ['run_ai_scoring', 'run_summarizer', 'run_analyzer', 'suggest_plugin']
+          if (enrichTools.includes(tool)) depth = 3
+          else if (personTools.includes(tool)) depth = 3
+          else if (analysisTools.includes(tool)) depth = 4
+        } else {
+          // Fallback: no cycle declared yet, use old depth inference
+          const enrichTools = ['run_web_crawl', 'run_headless_crawler', 'run_wikipedia_api']
+          const personTools = ['run_linkedin_profile_search', 'run_linkedin_lookup', 'run_apollo_search', 'run_hunter_io']
+          const analysisTools = ['run_ai_scoring', 'run_summarizer', 'run_analyzer', 'suggest_plugin']
+          if (enrichTools.includes(tool)) depth = 2
+          else if (personTools.includes(tool)) depth = 3
+          else if (analysisTools.includes(tool)) depth = 4
+          else depth = 1
+        }
 
         const node: FlowNode = {
           id: event.call_id!,
           tool,
+          nodeType: 'tool',
           params: {},
           status: event.status === 'calling' ? 'running' : (event.status as FlowNode['status'] ?? 'running'),
           parentId,
           depth,
           timestamp: Date.now(),
+          queryPreview: event.query_preview ?? '',
         }
         next.set(event.run_id!, {
           ...flow,
           nodes: [...flow.nodes, node],
           callCount: flow.callCount + 1,
+          nextHypothesisIdx,
         })
         return next
       })
@@ -254,15 +369,21 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
       })
     }
 
-    // Mark IS run complete
+    // Mark IS run complete — also mark all PIR nodes as succeeded
     if ((event.type === 'job.completed' || event.type === 'job.failed') && event.run_id) {
       setFlows(prev => {
         const next = new Map(prev)
         const flow = next.get(event.run_id!)
         if (!flow) return prev
+        const finalStatus: FlowNode['status'] = event.type === 'job.completed' ? 'succeeded' : 'failed'
         next.set(event.run_id!, {
           ...flow,
           status: event.type === 'job.completed' ? 'succeeded' : 'failed',
+          nodes: flow.nodes.map(n =>
+            n.nodeType === 'pir' && n.status === 'running'
+              ? { ...n, status: finalStatus }
+              : n
+          ),
         })
         return next
       })
@@ -283,13 +404,14 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
 
   useWebSocket(handleEvent)
 
-  // Pick which flow to display
+  // Pick which flow to display — scoped to current session runs
   const activeFlow = useMemo(() => {
     if (filterRunId) return flows.get(filterRunId)
-    // Show latest running, or latest overall
-    const all = [...flows.values()]
+    // Only consider flows that belong to the current session
+    const sessionSet = new Set(sessionRunIds)
+    const all = [...flows.values()].filter(f => sessionSet.size === 0 || sessionSet.has(f.runId))
     return all.find(f => f.status === 'running') ?? all[all.length - 1]
-  }, [flows, filterRunId])
+  }, [flows, filterRunId, sessionRunIds])
 
   if (!activeFlow || activeFlow.nodes.length === 0) {
     return (
@@ -309,7 +431,7 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
       <div style={{ padding: '8px 12px', borderBottom: '1px solid #1e293b', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: '#e2e8f0' }}>
-            {activeFlow.status === 'running' ? '\u26A1' : '\u2705'}{' '}
+            {activeFlow.status === 'running' ? '⚡' : '✅'}{' '}
             {activeFlow.query ? `"${activeFlow.query.slice(0, 60)}"` : 'Research'}
           </span>
           <span style={{
@@ -365,37 +487,102 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
   // Update module-level vars so edge calculations use correct sizes
   NODE_W = nw; NODE_H = nh; GAP_X = gx; GAP_Y = gy; ROOT_W = rw; ROOT_H = rh
 
-  // Build tree layout: group by depth, root "BRAIN" at left
-  const byDepth: Record<number, FlowNode[]> = {}
-  for (const n of nodes) {
-    byDepth[n.depth] = byDepth[n.depth] ?? []
-    byDepth[n.depth].push(n)
-  }
-  const depths = Object.keys(byDepth).map(Number).sort((a, b) => a - b)
+  // PIR nodes are wider than regular nodes
+  const pirW = Math.round(nw * 1.3)
 
-  // Position root node
-  const totalNodes = nodes.length
+  // Uniform column width — wide enough for any node type
+  const COL_W = Math.round(Math.max(nw, pirW) + gx)
+
+  // Leaf row height — vertical spacing per leaf
+  const LEAF_H = nh + gy
+
   const rootX = 12
   const rootY = 12
 
-  // Position tool call nodes by depth column
+  // ---------------------------------------------------------------------------
+  // Step 1: Build tree structure from nodes
+  // ---------------------------------------------------------------------------
+  const childrenMap: Record<string, string[]> = { brain: [] }
+  const nodeById: Record<string, FlowNode> = {}
+
+  for (const node of nodes) {
+    nodeById[node.id] = node
+    const parentKey = node.parentId ?? 'brain'
+    if (!childrenMap[parentKey]) childrenMap[parentKey] = []
+    childrenMap[parentKey].push(node.id)
+    if (!childrenMap[node.id]) childrenMap[node.id] = []
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 2: Count leaf nodes in subtree (memoized)
+  // ---------------------------------------------------------------------------
+  const leafCountCache: Record<string, number> = {}
+  function countLeaves(id: string): number {
+    if (leafCountCache[id] !== undefined) return leafCountCache[id]
+    const kids = childrenMap[id] ?? []
+    const result = kids.length === 0 ? 1 : kids.reduce((sum, kid) => sum + countLeaves(kid), 0)
+    leafCountCache[id] = result
+    return result
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 3: Assign positions recursively
+  // ---------------------------------------------------------------------------
   const positions: Record<string, { x: number; y: number }> = {}
-  positions['brain'] = { x: rootX, y: rootY + Math.max(0, (totalNodes - 1) * (nh + gy) / 2 - rh / 2) }
 
-  depths.forEach((d, di) => {
-    const layer = byDepth[d]
-    layer.forEach((node, ni) => {
-      positions[node.id] = {
-        x: rootX + rw + gx + di * (nw + gx),
-        y: 12 + ni * (nh + gy),
-      }
-    })
-  })
+  function layout(id: string, col: number, yStart: number): void {
+    const kids = childrenMap[id] ?? []
+    const leafCount = countLeaves(id)
+    const totalH = leafCount * LEAF_H - gy
 
-  const maxX = Math.max(rootX + rw, ...Object.values(positions).map(p => p.x + nw))
-  const maxY = Math.max(rootY + rh, ...Object.values(positions).map(p => p.y + nh))
-  const svgW = maxX + 16
-  const svgH = maxY + 16
+    if (id === 'brain') {
+      positions.brain = { x: rootX, y: yStart + Math.max(0, (totalH - rh) / 2) }
+    } else {
+      const nodeX = rootX + rw + gx + (col - 1) * COL_W
+      positions[id] = { x: nodeX, y: yStart + Math.max(0, (totalH - nh) / 2) }
+    }
+
+    let childY = yStart
+    for (const kidId of kids) {
+      const kidLeaves = countLeaves(kidId)
+      layout(kidId, col + 1, childY)
+      childY += kidLeaves * LEAF_H
+    }
+  }
+
+  layout('brain', 0, rootY)
+
+  // ---------------------------------------------------------------------------
+  // Step 4: Compute SVG dimensions from actual positions
+  // ---------------------------------------------------------------------------
+  const allPositions = Object.values(positions)
+  const svgW = Math.max(...allPositions.map(p => p.x + COL_W)) + 16
+  const svgH = Math.max(...allPositions.map(p => p.y + nh)) + 16
+
+  // ---------------------------------------------------------------------------
+  // Step 5: Edge helpers — use actual tree positions
+  // ---------------------------------------------------------------------------
+  function getNodeRight(id: string | null): number {
+    if (!id || id === 'brain') return (positions.brain?.x ?? rootX) + rw
+    const pos = positions[id]
+    const node = nodeById[id]
+    if (!pos || !node) return (positions.brain?.x ?? rootX) + rw
+    if (node.nodeType === 'pir') return pos.x + pirW
+    return pos.x + nw
+  }
+
+  function getNodeMidY(id: string | null): number {
+    if (!id || id === 'brain') return (positions.brain?.y ?? rootY) + rh / 2
+    const pos = positions[id]
+    const node = nodeById[id]
+    if (!pos || !node) return rootY + rh / 2
+    if (node.nodeType === 'pir') {
+      const pirH = Math.round(nh * 1.5)
+      const pirYAdjusted = pos.y - (pirH - nh) / 2
+      return pirYAdjusted + pirH / 2
+    }
+    return pos.y + nh / 2
+  }
 
   return (
     <svg width="100%" height="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ background: '#0a0e14', borderRadius: 6, minHeight: 200 }}>
@@ -406,28 +593,38 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         <marker id="flow-arrow-active" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">
           <path d="M0,0 L6,3 L0,6 Z" fill="#facc15" opacity={0.9} />
         </marker>
+        <marker id="flow-arrow-pir" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L6,3 L0,6 Z" fill={PIR_COLOR} opacity={0.9} />
+        </marker>
       </defs>
 
-      {/* Edges: brain → depth-1 nodes, parent → child */}
+      {/* Edges */}
       {nodes.map(node => {
         const parentPos = node.parentId ? positions[node.parentId] : positions['brain']
         const childPos = positions[node.id]
         if (!parentPos || !childPos) return null
-        const x1 = node.parentId ? parentPos.x + nw : parentPos.x + rw
-        const y1 = node.parentId ? parentPos.y + nh / 2 : parentPos.y + rh / 2
+
+        const x1 = getNodeRight(node.parentId)
+        const y1 = getNodeMidY(node.parentId)
         const x2 = childPos.x
         const y2 = childPos.y + nh / 2
         const isRunning = node.status === 'running'
+        const isPirEdge = node.nodeType === 'pir'
+        const isHypEdge = node.nodeType === 'hypothesis'
+        const hColor = isHypEdge
+          ? HYPOTHESIS_COLORS[(node.hypothesisIndex ?? 0) % HYPOTHESIS_COLORS.length]
+          : undefined
+
         return (
           <path
             key={`edge-${node.id}`}
             d={`M${x1},${y1} C${x1 + (x2 - x1) * 0.5},${y1} ${x1 + (x2 - x1) * 0.5},${y2} ${x2},${y2}`}
             fill="none"
-            stroke={isRunning ? '#facc15' : '#475569'}
-            strokeWidth={1.5}
-            strokeDasharray={isRunning ? '4 3' : undefined}
+            stroke={isPirEdge ? PIR_COLOR : isHypEdge ? hColor! : (isRunning ? '#facc15' : '#475569')}
+            strokeWidth={isPirEdge ? 2 : 1.5}
+            strokeDasharray={isRunning && !isPirEdge ? '4 3' : undefined}
             opacity={0.7}
-            markerEnd={isRunning ? 'url(#flow-arrow-active)' : 'url(#flow-arrow)'}
+            markerEnd={isPirEdge ? 'url(#flow-arrow-pir)' : isRunning ? 'url(#flow-arrow-active)' : 'url(#flow-arrow)'}
           />
         )
       })}
@@ -438,7 +635,7 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         return (
           <g>
             <rect x={pos.x} y={pos.y} width={rw} height={rh} rx={rh / 2} fill="#1e293b" stroke="#a78bfa" strokeWidth={1.5} />
-            <text x={pos.x + rw / 2} y={pos.y + rh * 0.4} textAnchor="middle" fill="#a78bfa" fontSize={fontSize} fontWeight={700}>BRAIN</text>
+            <text x={pos.x + rw / 2} y={pos.y + rh * 0.4} textAnchor="middle" fill="#a78bfa" fontSize={fontSize} fontWeight={700}>IS BRAIN</text>
             <text x={pos.x + rw / 2} y={pos.y + rh * 0.72} textAnchor="middle" fill="#94a3b8" fontSize={fontSizeSm}>
               {query.slice(0, Math.round(14 * s))}{query.length > Math.round(14 * s) ? '...' : ''}
             </text>
@@ -450,11 +647,107 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
       {nodes.map(node => {
         const pos = positions[node.id]
         if (!pos) return null
+
+        // PIR node — amber/orange, wider, shows PIR question
+        if (node.nodeType === 'pir') {
+          const statusColor = STATUS_COLORS[node.status] ?? '#475569'
+          const pirText = node.pir ?? ''
+          const pirH = Math.round(nh * 1.5)  // Taller to fit 3 lines
+          const pirYAdjusted = pos.y - (pirH - nh) / 2  // Center vertically relative to original pos
+          const charsPerLine = Math.max(10, Math.floor(pirW / (fontSize * 0.58)))
+          const line1 = pirText.slice(0, charsPerLine)
+          const line2 = pirText.length > charsPerLine ? pirText.slice(charsPerLine, charsPerLine * 2) : ''
+
+          return (
+            <g key={node.id}>
+              <title>{pirText}</title>
+              <rect
+                x={pos.x} y={pirYAdjusted}
+                width={pirW} height={pirH}
+                rx={6}
+                fill="#1c1a0e"
+                stroke={node.status === 'running' ? '#facc15' : PIR_COLOR}
+                strokeWidth={2}
+              />
+              <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.25} fill={PIR_COLOR} fontSize={fontSize} fontWeight={700}>
+                PIR
+              </text>
+              <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.48} fill="#fcd34d" fontSize={fontSizeSm}>
+                {line1}
+              </text>
+              {line2 && (
+                <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.70} fill="#fcd34d" fontSize={fontSizeSm}>
+                  {line2}
+                </text>
+              )}
+              <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.90} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
+                {node.status === 'running' ? '⏳ investigating...' : node.status === 'succeeded' ? '✓ done' : '✗ failed'}
+              </text>
+            </g>
+          )
+        }
+
+        // Hypothesis node — colored by index
+        if (node.nodeType === 'hypothesis') {
+          const hColor = HYPOTHESIS_COLORS[(node.hypothesisIndex ?? 0) % HYPOTHESIS_COLORS.length]
+          const hypText = node.hypothesisText ?? ''
+          const charsPerLine = Math.max(10, Math.floor(nw / (fontSize * 0.58)))
+          const line1 = hypText.slice(0, charsPerLine)
+          const line2 = hypText.length > charsPerLine ? hypText.slice(charsPerLine, charsPerLine * 2) : ''
+
+          return (
+            <g key={node.id}>
+              <title>{hypText}</title>
+              <rect
+                x={pos.x} y={pos.y}
+                width={nw} height={nh}
+                rx={4}
+                fill="#0f172a"
+                stroke={hColor}
+                strokeWidth={1.5}
+              />
+              <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={hColor} fontSize={fontSize} fontWeight={600}>
+                H{(node.hypothesisIndex ?? 0) + 1}
+              </text>
+              <text x={pos.x + 6} y={pos.y + nh * 0.50} fill="#94a3b8" fontSize={fontSizeSm}>
+                {line1}
+              </text>
+              {line2 && (
+                <text x={pos.x + 6} y={pos.y + nh * 0.72} fill="#94a3b8" fontSize={fontSizeSm}>
+                  {line2}
+                </text>
+              )}
+            </g>
+          )
+        }
+
+        // Generic tool node
         const color = TOOL_COLORS[node.tool] ?? '#60a5fa'
         const statusColor = STATUS_COLORS[node.status] ?? '#475569'
-        const paramStr = Object.values(node.params).map(v => String(v).slice(0, 20)).join(', ')
+        // Build human-readable description from tool + query
+        const descText = (() => {
+          const q = node.queryPreview ?? ''
+          if (!q) return ''
+          // Normalize: lowercase + strip underscores so WebSearch == web_search
+          const t = node.tool.toLowerCase().replace(/_/g, '')
+          if (t.includes('websearch') || t.includes('ddgsearch') || t.includes('toolsearch') ||
+              t.includes('serpersearch') || t.includes('qdrantsearch') || t.includes('multisearch')) return `Searching: ${q}`
+          if (t.includes('crawl') || t.includes('headless') || t.includes('fetch')) return `Crawling: ${q.replace(/^https?:\/\//, '').split('/')[0]}`
+          if (t.includes('news') || t.includes('rss')) return `News: ${q}`
+          if (t.includes('linkedin')) return `LinkedIn: ${q}`
+          if (t.includes('apollo')) return `Apollo: ${q}`
+          if (t.includes('tmdb')) return `TMDB: ${q}`
+          if (t.includes('opencorporates') || t.includes('secdti') || t.includes('bir')) return `Registry: ${q}`
+          if (t.includes('pastresearch') || t.includes('past_research')) return `Prior: ${q}`
+          if (t.includes('wikipedia')) return `Wikipedia: ${q}`
+          if (t.includes('hunter')) return `Hunter.io: ${q}`
+          if (t.includes('shodan')) return `Shodan: ${q}`
+          if (t.includes('linkedin')) return `LinkedIn: ${q}`
+          return `Searching: ${q}`
+        })()
         return (
           <g key={node.id}>
+            <title>{`${node.tool}${descText ? `: ${descText}` : ''}${node.resultPreview ? ` → ${node.resultPreview}` : ''}`}</title>
             <rect
               x={pos.x} y={pos.y}
               width={nw} height={nh}
@@ -467,17 +760,17 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
             <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={color} fontSize={fontSize} fontWeight={700}>
               {node.tool.replace(/^run_/, '').replace(/_/g, ' ').slice(0, Math.round(18 * s))}
             </text>
-            {/* Params preview */}
+            {/* Description preview (query/URL/name being searched) */}
             <text x={pos.x + 6} y={pos.y + nh * 0.55} fill="#94a3b8" fontSize={fontSizeSm}>
-              {paramStr.slice(0, Math.round(20 * s))}{paramStr.length > Math.round(20 * s) ? '...' : ''}
+              {descText.slice(0, Math.round(22 * s))}{descText.length > Math.round(22 * s) ? '…' : ''}
             </text>
             {/* Status + result count */}
             <text x={pos.x + 6} y={pos.y + nh * 0.82} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
               {node.status === 'running'
-                ? '\u23F3 running...'
+                ? '⏳ running...'
                 : node.status === 'succeeded'
-                  ? `\u2713 ${node.resultCount ?? 0} results`
-                  : '\u2717 failed'}
+                  ? `✓ ${node.resultCount ?? 0} results`
+                  : '✗ failed'}
             </text>
           </g>
         )

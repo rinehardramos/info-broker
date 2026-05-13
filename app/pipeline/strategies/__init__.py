@@ -19,6 +19,7 @@ def get_strategy(entity_type: str, substrategy: str | None = None) -> str:
     return _STRATEGIES.get(entity_type, "")
 
 def _load_strategies() -> None:
+    from app.pipeline.strategies.place import STRATEGY as PLCS, ENTITY_TYPE as PLCT
     from app.pipeline.strategies.person import STRATEGY as PS, ENTITY_TYPE as PT
     from app.pipeline.strategies.generation import STRATEGY as GS, ENTITY_TYPE as GT
     from app.pipeline.strategies.explanation import STRATEGY as ES, ENTITY_TYPE as ET
@@ -42,6 +43,8 @@ def _load_strategies() -> None:
     from app.pipeline.strategies.systematic_review import STRATEGY as SYRS, ENTITY_TYPE as SYRT
     from app.pipeline.strategies.strategic_assessment import STRATEGY as STAS, ENTITY_TYPE as STAT
     from app.pipeline.strategies.decision_analysis import STRATEGY as DAS, ENTITY_TYPE as DAT
+    from app.pipeline.strategies.media_identification import STRATEGY as MIS, ENTITY_TYPE as MIT
+    _STRATEGIES[PLCT] = PLCS
     _STRATEGIES[PT] = PS
     _STRATEGIES[GT] = GS
     _STRATEGIES[ET] = ES
@@ -61,6 +64,7 @@ def _load_strategies() -> None:
     _STRATEGIES[SYRT] = SYRS
     _STRATEGIES[STAT] = STAS
     _STRATEGIES[DAT] = DAS
+    _STRATEGIES[MIT] = MIS
 
     # Also register all sub-strategies discovered via the domains registry.
     # This populates _STRATEGIES with domain sub-strategy names so callers

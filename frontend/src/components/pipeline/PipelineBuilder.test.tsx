@@ -235,6 +235,82 @@ describe('PipelineBuilder — reorder steps (with edges)', () => {
       expect(cardsAfter[0].getAttribute('data-testid')).toBe('step-card-manual_scoring')
     })
   })
+
+  it('initial step list order follows edges, not insertion order', async () => {
+    // Nodes added out-of-order: n2 (AI Provider) before n1 (Agent Input) in insertion order
+    // Edge defines: n1 → n2 → n3, so display should be n1, n2, n3 regardless of insertion order
+    mockGetPipeline.mockResolvedValue({
+      id: 'pipe-1', name: 'Pipeline One', description: null,
+      nodes: [
+        { id: 'n3', node_type: 'manual_scoring', label: 'AI Scoring', config: {}, category: 'score' },
+        { id: 'n2', node_type: 'ddg_search', label: 'DDG Search', config: {}, category: 'enrich' },
+        { id: 'n1', node_type: 'qdrant_search', label: 'Agent Input', config: {}, category: 'source' },
+      ],
+      edges: [
+        { id: 'e1', source_node_id: 'n1', target_node_id: 'n2', edge_type: 'results' },
+        { id: 'e2', source_node_id: 'n2', target_node_id: 'n3', edge_type: 'results' },
+      ],
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    })
+    wrap(<PipelineBuilder initialPipelineId="pipe-1" />)
+    await waitFor(() => screen.getByText('Pipeline One'))
+
+    const cards = document.querySelectorAll('[data-testid^="step-card-"]')
+    // Topo order should be n1 → n2 → n3, NOT insertion order n3, n2, n1
+    expect(cards[0].getAttribute('data-testid')).toBe('step-card-qdrant_search')  // n1 (Agent Input)
+    expect(cards[1].getAttribute('data-testid')).toBe('step-card-ddg_search')    // n2 (DDG Search)
+    expect(cards[2].getAttribute('data-testid')).toBe('step-card-manual_scoring') // n3 (AI Scoring)
+  })
+
+  it('nodes at the same topological level retain insertion order', async () => {
+    // n1 and n2 are both sources (no edges between them), n3 depends on both
+    mockGetPipeline.mockResolvedValue({
+      id: 'pipe-1', name: 'Pipeline One', description: null,
+      nodes: [
+        { id: 'n1', node_type: 'qdrant_search', label: 'Source A', config: {}, category: 'source' },
+        { id: 'n2', node_type: 'ddg_search', label: 'Source B', config: {}, category: 'source' },
+        { id: 'n3', node_type: 'manual_scoring', label: 'Scoring', config: {}, category: 'score' },
+      ],
+      edges: [
+        { id: 'e1', source_node_id: 'n1', target_node_id: 'n3', edge_type: 'results' },
+        { id: 'e2', source_node_id: 'n2', target_node_id: 'n3', edge_type: 'results' },
+      ],
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    })
+    wrap(<PipelineBuilder initialPipelineId="pipe-1" />)
+    await waitFor(() => screen.getByText('Pipeline One'))
+
+    const cards = document.querySelectorAll('[data-testid^="step-card-"]')
+    // n1 and n2 are at same level → insertion order preserved (n1 before n2)
+    // n3 comes last (depends on both)
+    expect(cards[0].getAttribute('data-testid')).toBe('step-card-qdrant_search')
+    expect(cards[1].getAttribute('data-testid')).toBe('step-card-ddg_search')
+    expect(cards[2].getAttribute('data-testid')).toBe('step-card-manual_scoring')
+  })
+
+  it('tool edges do not affect execution order in the step list', async () => {
+    // n1 → n2 (results), n3 is a tool-target from n2; tool edges shouldn't affect topo sort
+    mockGetPipeline.mockResolvedValue({
+      id: 'pipe-1', name: 'Pipeline One', description: null,
+      nodes: [
+        { id: 'n2', node_type: 'manual_scoring', label: 'Scoring', config: {}, category: 'score' },
+        { id: 'n1', node_type: 'qdrant_search', label: 'Search', config: {}, category: 'source' },
+        { id: 'n3', node_type: 'ddg_search', label: 'Tool Node', config: {}, category: 'enrich' },
+      ],
+      edges: [
+        { id: 'e1', source_node_id: 'n1', target_node_id: 'n2', edge_type: 'results' },
+        { id: 'e2', source_node_id: 'n2', target_node_id: 'n3', edge_type: 'tool' },
+      ],
+      created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
+    })
+    wrap(<PipelineBuilder initialPipelineId="pipe-1" />)
+    await waitFor(() => screen.getByText('Pipeline One'))
+
+    const cards = document.querySelectorAll('[data-testid^="step-card-"]')
+    // Results edge n1 → n2 defines order; tool edge should not make n3 appear before n2
+    expect(cards[0].getAttribute('data-testid')).toBe('step-card-qdrant_search')  // n1
+    expect(cards[1].getAttribute('data-testid')).toBe('step-card-manual_scoring') // n2
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -2,31 +2,37 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getPerformanceDashboard, TechniquePerf, TacticPerf } from '../../api/v3'
 
-const GRADE_COLORS: Record<string, string> = {
-  A: '#22c55e',
-  B: '#86efac',
-  C: '#facc15',
-  D: '#fb923c',
-  E: '#f87171',
-  F: '#dc2626',
+const SOURCE_COLORS: Record<string, string> = {
+  A: '#22c55e', B: '#4ade80', C: '#facc15', D: '#fb923c', E: '#f87171', F: '#6b7280',
+}
+
+function parseGrade(g: string): [string, string] {
+  if (g.length === 2 && 'ABCDEF'.includes(g[0]) && '123456'.includes(g[1])) return [g[0], g[1]]
+  if (g.length === 1 && 'ABCDEF'.includes(g[0])) return [g[0], '?']
+  return ['F', '6']
 }
 
 function GradePill({ grade }: { grade: string }) {
+  const [src, cred] = parseGrade(grade)
+  const color = SOURCE_COLORS[src] ?? '#6b7280'
   return (
     <span
       style={{
-        background: GRADE_COLORS[grade] ?? '#6b7280',
-        color: '#000',
+        background: color + '22',
+        border: `1px solid ${color}`,
+        color,
         borderRadius: 4,
-        padding: '1px 6px',
+        padding: '1px 7px',
         fontSize: 11,
         fontWeight: 700,
-        minWidth: 22,
+        minWidth: 28,
         display: 'inline-block',
         textAlign: 'center',
+        letterSpacing: '0.05em',
       }}
+      title={`Admiralty: ${src}${cred}`}
     >
-      {grade}
+      {src}{cred}
     </span>
   )
 }

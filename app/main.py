@@ -138,6 +138,110 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("Memory lifecycle sweep not started: %s", exc)
 
+    # Start daily LLM curation (contradiction resolution + entity dedup)
+    async def _llm_curation_loop(interval_seconds: int = 86400) -> None:
+        import asyncio as _a
+        while True:
+            await _a.sleep(interval_seconds)
+            try:
+                from app.knowledge.llm_curator import resolve_contradictions_batch, generate_curation_suggestions
+                result = await resolve_contradictions_batch(limit=20)
+                _log.info("LLM curation: resolved %d contradictions", result.get("resolved", 0))
+                sug = await generate_curation_suggestions(limit=20)
+                _log.info("LLM curation: generated %d suggestions", sug.get("created", 0))
+            except Exception as exc:
+                _log.warning("LLM curation sweep failed: %s", exc)
+    try:
+        _aio.create_task(_llm_curation_loop(86400))
+    except Exception as exc:
+        _log.warning("LLM curator loop not started: %s", exc)
+
+    # Reload any confirm_pending runs from DB into memory (survives restarts)
+    try:
+        from app.routers.v3.db import fetch_all as _fetch_all
+        from app.routers.v3.agent import _CONFIRM_PENDING
+        import json as _json
+        rows = _fetch_all(
+            "SELECT id, confirmation_data FROM pipeline_runs WHERE status = 'confirm_pending'", ()
+        )
+        for row in rows:
+            data = row.get("confirmation_data")
+            if data and isinstance(data, dict) and data.get("uid"):
+                _CONFIRM_PENDING[str(row["id"])] = data
+        if rows:
+            _log.info("Restored %d confirm_pending runs from DB", len(rows))
+    except Exception as exc:
+        _log.warning("confirm_pending restore failed (non-fatal): %s", exc)
+
+    # Mark any IS brain runs that were in-flight when the server restarted as failed.
+    # Their Claude Code subprocesses are dead — they will never complete or push results.
+    try:
+        from app.routers.v3.db import execute as _exec, fetch_all as _fetch_all2
+        killed = _fetch_all2(
+            """SELECT id FROM pipeline_runs
+               WHERE status = 'running' AND trigger_type = 'agent_is'""",
+            (),
+        )
+        if killed:
+            _exec(
+                """UPDATE pipeline_runs
+                   SET status = 'failed',
+                       finished_at = now(),
+                       error_message = 'Server restarted — subprocess was killed'
+                   WHERE status = 'running' AND trigger_type = 'agent_is'""",
+                (),
+            )
+            _log.info("Marked %d orphaned running IS brain runs as failed on startup", len(killed))
+            # Notify any already-connected browsers after WS is up (slight delay)
+            async def _notify_killed() -> None:
+                import asyncio as _a2
+                await _a2.sleep(2)
+                try:
+                    from app.routers.v3.stream import push_event as _push
+                    from app.routers.v3.db import fetch_all as _fa
+                    rows = _fa(
+                        "SELECT id, user_id FROM pipeline_runs WHERE id = ANY(%s)",
+                        ([str(r["id"]) for r in killed],),
+                    )
+                    for row in rows:
+                        await _push(str(row["user_id"]), {
+                            "type": "job.failed",
+                            "job_id": str(row["id"]),
+                            "run_id": str(row["id"]),
+                            "status": "failed",
+                            "message": "Research stopped — server was restarted",
+                        })
+                except Exception:
+                    pass
+            _aio.create_task(_notify_killed())
+    except Exception as exc:
+        _log.warning("Orphaned run cleanup failed (non-fatal): %s", exc)
+
+    # Periodic sweep — catch any runs that slipped through (> 20 min with no completion)
+    async def _stale_run_sweep(interval_seconds: int = 300) -> None:
+        import asyncio as _a
+        while True:
+            await _a.sleep(interval_seconds)
+            try:
+                from app.routers.v3.db import execute as _e
+                _e(
+                    """UPDATE pipeline_runs
+                       SET status = 'failed',
+                           finished_at = now(),
+                           error_message = 'Run exceeded maximum duration — killed by sweep'
+                       WHERE status = 'running'
+                         AND trigger_type = 'agent_is'
+                         AND started_at < NOW() - INTERVAL '20 minutes'""",
+                    (),
+                )
+            except Exception as exc:
+                _log.warning("Stale run sweep error (non-fatal): %s", exc)
+
+    try:
+        _aio.create_task(_stale_run_sweep(300))
+    except Exception as exc:
+        _log.warning("Stale run sweep not started: %s", exc)
+
     yield
     await se_close()
 
@@ -213,6 +317,7 @@ from app.routers.v3.exports import router as v3_exports_router  # noqa: E402
 from app.routers.v3.curation_api import router as v3_curation_router  # noqa: E402
 from app.routers.v3.brain_questions import router as v3_brain_questions_router  # noqa: E402
 from app.routers.v3.sources_api import router as v3_sources_router  # noqa: E402
+from app.routers.v3.sessions_api import router as v3_sessions_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -231,3 +336,4 @@ app.include_router(v3_exports_router)
 app.include_router(v3_curation_router)
 app.include_router(v3_brain_questions_router)
 app.include_router(v3_sources_router)
+app.include_router(v3_sessions_router)

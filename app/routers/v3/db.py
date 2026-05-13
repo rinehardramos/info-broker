@@ -458,6 +458,26 @@ CREATE TABLE IF NOT EXISTS investigation_strategy_overlays (
 );
 CREATE INDEX IF NOT EXISTS idx_overlays_entity_type ON investigation_strategy_overlays (entity_type, overlay_type);
 CREATE INDEX IF NOT EXISTS idx_overlays_selector ON investigation_strategy_overlays (entity_type, selector_type);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id              UUID NOT NULL,
+    genesis_query        TEXT NOT NULL,
+    status               VARCHAR DEFAULT 'active',
+    created_at           TIMESTAMPTZ DEFAULT now(),
+    archived_at          TIMESTAMPTZ,
+    run_count            INT DEFAULT 0,
+    turn_count           INT DEFAULT 0,
+    conversation_thread  JSONB DEFAULT '[]',
+    accumulated_summary  TEXT DEFAULT '',
+    key_findings         JSONB DEFAULT '[]',
+    entity_type          VARCHAR DEFAULT 'unknown'
+);
+CREATE INDEX IF NOT EXISTS agent_sessions_user_status_idx
+    ON agent_sessions (user_id, status, created_at DESC);
+
+ALTER TABLE pipeline_runs
+    ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES agent_sessions(id);
 """
 
 
@@ -500,7 +520,7 @@ VALUES (
     '00000000-0000-4000-8000-000000000001',
     NULL,
     'Agent Default',
-    'Default pipeline for Agent chat: agent_input → ddg_search → manual_scoring',
+    'Default pipeline for Agent chat: agent_input → multi_search → manual_scoring',
     true
 )
 ON CONFLICT (id) DO NOTHING;
@@ -508,7 +528,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO pipeline_nodes (id, pipeline_id, node_type, label, config, position_x, position_y)
 VALUES
     ('00000000-0000-4000-8000-000000000011', '00000000-0000-4000-8000-000000000001', 'agent_input',    'Agent CLI',      '{}', 0, 0),
-    ('00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000001', 'ddg_search',     'DDG Search',     '{}', 0, 1),
+    ('00000000-0000-4000-8000-000000000012', '00000000-0000-4000-8000-000000000001', 'multi_search',   'Multi-Engine Search', '{"engines":["ddg","serper","brave"]}', 0, 1),
     ('00000000-0000-4000-8000-000000000013', '00000000-0000-4000-8000-000000000001', 'manual_scoring', 'Manual Scoring', '{}', 0, 2)
 ON CONFLICT (id) DO NOTHING;
 

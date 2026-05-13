@@ -11,10 +11,10 @@ const NAV = [
   { icon: '◈', path: '/monitors',  label: 'Monitors' },
   { icon: '▤', path: '/history',   label: 'History' },
   { icon: '❖', path: '/plugins',   label: 'Plugins' },
-  { icon: '⚙', path: '/settings',  label: 'Settings' },
   { icon: '◎', path: '/admin/processes', label: 'Live Processes' },
   { icon: '⬢', path: '/knowledge',       label: 'Knowledge Graph' },
   { icon: '▦', path: '/performance',     label: 'Performance Dashboard' },
+  { icon: '⚙', path: '/settings',  label: 'Settings' },
 ]
 
 export default function IconRail() {
@@ -34,12 +34,12 @@ export default function IconRail() {
     <div
       className="flex flex-col items-center py-3 gap-4 flex-shrink-0"
       style={{
-        width: 28,
+        width: 36,
         background: 'var(--panel)',
         borderLeft: '1px solid var(--border)',
       }}
     >
-      <span style={{ color: 'var(--accent)', fontSize: 11 }}>✦</span>
+      <span style={{ color: 'var(--accent)', fontSize: 14 }}>✦</span>
 
       <div className="flex-1 flex flex-col items-center gap-3 mt-2">
         {NAV.map(({ icon, path, label }) => {
@@ -51,14 +51,14 @@ export default function IconRail() {
               title={hasBadge ? `${label} (${pendingCount} pending)` : label}
               onClick={() => navigate(path)}
               style={{
-                width: 20,
-                height: 20,
-                fontSize: 11,
+                width: 26,
+                height: 26,
+                fontSize: 14,
                 color: active ? 'var(--accent)' : 'var(--muted)',
                 background: active ? 'var(--panel2)' : 'transparent',
                 cursor: 'pointer',
                 border: 'none',
-                borderRadius: 3,
+                borderRadius: 4,
                 position: 'relative',
               }}
             >
@@ -79,7 +79,7 @@ export default function IconRail() {
         <button
           title={`Switch to ${theme === 'navy' ? 'Hacker' : 'Deep Navy'}`}
           onClick={toggle}
-          style={{ fontSize: 10, color: 'var(--subtext)', background: 'none', border: 'none', cursor: 'pointer' }}
+          style={{ fontSize: 13, color: 'var(--subtext)', background: 'none', border: 'none', cursor: 'pointer' }}
         >
           {THEMES[theme].icon}
         </button>
@@ -87,9 +87,9 @@ export default function IconRail() {
           title={`Logged in as ${username ?? '…'} (click to logout)`}
           onClick={logout}
           style={{
-            width: 18, height: 18, borderRadius: '50%',
+            width: 22, height: 22, borderRadius: '50%',
             background: 'var(--accent)', color: 'var(--bg)',
-            fontSize: 9, fontWeight: 'bold', border: 'none', cursor: 'pointer',
+            fontSize: 10, fontWeight: 'bold', border: 'none', cursor: 'pointer',
           }}
         >
           {(username?.[0] ?? 'U').toUpperCase()}
