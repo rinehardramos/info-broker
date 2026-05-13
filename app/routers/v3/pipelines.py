@@ -382,6 +382,83 @@ def _enrich_node_category(node_row: dict) -> dict:
     return d
 
 
+# ---------------------------------------------------------------------------
+# Plugin scaffold helpers — shared by scaffold endpoint and create-all/create
+# ---------------------------------------------------------------------------
+
+def _make_node_type_slug(name: str) -> str:
+    """Convert a plugin name to a safe node_type slug (lowercase, underscores)."""
+    return name.lower().replace("-", "_").replace(" ", "_")
+
+
+def _generate_stub(node_type: str, spec: dict) -> tuple[str, str]:
+    """Write an auto-generated stub node file and register it dynamically.
+
+    Returns (file_path, class_name).
+    """
+    import importlib.util as _il
+
+    auto_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "../../pipeline/nodes/auto",
+    )
+    os.makedirs(auto_dir, exist_ok=True)
+
+    name = spec.get("name", node_type)
+    class_name = "".join(w.capitalize() for w in node_type.split("_")) + "Node"
+    display = name.replace("-", " ").replace("_", " ").title()
+    description = spec.get("description", "")
+    category = spec.get("category", "source")
+
+    # Build config_schema from optional config_fields list
+    config_fields = spec.get("config_fields", [])
+    props: dict = {"query": {"type": "string"}}
+    required: list = ["query"]
+    for field in config_fields:
+        fname = field.get("name", "")
+        if not fname:
+            continue
+        props[fname] = {
+            "type": field.get("type", "string"),
+            "title": field.get("description", fname),
+        }
+        if field.get("required"):
+            required.append(fname)
+
+    props_json = json.dumps(props)
+    required_json = json.dumps(required)
+
+    stub = (
+        f'"""Auto-generated stub: {name}\n\n{description}\n"""\n'
+        f"from __future__ import annotations\n\n\n"
+        f"class {class_name}:\n"
+        f'    node_type = "{node_type}"\n'
+        f'    display_name = "{display}"\n'
+        f'    category = "{category}"\n'
+        f"    generated = True\n"
+        f"    config_schema = {{"
+        f'"type": "object", "properties": {props_json}, "required": {required_json}'
+        f"}}\n\n"
+        f"    async def execute(self, config: dict, inputs: list, context) -> list:\n"
+        f"        return []\n"
+    )
+
+    file_path = os.path.join(auto_dir, f"{node_type}.py")
+    with open(file_path, "w") as fh:
+        fh.write(stub)
+
+    # Dynamically load and register
+    from app.pipeline.nodes import NodeRegistry
+    mod_spec = _il.spec_from_file_location(f"app.pipeline.nodes.auto.{node_type}", file_path)
+    mod = _il.module_from_spec(mod_spec)
+    mod_spec.loader.exec_module(mod)
+    node_cls = getattr(mod, class_name)
+    NodeRegistry.register(node_cls())
+    _set_node_enabled(node_type, True)
+
+    return file_path, class_name
+
+
 # Plugin requests — MUST be before /{pipeline_id} to avoid route shadowing
 @router.get("/plugin-requests", response_model=list[PluginRequestOut])
 def list_plugin_requests(user: dict = Depends(get_current_user)):
@@ -405,6 +482,33 @@ def update_plugin_request_status(
     return {"status": "updated"}
 
 
+@router.post("/plugin-requests/scaffold", status_code=201)
+def scaffold_plugin(
+    body: dict,
+    user: dict = Depends(require_admin),
+):
+    """Generate a stub pipeline node from a plugin spec and register it immediately.
+
+    Body: { name, description, category, config_fields: [{name, type, description, required}] }
+    Returns: { node_type, file_path, registered: bool }
+    """
+    name = (body.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="'name' is required")
+
+    node_type = _make_node_type_slug(name)
+
+    try:
+        file_path, _ = _generate_stub(node_type, body)
+        registered = True
+    except Exception as exc:
+        log.warning("scaffold_plugin failed for %s: %s", node_type, exc)
+        registered = False
+        file_path = ""
+
+    return {"node_type": node_type, "file_path": file_path, "registered": registered}
+
+
 @router.post("/plugin-requests/create-all")
 def create_all_plugin_requests(user: dict = Depends(get_current_user)):
     """Deduplicate pending plugin requests by name and create/enable each unique plugin."""
@@ -426,7 +530,7 @@ def create_all_plugin_requests(user: dict = Depends(get_current_user)):
         raw_spec = row.get("spec") or {}
         spec = _json.loads(raw_spec) if isinstance(raw_spec, str) else (raw_spec or {})
         name = spec.get("name", "")
-        node_type = name.lower().replace("-", "_").replace(" ", "_")
+        node_type = _make_node_type_slug(name)
         rid = str(row["id"])
 
         if node_type in seen_names:
@@ -457,30 +561,11 @@ def create_all_plugin_requests(user: dict = Depends(get_current_user)):
         # If no existing node found, generate a stub in auto/ and register it dynamically
         if not enabled:
             try:
-                import os as _os, importlib.util as _il
-                _auto_dir = _os.path.join(
-                    _os.path.dirname(_os.path.abspath(__file__)),
-                    '../../pipeline/nodes/auto'
-                )
-                _os.makedirs(_auto_dir, exist_ok=True)
-                _class_name = ''.join(w.capitalize() for w in node_type.split('_')) + 'Node'
-                _display = name.replace('-', ' ').replace('_', ' ').title()
-                _desc = spec.get('description', '')
-                _stub = f'''"""Auto-generated stub: {name}\n\n{_desc}\n"""\nfrom __future__ import annotations\n\n\nclass {_class_name}:\n    node_type = "{node_type}"\n    display_name = "{_display}"\n    category = "source"\n    generated = True\n    config_schema = {{"type": "object", "properties": {{"query": {{"type": "string"}}}}, "required": ["query"]}}\n\n    async def execute(self, config: dict, inputs: list, context) -> list:\n        return []\n'''
-                _fp = _os.path.join(_auto_dir, f'{node_type}.py')
-                with open(_fp, 'w') as _f:
-                    _f.write(_stub)
-                _spec2 = _il.spec_from_file_location(f'app.pipeline.nodes.auto.{node_type}', _fp)
-                _mod = _il.module_from_spec(_spec2)
-                _spec2.loader.exec_module(_mod)
-                _node_cls = getattr(_mod, _class_name)
-                NodeRegistry.register(_node_cls())
-                _set_node_enabled(node_type, True)
+                _generate_stub(node_type, spec)
                 enabled = True
                 actual_type = node_type
             except Exception as _exc:
-                import logging
-                logging.getLogger(__name__).warning('Auto-node generation failed for %s: %s', node_type, _exc)
+                log.warning("Auto-node generation failed for %s: %s", node_type, _exc)
 
         execute(
             "UPDATE plugin_requests SET status = 'approved', reviewed_at = now() WHERE id = %s",
@@ -505,7 +590,7 @@ def create_plugin_from_request(request_id: str, user: dict = Depends(get_current
     raw_spec = row.get("spec") or {}
     spec = _json.loads(raw_spec) if isinstance(raw_spec, str) else (raw_spec or {})
     name = spec.get("name", "")
-    node_type = name.lower().replace("-", "_").replace(" ", "_")
+    node_type = _make_node_type_slug(name)
 
     # Enable node if it already exists in the registry
     enabled = False
@@ -529,29 +614,10 @@ def create_plugin_from_request(request_id: str, user: dict = Depends(get_current
     # If no existing node found, generate a stub in auto/ and register it dynamically
     if not enabled:
         try:
-            import os as _os, importlib.util as _il
-            _auto_dir = _os.path.join(
-                _os.path.dirname(_os.path.abspath(__file__)),
-                '../../pipeline/nodes/auto'
-            )
-            _os.makedirs(_auto_dir, exist_ok=True)
-            _class_name = ''.join(w.capitalize() for w in node_type.split('_')) + 'Node'
-            _display = name.replace('-', ' ').replace('_', ' ').title()
-            _desc = spec.get('description', '')
-            _stub = f'''"""Auto-generated stub: {name}\n\n{_desc}\n"""\nfrom __future__ import annotations\n\n\nclass {_class_name}:\n    node_type = "{node_type}"\n    display_name = "{_display}"\n    category = "source"\n    generated = True\n    config_schema = {{"type": "object", "properties": {{"query": {{"type": "string"}}}}, "required": ["query"]}}\n\n    async def execute(self, config: dict, inputs: list, context) -> list:\n        return []\n'''
-            _fp = _os.path.join(_auto_dir, f'{node_type}.py')
-            with open(_fp, 'w') as _f:
-                _f.write(_stub)
-            _spec2 = _il.spec_from_file_location(f'app.pipeline.nodes.auto.{node_type}', _fp)
-            _mod = _il.module_from_spec(_spec2)
-            _spec2.loader.exec_module(_mod)
-            _node_cls = getattr(_mod, _class_name)
-            NodeRegistry.register(_node_cls())
-            _set_node_enabled(node_type, True)
+            _generate_stub(node_type, spec)
             enabled = True
         except Exception as _exc:
-            import logging
-            logging.getLogger(__name__).warning('Auto-node generation failed for %s: %s', node_type, _exc)
+            log.warning("Auto-node generation failed for %s: %s", node_type, _exc)
 
     execute(
         "UPDATE plugin_requests SET status = 'approved', reviewed_at = now() WHERE id = %s AND user_id = %s",
@@ -759,10 +825,6 @@ def list_pipeline_runs(pipeline_id: str, user: dict = Depends(get_current_user))
         (pipeline_id, str(user["id"])),
     )
     return [PipelineRunOut(**dict(r)) for r in rows]
-
-
-# Plugin requests routes moved above /{pipeline_id} to avoid route shadowing
-    return {"status": "updated"}
 
 
 # ---------------------------------------------------------------------------

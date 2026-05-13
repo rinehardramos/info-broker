@@ -3,7 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
 import { getPipelineNodeEnabled, setPipelineNodeEnabled, getAppPluginEnabled, setAppPluginEnabled } from '../api/v3'
-import { listNodeTypes, listPluginRequests, updatePluginRequestStatus, createPluginFromRequest, createAllPluginRequests, type NodeType, type PluginRequest } from '../api/pipelines'
+import {
+  listNodeTypes,
+  listPluginRequests,
+  updatePluginRequestStatus,
+  createPluginFromRequest,
+  createAllPluginRequests,
+  scaffoldPlugin,
+  type NodeType,
+  type PluginRequest,
+} from '../api/pipelines'
 
 // ─── Static integrations (non-pipeline-node plugins) ─────────────────────────
 
@@ -229,12 +238,35 @@ const CATEGORY_LABELS: Record<string, string> = {
   datastore: 'Datastores',
 }
 
+// ─── Status badge for plugin requests ───────────────────────────────────────
+
+const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  pending:     { bg: '#3a2200', text: '#fb923c' },
+  approved:    { bg: '#14532d33', text: '#22c55e' },
+  rejected:    { bg: '#3a0d0d', text: '#f87171' },
+  dismissed:   { bg: '#1e293b', text: '#64748b' },
+  enhancement: { bg: '#1e3a5f', text: '#60a5fa' },
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors = STATUS_COLORS[status] ?? { bg: '#1e293b', text: '#94a3b8' }
+  return (
+    <span style={{
+      fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
+      background: colors.bg, color: colors.text, letterSpacing: '0.05em',
+    }}>
+      {status.toUpperCase()}
+    </span>
+  )
+}
+
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function PluginsPage() {
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [showSkipped, setShowSkipped] = useState(false)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const { data: nodeTypes = [], isLoading } = useQuery({
     queryKey: ['all-node-types'],
@@ -255,6 +287,25 @@ export default function PluginsPage() {
   const createAllMutation = useMutation({
     mutationFn: () => createAllPluginRequests(),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['plugin-requests'] }),
+  })
+  const scaffoldMutation = useMutation({
+    mutationFn: (req: PluginRequest) => scaffoldPlugin({
+      name: req.spec.name,
+      description: req.spec.description,
+      category: 'source',
+    }),
+    onSuccess: (_result, req) => {
+      createPluginFromRequest(req.id)
+        .then(() => {
+          qc.invalidateQueries({ queryKey: ['plugin-requests'] })
+          qc.invalidateQueries({ queryKey: ['all-node-types'] })
+          setExpandedId(null)
+        })
+        .catch(() => {
+          qc.invalidateQueries({ queryKey: ['plugin-requests'] })
+          setExpandedId(null)
+        })
+    },
   })
 
   const q = search.trim().toLowerCase()
@@ -372,38 +423,123 @@ export default function PluginsPage() {
                 >
                   {createAllMutation.isPending ? 'Creating...' : 'Create All'}
                 </button>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
-                {pendingRequests.map(req => (
-                  <div key={req.id} style={{ background: 'var(--panel2)', border: '1px solid #f8717133', borderRadius: 8, padding: 14 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{req.spec.name}</span>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
-                        <button
-                          onClick={() => createMutation.mutate(req.id)}
-                          disabled={createMutation.isPending}
-                          style={{
-                            fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                            background: '#f87171', color: '#fff', border: 'none',
-                            cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
-                            opacity: createMutation.isPending ? 0.6 : 1,
-                          }}
-                        >
-                          Create
-                        </button>
-                        <button
-                          onClick={() => dismissMutation.mutate(req.id)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', padding: '0 2px', lineHeight: 1 }}
-                          title="Dismiss"
-                        >✕</button>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+                  {pendingRequests.map(req => {
+                    const isExpanded = expandedId === req.id
+                    return (
+                      <div
+                        key={req.id}
+                        style={{
+                          background: 'var(--panel2)',
+                          border: `1px solid ${isExpanded ? '#f87171' : '#f8717133'}`,
+                          borderRadius: 8,
+                          padding: 14,
+                          cursor: 'pointer',
+                          transition: 'border-color 0.15s',
+                        }}
+                        onClick={() => setExpandedId(isExpanded ? null : req.id)}
+                      >
+                        {/* Card header */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{req.spec.name}</span>
+                            <StatusBadge status={req.status} />
+                          </div>
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0, marginLeft: 8 }}>
+                            <button
+                              onClick={e => { e.stopPropagation(); createMutation.mutate(req.id) }}
+                              disabled={createMutation.isPending}
+                              style={{
+                                fontSize: 8, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                                background: '#f87171', color: '#fff', border: 'none',
+                                cursor: createMutation.isPending ? 'not-allowed' : 'pointer',
+                                opacity: createMutation.isPending ? 0.6 : 1,
+                              }}
+                            >
+                              Create
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); dismissMutation.mutate(req.id) }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--muted)', padding: '0 2px', lineHeight: 1 }}
+                              title="Dismiss"
+                            >✕</button>
+                          </div>
+                        </div>
+
+                        {/* Summary line */}
+                        <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.4 }}>
+                          {req.spec.description}
+                        </p>
+                        <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>
+
+                        {/* Expanded review panel */}
+                        {isExpanded && (
+                          <div
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              marginTop: 12,
+                              borderTop: '1px solid #f8717133',
+                              paddingTop: 12,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 10,
+                            }}
+                          >
+                            {/* Full spec text */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.06em' }}>FULL DESCRIPTION</span>
+                              <p style={{ fontSize: 10, color: 'var(--text)', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                {req.spec.description || '—'}
+                              </p>
+                            </div>
+                            {req.spec.reason && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.06em' }}>REQUEST REASON</span>
+                                <p style={{ fontSize: 10, color: '#fb923c', margin: 0, lineHeight: 1.5 }}>
+                                  {req.spec.reason}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Review actions */}
+                            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                              <button
+                                onClick={() => scaffoldMutation.mutate(req)}
+                                disabled={scaffoldMutation.isPending}
+                                style={{
+                                  flex: 1, fontSize: 10, fontWeight: 700, padding: '6px 0', borderRadius: 5,
+                                  background: scaffoldMutation.isPending ? '#1e293b' : '#f87171',
+                                  color: scaffoldMutation.isPending ? '#64748b' : '#fff',
+                                  border: 'none',
+                                  cursor: scaffoldMutation.isPending ? 'not-allowed' : 'pointer',
+                                }}
+                              >
+                                {scaffoldMutation.isPending ? 'Scaffolding...' : 'Approve & Scaffold'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  updatePluginRequestStatus(req.id, 'rejected').then(() => {
+                                    qc.invalidateQueries({ queryKey: ['plugin-requests'] })
+                                    setExpandedId(null)
+                                  })
+                                }}
+                                style={{
+                                  flex: 1, fontSize: 10, fontWeight: 700, padding: '6px 0', borderRadius: 5,
+                                  background: 'transparent',
+                                  color: '#f87171',
+                                  border: '1px solid #f87171',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Reject
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                    <p style={{ fontSize: 10, color: 'var(--muted)', margin: '0 0 6px', lineHeight: 1.4 }}>
-                      {req.spec.description}
-                    </p>
-                    <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>
-                  </div>
-                ))}
-              </div>
+                    )
+                  })}
+                </div>
               </div>
             </section>
           )}
@@ -463,7 +599,7 @@ export default function PluginsPage() {
                         {req.spec.description}
                       </p>
                       <p style={{ fontSize: 9, color: '#475569', margin: 0, fontStyle: 'italic' }}>
-                        ↳ {req.spec.skip_note}
+                        {req.spec.skip_note}
                       </p>
                     </div>
                   ))}

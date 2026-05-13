@@ -204,3 +204,30 @@ export const createPluginFromRequest = (id: string): Promise<{ status: string; n
 
 export const createAllPluginRequests = (): Promise<{ created: Array<{ request_id: string; node_type: string; node_enabled: boolean }>; dismissed_duplicates: string[] }> =>
   api.post('/v3/pipelines/plugin-requests/create-all').then(r => r.data)
+
+// ---------------------------------------------------------------------------
+// Scaffold endpoint (#47)
+// ---------------------------------------------------------------------------
+
+export interface ScaffoldResult {
+  node_type: string
+  file_path: string
+  registered: boolean
+}
+
+export interface ConfigField {
+  name: string
+  type: string
+  description: string
+  required: boolean
+}
+
+export interface ScaffoldPluginBody {
+  name: string
+  description?: string
+  category?: string
+  config_fields?: ConfigField[]
+}
+
+export const scaffoldPlugin = (body: ScaffoldPluginBody): Promise<ScaffoldResult> =>
+  api.post('/v3/pipelines/plugin-requests/scaffold', body).then(r => r.data)
