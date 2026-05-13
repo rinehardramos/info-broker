@@ -5,6 +5,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { THEMES } from '../../lib/theme'
 import { LayoutDashboard } from 'lucide-react'
 import { listPluginRequests } from '../../api/pipelines'
+import { LogoMark } from '@/components/brand/LogoMark'
 
 const NAV = [
   { icon: <LayoutDashboard size={14} />, path: '/dashboard', label: 'Dashboard' },
@@ -47,7 +48,7 @@ export default function IconRail() {
         borderLeft: '1px solid var(--border)',
       }}
     >
-      <span style={{ color: 'var(--accent)', fontSize: 14 }}>✦</span>
+      <LogoMark size={20} />
 
       <div className="flex-1 flex flex-col items-center gap-3 mt-2">
         {allNav.map(({ icon, path, label }) => {

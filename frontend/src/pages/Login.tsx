@@ -2,6 +2,7 @@ import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useSessionStore } from '../stores/sessionStore'
+import { Logo } from '@/components/brand/Logo'
 
 export default function Login() {
   const [username, setUsername] = useState('')
@@ -29,8 +30,8 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-3 w-72">
-        <div className="text-lg font-bold mb-2" style={{ color: 'var(--accent)' }}>
-          info-broker
+        <div className="mb-4">
+          <Logo size="md" variant="dark" />
         </div>
         <input
           placeholder="username"

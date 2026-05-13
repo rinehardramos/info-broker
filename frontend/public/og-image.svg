@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0b1020"/>
+
+  <!-- Mark centred at (540, 295), scaled from 64px viewBox to ~160px => scale=2.5 -->
+  <!-- All 64px coords * 2.5, then offset: x += 540-80=460, y += 295-80=215 -->
+  <!-- Connector lines -->
+  <line x1="540.00" y1="241.50" x2="540.00" y2="216.50" stroke="#a78bfa" stroke-width="3.125" stroke-linecap="round" opacity="0.55"/>
+  <line x1="563.78" y1="258.28" x2="589.00" y2="249.63" stroke="#a78bfa" stroke-width="3.125" stroke-linecap="round" opacity="0.45"/>
+  <line x1="554.70" y1="285.23" x2="571.15" y2="297.13" stroke="#a78bfa" stroke-width="3.125" stroke-linecap="round" opacity="0.40"/>
+  <line x1="525.30" y1="285.23" x2="508.98" y2="297.13" stroke="#a78bfa" stroke-width="3.125" stroke-linecap="round" opacity="0.35"/>
+  <line x1="516.23" y1="258.28" x2="491.00" y2="249.63" stroke="#a78bfa" stroke-width="3.125" stroke-linecap="round" opacity="0.45"/>
+  <!-- Satellites -->
+  <circle cx="540.00" cy="205.00" r="10.0" fill="#a78bfa" opacity="1.00"/>
+  <circle cx="597.08" cy="241.45" r="8.5"  fill="#a78bfa" opacity="0.85"/>
+  <circle cx="575.28" cy="313.53" r="7.0"  fill="#a78bfa" opacity="0.70"/>
+  <circle cx="504.73" cy="313.53" r="6.0"  fill="#a78bfa" opacity="0.55"/>
+  <circle cx="482.93" cy="241.45" r="7.5"  fill="#a78bfa" opacity="0.78"/>
+  <!-- Hub -->
+  <circle cx="540" cy="295" r="25" fill="#a78bfa"/>
+
+  <!-- Wordmark: starts at x=720 (after mark), vertically centred ~285 -->
+  <text
+    x="720" y="308"
+    font-family="Inter, system-ui, -apple-system, sans-serif"
+    font-weight="700"
+    font-size="96"
+    letter-spacing="-1.92"
+    fill="#a78bfa"
+  >infobroker</text>
+
+  <!-- Tagline -->
+  <text
+    x="722" y="344"
+    font-family="Inter, system-ui, -apple-system, sans-serif"
+    font-weight="500"
+    font-size="28"
+    letter-spacing="5.04"
+    fill="#64748b"
+  >INTELLIGENCE PLATFORM</text>
+</svg>

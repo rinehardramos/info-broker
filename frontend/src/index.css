@@ -1,6 +1,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/inter";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,6 +15,15 @@
   --muted:   #475569;
   --text:    #e2e8f0;
   --subtext: #94a3b8;
+
+  /* Brand tokens */
+  --brand-violet:     #a78bfa;
+  --brand-violet-dim: rgba(167, 139, 250, 0.6);
+  --brand-text-dark:  #e2e8f0;
+  --brand-text-light: #1e293b;
+  --brand-tagline:    #64748b;
+  --brand-bg-dark:    #0b1020;
+  --brand-bg-light:   #ffffff;
 }
 
 .dark {
