@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
+from app.routers.v3.tenancy import user_org_id
 from app.routers.v3.models import (
     NodeTypeOut,
     PipelineDetailOut,
@@ -696,11 +697,11 @@ async def start_pipeline_run(
 
     run_row = fetch_one(
         """
-        INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
-        VALUES (%s, %s, %s, %s, 'queued', 'manual')
+        INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type)
+        VALUES (%s, %s, %s, %s, %s, 'queued', 'manual')
         RETURNING *
         """,
-        (run_id, pipeline_id, str(user["id"]), workflow_id),
+        (run_id, pipeline_id, str(user["id"]), user_org_id(user), workflow_id),
     )
 
     # Create step_run rows for each node (skip tool-target datastores — they never execute)
