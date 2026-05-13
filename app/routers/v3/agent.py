@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
+from app.routers.v3.tenancy import user_org_id
 from app.routers.v3.models import AgentMessageIn, AgentMessageOut, AgentPipelineOut
 from app.services.session_service import (
     classify_turn,
@@ -85,18 +86,18 @@ def _get_active_pipeline(user_id: str) -> dict:
     return row
 
 
-def _create_or_fetch_session(session_id: str | None, user_id: str, message: str) -> tuple[str, dict | None]:
+def _create_or_fetch_session(session_id: str | None, user_id: str, org_id: str, message: str) -> tuple[str, dict | None]:
     """Return (session_id, session_row). Creates session if session_id is None."""
     if not session_id:
         row = fetch_one(
-            """INSERT INTO agent_sessions (id, user_id, genesis_query)
-               VALUES (%s, %s, %s) RETURNING *""",
-            (str(uuid.uuid4()), user_id, message),
+            """INSERT INTO agent_sessions (id, user_id, org_id, genesis_query)
+               VALUES (%s, %s, %s, %s) RETURNING *""",
+            (str(uuid.uuid4()), user_id, org_id, message),
         )
         return str(row["id"]), dict(row) if row else None
     row = fetch_one(
-        "SELECT * FROM agent_sessions WHERE id = %s AND user_id = %s",
-        (session_id, user_id),
+        "SELECT * FROM agent_sessions WHERE id = %s AND user_id = %s AND org_id = %s",
+        (session_id, user_id, org_id),
     )
     return session_id, dict(row) if row else None
 
@@ -209,8 +210,8 @@ async def get_pending_confirmations(user: dict = Depends(get_current_user)):
     # Fallback: DB rows not yet in memory (e.g. between restart and lifespan hook)
     try:
         db_rows = fetch_all(
-            "SELECT id, confirmation_data FROM pipeline_runs WHERE status = 'confirm_pending' AND user_id = %s",
-            (uid,),
+            "SELECT id, confirmation_data FROM pipeline_runs WHERE status = 'confirm_pending' AND user_id = %s AND org_id = %s",
+            (uid, user_org_id(user)),
         )
         for row in db_rows:
             run_id = str(row["id"])
@@ -913,7 +914,7 @@ async def send_message(
         # A pipeline_run record is created for UI tracking; research runs in background.
 
         # --- Session handling ---
-        sid, session_row = _create_or_fetch_session(body.session_id, uid, body.message)
+        sid, session_row = _create_or_fetch_session(body.session_id, uid, user_org_id(user), body.message)
 
         # Classifier decides mode (first message always = investigation, no prior thread)
         thread = (session_row or {}).get("conversation_thread") or []
@@ -940,11 +941,11 @@ async def send_message(
 
         fetch_one(
             """
-            INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type, query)
-            VALUES (%s, %s, %s, %s, 'queued', 'agent_is', %s)
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query)
+            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent_is', %s)
             RETURNING *
             """,
-            (run_id, pipeline_id, uid, workflow_id, body.message),
+            (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message),
         )
 
         # Grounding pass — always retrieve similar past findings before launching brain.
@@ -1083,11 +1084,11 @@ async def send_message(
 
         fetch_one(
             """
-            INSERT INTO pipeline_runs (id, pipeline_id, user_id, temporal_workflow_id, status, trigger_type)
-            VALUES (%s, %s, %s, %s, 'queued', 'agent')
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type)
+            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent')
             RETURNING *
             """,
-            (run_id, pipeline_id, uid, workflow_id),
+            (run_id, pipeline_id, uid, user_org_id(user), workflow_id),
         )
         for node in nodes_rows:
             execute(

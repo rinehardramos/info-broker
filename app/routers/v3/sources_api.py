@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
+from app.routers.v3.tenancy import user_org_id
 
 router = APIRouter(prefix="/v3/sources", tags=["v3-sources"])
 log = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ async def upload_source(
         )
 
     user_id = str(user["id"])
+    org = user_org_id(user)
     source_id = str(uuid.uuid4())
     filename = file.filename or f"upload{suffix}"
     file_type = suffix.lstrip(".")
@@ -130,10 +132,10 @@ async def upload_source(
     # Insert research_sources row
     execute(
         """
-        INSERT INTO research_sources (id, user_id, run_id, filename, file_type, file_size_bytes, status)
-        VALUES (%s, %s, %s, %s, %s, %s, 'processing')
+        INSERT INTO research_sources (id, user_id, org_id, run_id, filename, file_type, file_size_bytes, status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, 'processing')
         """,
-        (source_id, user_id, run_id or None, filename, file_type, file_size_bytes),
+        (source_id, user_id, org, run_id or None, filename, file_type, file_size_bytes),
     )
 
     # Launch background processing
@@ -152,8 +154,8 @@ async def upload_source(
 def list_sources(user: dict = Depends(get_current_user)) -> list[dict]:
     """List all sources for the authenticated user."""
     rows = fetch_all(
-        "SELECT * FROM research_sources WHERE user_id = %s ORDER BY created_at DESC",
-        (str(user["id"]),),
+        "SELECT * FROM research_sources WHERE user_id = %s AND org_id = %s ORDER BY created_at DESC",
+        (str(user["id"]), user_org_id(user)),
     )
     return rows
 
@@ -162,8 +164,8 @@ def list_sources(user: dict = Depends(get_current_user)) -> list[dict]:
 def get_source(source_id: str, user: dict = Depends(get_current_user)) -> dict:
     """Fetch a single source by ID."""
     row = fetch_one(
-        "SELECT * FROM research_sources WHERE id = %s AND user_id = %s",
-        (source_id, str(user["id"])),
+        "SELECT * FROM research_sources WHERE id = %s AND user_id = %s AND org_id = %s",
+        (source_id, str(user["id"]), user_org_id(user)),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -282,8 +284,8 @@ async def query_source_data(
 ) -> list[dict]:
     """Search within an uploaded file's indexed content."""
     row = fetch_one(
-        "SELECT id FROM research_sources WHERE id = %s AND user_id = %s",
-        (source_id, str(user["id"])),
+        "SELECT id FROM research_sources WHERE id = %s AND user_id = %s AND org_id = %s",
+        (source_id, str(user["id"]), user_org_id(user)),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Source not found")
@@ -293,7 +295,10 @@ async def query_source_data(
     query = body.get("query", "")
     limit = int(body.get("limit", 20))
 
-    source = fetch_one("SELECT * FROM research_sources WHERE id = %s", (source_id,))
+    source = fetch_one(
+        "SELECT * FROM research_sources WHERE id = %s AND user_id = %s AND org_id = %s",
+        (source_id, str(user["id"]), user_org_id(user)),
+    )
     if source and (source.get("manifest") or {}).get("storage") == "data_plane":
         from app.sources.datastore import query_tabular_source
         return query_tabular_source(source, query, limit=limit)
