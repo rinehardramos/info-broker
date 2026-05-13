@@ -515,6 +515,20 @@ UPDATE ui_users SET is_admin = true WHERE username = 'admin';
 
 -- Session multi-turn hypothesis memory
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS investigated_hypotheses JSONB DEFAULT '[]'::jsonb;
+
+-- Signed callback delivery support
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS callback_url TEXT;
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id       UUID        REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    attempt      INT         NOT NULL,
+    url          TEXT        NOT NULL,
+    status_code  INT,
+    error        TEXT,
+    delivered_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_run ON webhook_deliveries(run_id, attempt);
 """
 
 
