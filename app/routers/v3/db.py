@@ -478,6 +478,36 @@ CREATE INDEX IF NOT EXISTS agent_sessions_user_status_idx
 
 ALTER TABLE pipeline_runs
     ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES agent_sessions(id);
+
+-- Budget Phase 1: wallet + ledger tables
+CREATE TABLE IF NOT EXISTS user_budget_wallets (
+    user_id              UUID PRIMARY KEY REFERENCES ui_users(id) ON DELETE CASCADE,
+    org_id               UUID,
+    balance_units        NUMERIC(18, 4) NOT NULL DEFAULT 1000.0,
+    reserved_units       NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+    spent_units_lifetime NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
+    plan_name            VARCHAR(64) DEFAULT 'free',
+    updated_at           TIMESTAMPTZ DEFAULT now(),
+    created_at           TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS budget_ledger_entries (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    run_id       UUID REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+    kind         VARCHAR(32) NOT NULL,  -- reserve | debit | credit | release
+    units        NUMERIC(18, 4) NOT NULL,
+    note         TEXT,
+    created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS budget_ledger_user_idx ON budget_ledger_entries (user_id, created_at DESC);
+
+-- Budget Phase 2: run-level budget tracking
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS run_budget       JSONB;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_plan      JSONB;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_status    VARCHAR(32);
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_exhausted_at TIMESTAMPTZ;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_stop_reason  TEXT;
 """
 
 

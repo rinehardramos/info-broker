@@ -948,13 +948,26 @@ async def send_message(
         # --- Full investigation path ---
         session_context = build_session_context(session_row, body.message)
 
+        # Budget reservation gate (Phase 2)
+        from app.pipeline.budget import RunBudgetIn, plan_run_budget, reserve_budget, estimate_run_cost
+        import json as _json
+        _raw_budget = getattr(body, "run_budget", None) or {}
+        _budget_in = RunBudgetIn(**_raw_budget) if isinstance(_raw_budget, dict) else RunBudgetIn()
+        _budget_plan = plan_run_budget(_budget_in)
+        _estimated_cost = estimate_run_cost(_budget_in)
+
+        _reserved = reserve_budget(uid, user_org_id(user), _estimated_cost)
+        if not _reserved:
+            raise HTTPException(status_code=402, detail="Insufficient budget — top up your wallet to run research")
+
         fetch_one(
             """
-            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query)
-            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent_is', %s)
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query, budget_status, run_budget, budget_plan)
+            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent_is', %s, 'reserved', %s, %s)
             RETURNING *
             """,
-            (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message),
+            (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message,
+             _json.dumps(_raw_budget), _json.dumps(_budget_plan.breakdown)),
         )
 
         # Grounding pass — always retrieve similar past findings before launching brain.
@@ -1091,13 +1104,26 @@ async def send_message(
             (pipeline_id,),
         )
 
+        # Budget reservation gate (Phase 2)
+        from app.pipeline.budget import RunBudgetIn, plan_run_budget, reserve_budget, estimate_run_cost
+        import json as _json
+        _raw_budget = getattr(body, "run_budget", None) or {}
+        _budget_in = RunBudgetIn(**_raw_budget) if isinstance(_raw_budget, dict) else RunBudgetIn()
+        _budget_plan = plan_run_budget(_budget_in)
+        _estimated_cost = estimate_run_cost(_budget_in)
+
+        _reserved = reserve_budget(uid, user_org_id(user), _estimated_cost)
+        if not _reserved:
+            raise HTTPException(status_code=402, detail="Insufficient budget — top up your wallet to run research")
+
         fetch_one(
             """
-            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type)
-            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent')
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, budget_status, run_budget, budget_plan)
+            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent', 'reserved', %s, %s)
             RETURNING *
             """,
-            (run_id, pipeline_id, uid, user_org_id(user), workflow_id),
+            (run_id, pipeline_id, uid, user_org_id(user), workflow_id,
+             _json.dumps(_raw_budget), _json.dumps(_budget_plan.breakdown)),
         )
         for node in nodes_rows:
             execute(
