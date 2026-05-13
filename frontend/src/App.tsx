@@ -1,7 +1,7 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import AuthGuard from '.[REDACTED:high-entropy-base64:21ch:hash=8bcbde38]'
+import AuthGuard from './components/AuthGuard'
 import Login from './pages/Login'
 import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
