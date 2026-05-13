@@ -412,9 +412,9 @@ def _context_match_qes(context_text: str, candidate: dict) -> bool:
     return False
 
 
-def query_explanatory_score(candidate: dict, signals: dict) -> float:
+def query_explanatory_score(candidate: dict, signals: dict, medium_type: str = "unknown") -> float:
     """P(query|candidate) confidence. Weights: PRIMARY 0.40, SUPPORTING 0.25,
-    CONTEXT 0.15, recency 0.10, multi-branch 0.10."""
+    CONTEXT 0.15, recency 0.10, multi-branch 0.10, medium_type +0.15/-0.25."""
     score = 0.0
     if _primary_match_qes(signals.get("primary", ""), candidate):
         score += 0.40
@@ -427,4 +427,13 @@ def query_explanatory_score(candidate: dict, signals: dict) -> float:
         score += 0.10
     if len(candidate.get("branches") or []) >= 2:
         score += 0.10
-    return round(score, 2)
+
+    # Medium-type signal from PreFlight clarifications
+    candidate_medium = str(candidate.get("medium_type") or candidate.get("source_class") or "").lower()
+    if medium_type == "advertisement":
+        if "ad" in candidate_medium or "campaign" in candidate_medium or "commercial" in candidate_medium:
+            score += 0.15
+        elif candidate_medium and "ad" not in candidate_medium:
+            score -= 0.25
+
+    return max(0.0, min(1.0, round(score, 2)))

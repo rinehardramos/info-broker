@@ -38,3 +38,18 @@ def test_orchestrator_routes_actress_from():
 
 def test_person_query_still_routes_person():
     assert classify_query("Find everything about John Doe") == "person"
+
+
+def test_strategy_has_hypothesis_matrix():
+    s = get_strategy("media_identification")
+    assert "HYPOTHESIS_MATRIX" in s
+
+
+def test_strategy_has_pir_criteria():
+    s = get_strategy("media_identification")
+    assert "PIR_CRITERIA" in s
+
+
+def test_strategy_has_disconfirm_gate():
+    s = get_strategy("media_identification")
+    assert "DISCONFIRM" in s
