@@ -4,7 +4,7 @@
 
 ## 🚀 Active Work
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [Target Files]`)*
-- [2026-05-13] - [Claude/main] - [fix #40: missing unit tests for topo-sorted step list]
+- [2026-05-13] - [Claude/software-developer] - [Tenant isolation test suite — 24 tests covering tenancy helpers + system-API endpoints (branch: fix/tenant-isolation-tests)] - [tests/v3/test_tenancy.py]
 - [2026-05-08] - [Claude/software-developer] - [URE Phase B Task 1: category selectors module (TDD)] - [app/pipeline/strategies/selectors.py, tests/pipeline/strategies/test_selectors.py]
 - [2026-05-08] - [Claude/software-developer] - [File Import Task 1: add pdfplumber, python-docx deps and research_sources schema] - [pyproject.toml, uv.lock, app/routers/v3/db.py]
 - [2026-05-08] - [Claude/software-developer] - [Universal Research Engine Phase A Task 3: brain question/answer queue module] - [app/routers/v3/brain_questions.py, app/main.py]
@@ -21,6 +21,7 @@
 
 ## ✅ Recently Completed
 *(Format: `[Date] - [Agent ID/Name] - [Task Description] - [PR/Commit if applicable]`)*
+- [2026-05-13] - [Claude/software-developer] - [PreFlight test suite: Layer 1-3 + tier + Amazon/Dyson regression gates (~100 tests across 4 files)] - [tests/pipeline/test_preflight_layer1.py, tests/pipeline/test_preflight_layer2.py, tests/pipeline/test_preflight_layer3.py, tests/pipeline/test_preflight_tier.py, branch fix/preflight-test-suite]
 - [2026-04-08] - [Gemini CLI] - [Fix Qdrant AttributeError: 'QdrantClient' object has no attribute 'search' in v1.17+ by migration to `query_points`; updated episodic-memory test suite to match API changes.] - [feat/media-jokes]
 - [2026-04-07] - [Claude] - [SQL-injection lint: ruff S608 + AST-based pytest scanner forbidding f-string/.format/%/concatenated SQL in execute calls; two-layer, cannot be silenced via noqa] - [pyproject.toml, test_no_sql_string_formatting.py, SECURITY.md]
 - [2026-04-07] - [Claude] - [Supply-chain hardening: adopted uv 0.11.3 + pip-audit; generated uv.lock + hash-pinned requirements.lock; swapped renamed `duckduckgo-search` → `ddgs`; 0 CVEs, 64 security tests passing] - [pyproject.toml, uv.lock, requirements.lock, research_agent.py, security.py]
@@ -31,7 +32,6 @@
 - [2026-04-07] - [Gemini CLI] - [Feature: Light Data Export & Personalized Email Generation] - [None]
 - [2026-04-07] - [Gemini CLI] - [Feature: Data Export System (JSON, CSV, XLSX)] - [None]
 - [2026-04-07] - [Gemini CLI] - [Phase 1 MVP: ReAct Loop for Research Agent] - [None]
-- [2026-05-13] - [Claude/main] - [fix #36: stale closure + save feedback in PipelineBuilder - PR #49] - [PipelineBuilder.tsx]
 
 ## 🔴 BLOCKED / Needs User Input
 - 
