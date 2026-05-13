@@ -24,6 +24,15 @@ from app.services.session_service import (
 
 router = APIRouter(prefix="/v3/agent", tags=["v3-agent"])
 
+
+def _fast_thorough_enabled() -> bool:
+    """Return True if fast+thorough parallel mode is enabled (default True)."""
+    try:
+        row = fetch_one("SELECT value FROM core_settings WHERE key = 'fast_thorough_mode'", ())
+        return (row or {}).get("value", "true").lower() != "false"
+    except Exception:
+        return True
+
 # PreFlight pending state — keyed by run_id.
 # When PreFlight blocks a query, we store the pending research here and
 # wait for the user to answer the clarification question via /brain-answer.

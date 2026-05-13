@@ -2,6 +2,7 @@
 from app.pipeline.fusion.scorecard import (
     build_scorecard, auto_grade_technique, auto_grade_tactic, auto_grade_strategy,
     grade_comment_technique, grade_comment_tactic, grade_comment_strategy,
+    query_explanatory_score,
 )
 
 
@@ -152,6 +153,34 @@ def test_grade_comment_strategy_good():
 def test_grade_comment_strategy_gaps():
     c = grade_comment_strategy("person", "D", 0.2, ["family", "financial", "breach"])
     assert "family" in c or "financial" in c
+
+
+def test_query_explanatory_score_medium_type_penalty():
+    """Non-ad candidate scored with medium_type='advertisement' gets a lower score."""
+    signals = {"primary": "girl", "supporting": "shotgun", "context": "spiderman"}
+    # A show candidate (no ad medium)
+    candidate_show = {"medium_type": "show", "year": 2025, "branches": ["a", "b"]}
+    score_without = query_explanatory_score(candidate_show, signals)
+    score_with_ad = query_explanatory_score(candidate_show, signals, medium_type="advertisement")
+    assert score_with_ad < score_without
+
+
+def test_query_explanatory_score_medium_type_bonus():
+    """Ad candidate scored with medium_type='advertisement' gets +0.15 bonus."""
+    signals = {"primary": "girl", "supporting": "", "context": ""}
+    candidate_ad = {"medium_type": "advertisement", "year": 2025, "branches": []}
+    score_without = query_explanatory_score(candidate_ad, signals)
+    score_with_ad = query_explanatory_score(candidate_ad, signals, medium_type="advertisement")
+    assert score_with_ad > score_without
+
+
+def test_query_explanatory_score_spider_noir_baseline():
+    """Male-lead show candidate with medium_type='advertisement' scores <= 0.40."""
+    # Spider-Noir baseline: male lead, no supporting signal match, franchise connection only
+    signals = {"primary": "girl", "supporting": "shotgun", "context": "spiderman"}
+    male_lead_show = {"medium_type": "show", "year": 2025, "branches": [], "title": "Spider-Noir"}
+    score = query_explanatory_score(male_lead_show, signals, medium_type="advertisement")
+    assert score <= 0.40
 
 
 def test_build_scorecard_includes_comments():
