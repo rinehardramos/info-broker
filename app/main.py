@@ -217,6 +217,13 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("Orphaned run cleanup failed (non-fatal): %s", exc)
 
+    # Mark manual (Temporal) pipeline runs that were in-flight at restart as failed.
+    try:
+        from app.pipeline.reconcile import reconcile_orphaned_runs as _reconcile
+        _reconcile()
+    except Exception as exc:
+        _log.warning("Manual pipeline run reconciliation failed (non-fatal): %s", exc)
+
     # Periodic sweep — catch any runs that slipped through (> 20 min with no completion)
     async def _stale_run_sweep(interval_seconds: int = 300) -> None:
         import asyncio as _a
@@ -236,6 +243,11 @@ async def lifespan(app: FastAPI):
                 )
             except Exception as exc:
                 _log.warning("Stale run sweep error (non-fatal): %s", exc)
+            try:
+                from app.pipeline.reconcile import sweep_stale_runs as _sweep
+                _sweep(max_age_minutes=60)
+            except Exception as exc:
+                _log.warning("Manual pipeline stale sweep error (non-fatal): %s", exc)
 
     try:
         _aio.create_task(_stale_run_sweep(300))
