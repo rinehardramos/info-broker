@@ -106,6 +106,8 @@ class NodeRegistry:
         from app.pipeline.nodes.migration_corridor_lookup import MigrationCorridorLookupNode
         from app.pipeline.nodes.h1bdata_search import H1bdataSearchNode
         from app.pipeline.nodes.icij_search import IcijSearchNode
+        from app.pipeline.nodes.dropbox_search import DropboxSearchNode
+        from app.pipeline.nodes.google_drive_search import GoogleDriveSearchNode
 
         for node in [
             AgentInputNode(), DdgSearchNode(), QdrantSearchNode(), RssMonitorNode(),
@@ -138,6 +140,7 @@ class NodeRegistry:
             PhNameVariantsNode(), EntityLineageNode(),
             NameOriginLookupNode(), MigrationCorridorLookupNode(),
             H1bdataSearchNode(), IcijSearchNode(),
+            DropboxSearchNode(), GoogleDriveSearchNode(),
         ]:
             cls.register(node)
 
