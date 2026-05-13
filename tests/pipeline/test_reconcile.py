@@ -1,7 +1,7 @@
 """TDD tests for app.pipeline.reconcile — orphaned and stale run reconciliation."""
 from __future__ import annotations
 
-from unittest.mock import call, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -73,29 +73,29 @@ class TestSweepStaleRuns:
             sweep_stale_runs(max_age_minutes=60)
 
         mock_exec.assert_called_once()
-        sql = mock_exec.call_args[0][0]
+        sql, params = mock_exec.call_args[0]
         assert "failed" in sql
         assert "finished_at" in sql
         assert "manual" in sql
-        assert "60" in sql or "60 minutes" in sql.lower()
+        assert 60 in params
 
     def test_default_threshold_is_60_minutes(self):
         with patch("app.pipeline.reconcile.execute") as mock_exec:
             sweep_stale_runs()
 
-        sql = mock_exec.call_args[0][0]
-        assert "60" in sql or "60 minutes" in sql.lower()
+        _, params = mock_exec.call_args[0]
+        assert 60 in params
 
     def test_does_not_touch_agent_is_runs(self):
         with patch("app.pipeline.reconcile.execute") as mock_exec:
             sweep_stale_runs()
 
-        sql = mock_exec.call_args[0][0]
+        sql, _ = mock_exec.call_args[0]
         assert "agent_is" not in sql
 
     def test_custom_threshold_is_applied(self):
         with patch("app.pipeline.reconcile.execute") as mock_exec:
             sweep_stale_runs(max_age_minutes=30)
 
-        sql = mock_exec.call_args[0][0]
-        assert "30" in sql
+        _, params = mock_exec.call_args[0]
+        assert 30 in params

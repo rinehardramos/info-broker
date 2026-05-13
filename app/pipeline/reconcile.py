@@ -42,13 +42,14 @@ def sweep_stale_runs(max_age_minutes: int = 60) -> None:
     Catches runs whose Temporal workflow completed or crashed without updating the DB.
     The Temporal activity timeout is 15 min; 60 min is a safe ceiling for any pipeline.
     """
+    error_msg = f"Run exceeded maximum duration ({max_age_minutes} minutes) — killed by sweep"
     execute(
-        f"""UPDATE pipeline_runs
+        """UPDATE pipeline_runs
            SET status = 'failed',
                finished_at = now(),
-               error_message = 'Run exceeded maximum duration ({max_age_minutes} minutes) — killed by sweep'
+               error_message = %s
            WHERE status = 'running'
              AND trigger_type = 'manual'
-             AND started_at < NOW() - INTERVAL '{max_age_minutes} minutes'""",
-        (),
+             AND started_at < NOW() - (%s * INTERVAL '1 minute')""",
+        (error_msg, max_age_minutes),
     )
