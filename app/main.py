@@ -318,6 +318,7 @@ from app.routers.v3.curation_api import router as v3_curation_router  # noqa: E4
 from app.routers.v3.brain_questions import router as v3_brain_questions_router  # noqa: E402
 from app.routers.v3.sources_api import router as v3_sources_router  # noqa: E402
 from app.routers.v3.sessions_api import router as v3_sessions_router  # noqa: E402
+from app.routers.v3.budget import router as v3_budget_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -337,3 +338,4 @@ app.include_router(v3_curation_router)
 app.include_router(v3_brain_questions_router)
 app.include_router(v3_sources_router)
 app.include_router(v3_sessions_router)
+app.include_router(v3_budget_router)
