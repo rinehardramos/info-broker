@@ -464,3 +464,30 @@ export const patchUser = (
   body: Partial<Pick<UserRecord, 'is_admin' | 'is_active' | 'role'>>,
 ): Promise<UserRecord> =>
   api.patch(`/v3/auth/users/${userId}`, body).then(r => r.data)
+
+// --- Runs + dashboard metrics ---
+
+export interface RunRow {
+  id: string
+  status: string
+  query: string
+  pipeline_name?: string | null
+  trigger_type?: string | null
+  created_at: string
+  finished_at?: string | null
+}
+
+export interface RunMetrics {
+  total_runs: number
+  runs_today: number
+  success_rate: number
+  live_runs: number
+  error_count: number
+  avg_duration_seconds: number
+}
+
+export const listRuns = (): Promise<RunRow[]> =>
+  api.get('/v3/agent/runs').then(r => r.data)
+
+export const getRunMetrics = (): Promise<RunMetrics> =>
+  api.get('/v3/metrics/summary').then(r => r.data)
