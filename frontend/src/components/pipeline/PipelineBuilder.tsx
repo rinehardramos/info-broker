@@ -377,6 +377,7 @@ export function PipelineBuilder({ initialPipelineId }: { initialPipelineId?: str
   const invalidNodeIds = new Set<string>(
     localNodes
       .filter(node => {
+        if (lockedNodeIds.has(node.id)) return false   // locked system nodes are never invalid
         const nt = nodeTypes.find(t => t.node_type === node.node_type)
         if (!nt) return false
         const schema = nt.config_schema as { properties?: Record<string, { default?: unknown; enum?: string[] }>; required?: string[] }
