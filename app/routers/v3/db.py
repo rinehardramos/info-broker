@@ -9,8 +9,15 @@ import psycopg2.extras
 _MIGRATION = """
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
+CREATE TABLE IF NOT EXISTS organizations (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name       VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS ui_users (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id        UUID REFERENCES organizations(id),
     username      VARCHAR(128) UNIQUE NOT NULL,
     email         VARCHAR(256),
     password_hash TEXT NOT NULL,
@@ -160,6 +167,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     pipeline_id          UUID NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
     user_id              UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    org_id               UUID,
     temporal_workflow_id TEXT,
     status               VARCHAR(20) NOT NULL DEFAULT 'queued',
     trigger_type         VARCHAR(16) NOT NULL DEFAULT 'manual',
@@ -169,10 +177,7 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
 );
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS error_message TEXT;
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS query TEXT;
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS analysis JSONB;
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS plan JSONB;
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS clarification JSONB DEFAULT '[]';
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32);
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS org_id UUID;
 
 CREATE TABLE IF NOT EXISTS pipeline_step_runs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -207,6 +212,7 @@ CREATE TABLE IF NOT EXISTS plugin_requests (
 CREATE TABLE IF NOT EXISTS research_trails (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id       UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    org_id        UUID,
     run_id        UUID REFERENCES pipeline_runs(id) ON DELETE SET NULL,
     node_id       UUID REFERENCES pipeline_nodes(id) ON DELETE SET NULL,
     query         TEXT NOT NULL,
@@ -218,6 +224,29 @@ CREATE TABLE IF NOT EXISTS research_trails (
     created_at    TIMESTAMPTZ DEFAULT now()
 );
 ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS scorecard JSONB;
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS org_id UUID;
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS analysis JSONB;
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS plan JSONB;
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS clarification JSONB DEFAULT '[]';
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32);
+
+CREATE TABLE IF NOT EXISTS run_artifacts (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id            UUID NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    user_id           UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    org_id            UUID,
+    artifact_type     VARCHAR(64) NOT NULL,
+    status            VARCHAR(32) NOT NULL DEFAULT 'ok',
+    source_id         UUID,
+    source_row_number INT,
+    sequence          BIGSERIAL,
+    payload           JSONB NOT NULL DEFAULT '{}',
+    created_at        TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_run_sequence ON run_artifacts (run_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_user_created ON run_artifacts (user_id, created_at DESC);
+ALTER TABLE run_artifacts ADD COLUMN IF NOT EXISTS org_id UUID;
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_org_run ON run_artifacts (org_id, run_id, sequence);
 
 CREATE TABLE IF NOT EXISTS finding_feedback (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -362,6 +391,7 @@ CREATE INDEX IF NOT EXISTS idx_curation_suggestions_status ON kg_curation_sugges
 CREATE TABLE IF NOT EXISTS research_sources (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    org_id          UUID,
     run_id          UUID,
     filename        TEXT NOT NULL,
     file_type       VARCHAR(16) NOT NULL,
@@ -374,6 +404,8 @@ CREATE TABLE IF NOT EXISTS research_sources (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_research_sources_user ON research_sources(user_id);
+ALTER TABLE research_sources ADD COLUMN IF NOT EXISTS org_id UUID;
+CREATE INDEX IF NOT EXISTS idx_research_sources_org_user ON research_sources(org_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_research_sources_status ON research_sources(status);
 
 CREATE TABLE IF NOT EXISTS mcp_sessions (
@@ -462,6 +494,7 @@ CREATE INDEX IF NOT EXISTS idx_overlays_selector ON investigation_strategy_overl
 CREATE TABLE IF NOT EXISTS agent_sessions (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id              UUID NOT NULL,
+    org_id               UUID,
     genesis_query        TEXT NOT NULL,
     status               VARCHAR DEFAULT 'active',
     created_at           TIMESTAMPTZ DEFAULT now(),
@@ -478,6 +511,60 @@ CREATE INDEX IF NOT EXISTS agent_sessions_user_status_idx
 
 ALTER TABLE pipeline_runs
     ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES agent_sessions(id);
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS org_id UUID;
+INSERT INTO organizations (id, name)
+VALUES ('00000000-0000-4000-8000-000000000100', 'Default Organization')
+ON CONFLICT (id) DO NOTHING;
+UPDATE ui_users SET org_id = '00000000-0000-4000-8000-000000000100' WHERE org_id IS NULL;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS org_id UUID;
+ALTER TABLE research_sources ADD COLUMN IF NOT EXISTS org_id UUID;
+ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS org_id UUID;
+UPDATE pipeline_runs pr SET org_id = u.org_id FROM ui_users u WHERE pr.user_id = u.id AND pr.org_id IS NULL;
+UPDATE research_sources rs SET org_id = u.org_id FROM ui_users u WHERE rs.user_id = u.id AND rs.org_id IS NULL;
+UPDATE run_artifacts ra SET org_id = u.org_id FROM ui_users u WHERE ra.user_id = u.id AND ra.org_id IS NULL;
+UPDATE research_trails rt SET org_id = u.org_id FROM ui_users u WHERE rt.user_id = u.id AND rt.org_id IS NULL;
+UPDATE agent_sessions s SET org_id = u.org_id FROM ui_users u WHERE s.user_id = u.id AND s.org_id IS NULL;
+
+-- Run budget columns (Phase 1)
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS run_budget             JSONB;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_plan            JSONB;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS reserved_budget_units  NUMERIC(12,4) DEFAULT 0;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS spent_budget_units     NUMERIC(12,4) DEFAULT 0;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_status          VARCHAR(32);
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_exhausted_at    TIMESTAMPTZ;
+ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_stop_reason     TEXT;
+
+CREATE TABLE IF NOT EXISTS user_budget_wallets (
+    id                           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id                      UUID         NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    org_id                       UUID,
+    balance_units                NUMERIC(12,4) NOT NULL DEFAULT 10000,
+    reserved_units               NUMERIC(12,4) NOT NULL DEFAULT 0,
+    spent_units_lifetime         NUMERIC(12,4) NOT NULL DEFAULT 0,
+    low_balance_threshold_units  NUMERIC(12,4) NOT NULL DEFAULT 100,
+    stop_threshold_units         NUMERIC(12,4) NOT NULL DEFAULT 0,
+    auto_topup_enabled           BOOLEAN      NOT NULL DEFAULT false,
+    auto_topup_trigger_units     NUMERIC(12,4),
+    auto_topup_amount_units      NUMERIC(12,4),
+    auto_topup_max_per_day_units NUMERIC(12,4),
+    last_topup_at                TIMESTAMPTZ,
+    created_at                   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at                   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    UNIQUE(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS budget_ledger_entries (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id             UUID        NOT NULL,
+    org_id              UUID,
+    run_id              UUID        REFERENCES pipeline_runs(id) ON DELETE SET NULL,
+    entry_type          VARCHAR(20) NOT NULL CHECK (entry_type IN ('reserve','release','debit','topup','refund')),
+    units               NUMERIC(12,4) NOT NULL,
+    balance_after_units NUMERIC(12,4) NOT NULL,
+    metadata            JSONB,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_budget_ledger_user ON budget_ledger_entries(user_id, created_at DESC);
 """
 
 
@@ -508,9 +595,14 @@ def get_conn():
 
 
 _SEED = """
-INSERT INTO ui_users (username, password_hash)
+INSERT INTO organizations (id, name)
+VALUES ('00000000-0000-4000-8000-000000000100', 'Default Organization')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ui_users (username, org_id, password_hash)
 VALUES (
     'admin',
+    '00000000-0000-4000-8000-000000000100',
     '$2b$12$3cjgCjbJ/MLj.H7vGH9xHOKDUtgo492x98IdWILFNnadN4NbLgmym'
 )
 ON CONFLICT (username) DO NOTHING;
