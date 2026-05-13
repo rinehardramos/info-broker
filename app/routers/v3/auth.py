@@ -1,20 +1,49 @@
 from __future__ import annotations
 
 import os
+import re as _re
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from pydantic import BaseModel, field_validator
 
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.models import LoginRequest, RefreshRequest, TokenResponse
+from app.lib.rate_limit import limiter
+
+
+def _validate_password_strength(v: str) -> str:
+    if len(v) < 12:
+        raise ValueError("Password must be at least 12 characters")
+    if not _re.search(r"[\d\W]", v):
+        raise ValueError("Password must contain at least one digit or special character")
+    return v
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def _strong(cls, v: str) -> str:
+        return _validate_password_strength(v)
+
+
 
 router = APIRouter(prefix="/v3/auth", tags=["v3-auth"])
 
-_pwd = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_pwd = CryptContext(
+    schemes=["argon2", "bcrypt"],
+    deprecated=["bcrypt"],
+    argon2__memory_cost=65536,
+    argon2__time_cost=3,
+    argon2__parallelism=4,
+)
 _bearer = HTTPBearer()
 
 _SECRET = os.getenv("JWT_SECRET", "change-me-in-production")
@@ -24,8 +53,21 @@ _REFRESH_DAYS = int(os.getenv("JWT_REFRESH_DAYS", "30"))
 
 
 def _make_access_token(user_id: str) -> str:
-    exp = datetime.now(timezone.utc) + timedelta(hours=_ACCESS_HOURS)
-    return jwt.encode({"sub": user_id, "exp": exp, "type": "access"}, _SECRET, algorithm=_ALGO)
+    row = fetch_one(
+        "SELECT org_id, is_admin, role FROM ui_users WHERE id = %s",
+        (user_id,),
+    ) or {}
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user_id,
+        "org_id": str(row.get("org_id") or ""),
+        "is_admin": bool(row.get("is_admin")),
+        "role": row.get("role") or "analyst",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=_ACCESS_HOURS)).timestamp()),
+        "type": "access",
+    }
+    return jwt.encode(payload, _SECRET, algorithm=_ALGO)
 
 
 def _make_refresh_token(user_id: str) -> str:
@@ -40,7 +82,12 @@ def _make_refresh_token(user_id: str) -> str:
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(_bearer)) -> dict:
     try:
-        payload = jwt.decode(credentials.credentials, _SECRET, algorithms=[_ALGO])
+        payload = jwt.decode(
+            credentials.credentials,
+            _SECRET,
+            algorithms=[_ALGO],
+            options={"require": ["exp", "iat", "sub"]},
+        )
     except JWTError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     if payload.get("type") != "access":
@@ -63,6 +110,9 @@ def login(body: LoginRequest):
     user = fetch_one("SELECT * FROM ui_users WHERE username = %s AND is_active = true", (body.username,))
     if not user or not _pwd.verify(body.password, user["password_hash"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if _pwd.needs_update(user["password_hash"]):
+        new_hash = _pwd.hash(body.password)
+        execute("UPDATE ui_users SET password_hash = %s WHERE id = %s", (new_hash, user["id"]))
     return TokenResponse(
         access_token=_make_access_token(str(user["id"])),
         refresh_token=_make_refresh_token(str(user["id"])),
@@ -125,3 +175,21 @@ def update_user(
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
     return dict(row)
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+def change_password(
+    request: Request,
+    body: ChangePasswordIn,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Change password. Requires current password. SOC 2 CC6.1."""
+    row = fetch_one("SELECT id, password_hash FROM ui_users WHERE id = %s", (user["id"],))
+    if not row or not _pwd.verify(body.current_password, row["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid current password")
+    if _pwd.verify(body.new_password, row["password_hash"]):
+        raise HTTPException(status_code=400, detail="New password must differ from current")
+    new_hash = _pwd.hash(body.new_password)
+    execute("UPDATE ui_users SET password_hash = %s WHERE id = %s", (new_hash, user["id"]))
+    return {"ok": True}
