@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
+from app.routers.v3.tenancy import org_scope_clause
 from app.routers.v3.db import execute, fetch_all, fetch_one
 
 router = APIRouter(prefix="/v3", tags=["v3-research"])
@@ -112,9 +113,12 @@ def backfill_scorecards_endpoint(_key: str = Depends(require_api_key)):
 @router.get("/research-trails/{run_id}/scorecard")
 def get_scorecard(run_id: str, user: dict = Depends(get_current_user)):
     """Get the scorecard for a research run."""
+    clause, params = org_scope_clause(user)
     row = fetch_one(
-        "SELECT scorecard FROM research_trails WHERE run_id = %s",
-        (run_id,),
+        f"""SELECT rt.scorecard FROM research_trails rt
+            JOIN pipeline_runs pr ON pr.id = rt.run_id
+            WHERE rt.run_id = %s {clause.replace("AND org_id", "AND pr.org_id")}""",
+        tuple([run_id, *params]),
     )
     if not row or not row.get("scorecard"):
         raise HTTPException(status_code=404, detail="No scorecard for this run")
@@ -135,8 +139,14 @@ def submit_scorecard_grade(run_id: str, body: dict, user: dict = Depends(get_cur
     if not level or not grade or not valid_grade:
         raise HTTPException(status_code=400, detail="level and grade (Admiralty A1-F6) required")
 
-    # Fetch current scorecard
-    row = fetch_one("SELECT scorecard FROM research_trails WHERE run_id = %s", (run_id,))
+    # Fetch current scorecard (org-scoped)
+    clause, params = org_scope_clause(user)
+    row = fetch_one(
+        f"""SELECT rt.scorecard FROM research_trails rt
+            JOIN pipeline_runs pr ON pr.id = rt.run_id
+            WHERE rt.run_id = %s {clause.replace("AND org_id", "AND pr.org_id")}""",
+        tuple([run_id, *params]),
+    )
     if not row or not row.get("scorecard"):
         raise HTTPException(status_code=404, detail="No scorecard for this run")
 

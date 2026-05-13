@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
+from app.routers.v3.tenancy import org_scope_clause
 from app.routers.v3.db import fetch_one
 
 router = APIRouter(prefix="/v3/exports", tags=["v3-exports"])
@@ -35,7 +36,7 @@ class ExportRequest(BaseModel):
 def trigger_export(
     run_id: str,
     body: ExportRequest,
-    _user: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ) -> dict:
     """Generate an export file for a research trail run and return its download URL."""
     fmt = body.format.lower()
@@ -43,9 +44,13 @@ def trigger_export(
         raise HTTPException(status_code=400, detail=f"Unsupported format: {fmt!r}. Use pdf, csv, or xlsx.")
 
     # Fetch research trail by run_id
+    _clause, _cparams = org_scope_clause(user)
     row = fetch_one(
-        "SELECT query, findings, analysis FROM research_trails WHERE run_id = %s",
-        (run_id,),
+        f"SELECT rt.query, rt.findings, rt.analysis "
+        f"FROM research_trails rt "
+        f"JOIN pipeline_runs pr ON pr.id = rt.run_id "
+        f"WHERE rt.run_id = %s {_clause.replace('AND org_id', 'AND pr.org_id')}",
+        tuple([run_id, *_cparams]),
     )
     if not row:
         raise HTTPException(status_code=404, detail=f"Research trail not found for run_id={run_id!r}")

@@ -293,8 +293,9 @@ app.add_middleware(
     allow_origins=_CORS_ORIGINS,
     allow_origin_regex=r"https://.*\.ngrok-free\.(app|dev)",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Session-Id",
+                   "X-MCP-Signature", "X-MCP-Timestamp", "X-Caller-Identity"],
 )
 
 

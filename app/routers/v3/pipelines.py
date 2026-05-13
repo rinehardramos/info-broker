@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
-from app.routers.v3.tenancy import user_org_id
+from app.routers.v3.tenancy import user_org_id, org_scope_clause
 from app.routers.v3.models import (
     NodeTypeOut,
     PipelineDetailOut,
@@ -326,10 +326,15 @@ def get_run(run_id: str, user: dict = Depends(get_current_user)):
 
     research = None
     if run["trigger_type"] == "agent_is":
-        trail_row = fetch_one(
-            "SELECT query, entity_type, findings, trail, tool_calls, suggested_pipeline, analysis FROM research_trails WHERE run_id = %s",
-            (run_id,),
+        _clause, _cparams = org_scope_clause(user)
+        _trail_sql = (
+            "SELECT rt.query, rt.entity_type, rt.findings, rt.trail, "
+            "rt.tool_calls, rt.suggested_pipeline, rt.analysis "
+            "FROM research_trails rt "
+            "JOIN pipeline_runs pr ON pr.id = rt.run_id "
+            f"WHERE rt.run_id = %s {_clause.replace('AND org_id', 'AND pr.org_id')}"
         )
+        trail_row = fetch_one(_trail_sql, tuple([run_id, *_cparams]))
         if trail_row:
             research = ResearchTrailOut(**dict(trail_row))
 
@@ -361,13 +366,15 @@ def create_pipeline(body: PipelineIn, user: dict = Depends(get_current_user)):
 
 @router.get("", response_model=list[PipelineOut])
 def list_pipelines(user: dict = Depends(get_current_user)):
+    clause, params = org_scope_clause(user)
     rows = fetch_all(
-        """
+        f"""
         SELECT * FROM pipelines
-        WHERE user_id = %s OR is_system = true
+        WHERE (user_id = %s OR is_system = TRUE)
+          AND (TRUE {clause})
         ORDER BY is_system DESC, created_at DESC
         """,
-        (str(user["id"]),),
+        tuple([str(user["id"]), *params]),
     )
     return [PipelineOut(**dict(r)) for r in rows]
 

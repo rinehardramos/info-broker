@@ -76,3 +76,21 @@ def require_user_source(source_id: str, user_id: str, org_id: str) -> dict:
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     return source
+
+
+def org_scope_clause(user: dict) -> tuple[str, list]:
+    """Return (sql_fragment, params) for org scoping.
+
+    Superadmin (is_admin=True) sees all orgs — returns empty fragment.
+    All other users are scoped to their own org_id.
+
+    Usage:
+        clause, params = org_scope_clause(user)
+        cursor.execute(
+            f"SELECT * FROM pipelines WHERE id = %s {clause}",
+            [pipeline_id, *params],
+        )
+    """
+    if user.get("is_admin"):
+        return ("", [])
+    return ("AND org_id = %s", [user_org_id(user)])
