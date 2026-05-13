@@ -569,18 +569,67 @@ async def _run_is_research(
                 preflight_section + "\n\n" + session_context
             ).strip()
 
-        result = await run_research(
-            query=query, user_id=uid, past_research=past_research,
-            max_depth=max_depth, max_branches=max_branches,
-            on_event=_on_tool_event,
-            available_nodes=healthy_nodes,
-            strategies_section=strategies_section,
-            entity_strategy=entity_strategy,
-            techniques_section=techniques_section,
-            meta_strategies_section=meta_strategies_section,
-            user_sources=user_sources,
-            session_context=session_context,
-        )
+        from app.pipeline.fusion.merger import merge_research_results as _merge
+
+        if _fast_thorough_enabled():
+            # Spawn fast (shallow preview) and thorough (full) in parallel
+            fast_task = asyncio.create_task(run_research(
+                query=query, user_id=uid, past_research=past_research,
+                max_depth=1, max_branches=5,
+                on_event=_on_tool_event,
+                available_nodes=healthy_nodes,
+                strategies_section="",
+                entity_strategy="",
+                techniques_section="",
+                meta_strategies_section="",
+                user_sources=user_sources,
+                session_context=session_context,
+            ))
+            thorough_task = asyncio.create_task(run_research(
+                query=query, user_id=uid, past_research=past_research,
+                max_depth=max_depth, max_branches=max_branches,
+                on_event=_on_tool_event,
+                available_nodes=healthy_nodes,
+                strategies_section=strategies_section,
+                entity_strategy=entity_strategy,
+                techniques_section=techniques_section,
+                meta_strategies_section=meta_strategies_section,
+                user_sources=user_sources,
+                session_context=session_context,
+            ))
+
+            await push_event(uid, {"type": "research.fast.started", "run_id": run_id, "job_id": run_id})
+            await push_event(uid, {"type": "research.thorough.started", "run_id": run_id, "job_id": run_id})
+
+            fast_result, thorough_result = await asyncio.gather(fast_task, thorough_task)
+
+            await push_event(uid, {
+                "type": "research.fast.completed", "run_id": run_id, "job_id": run_id,
+                "findings": fast_result.get("findings", []),
+                "count": len(fast_result.get("findings", [])),
+            })
+
+            result = _merge(fast_result, thorough_result, query)
+
+            await push_event(uid, {
+                "type": "research.thorough.completed", "run_id": run_id, "job_id": run_id,
+                "confirmed_count": result.get("confirmed_count", 0),
+                "merged_count": result.get("merged_count", 0),
+            })
+        else:
+            # Original single-run path
+            result = await run_research(
+                query=query, user_id=uid, past_research=past_research,
+                max_depth=max_depth, max_branches=max_branches,
+                on_event=_on_tool_event,
+                available_nodes=healthy_nodes,
+                strategies_section=strategies_section,
+                entity_strategy=entity_strategy,
+                techniques_section=techniques_section,
+                meta_strategies_section=meta_strategies_section,
+                user_sources=user_sources,
+                session_context=session_context,
+            )
 
         # Check if IS brain returned an error result (no findings, error summary)
         is_error = (
@@ -884,6 +933,18 @@ async def _run_is_research(
         await push_event(uid, {
             "type": "pipeline.run.complete", "run_id": run_id, "status": "succeeded",
         })
+        # Fire webhook if callback_url is set
+        try:
+            _run_row = fetch_one("SELECT callback_url FROM pipeline_runs WHERE id = %s", (run_id,))
+            if _run_row and _run_row.get("callback_url"):
+                from app.services.webhook import deliver_webhook
+                asyncio.create_task(deliver_webhook(
+                    run_id=run_id,
+                    payload={"run_id": run_id, "status": "succeeded", "job_id": run_id},
+                    callback_url=_run_row["callback_url"],
+                ))
+        except Exception as exc:
+            log.warning("Webhook dispatch failed (non-fatal): %s", exc)
     except Exception as exc:
         error_msg = str(exc)[:1000]
         log.error("IS Brain failed: %s", error_msg)
@@ -901,6 +962,18 @@ async def _run_is_research(
             "type": "pipeline.run.complete", "run_id": run_id, "status": "failed",
             "error": error_msg,
         })
+        # Fire webhook if callback_url is set
+        try:
+            _run_row = fetch_one("SELECT callback_url FROM pipeline_runs WHERE id = %s", (run_id,))
+            if _run_row and _run_row.get("callback_url"):
+                from app.services.webhook import deliver_webhook
+                asyncio.create_task(deliver_webhook(
+                    run_id=run_id,
+                    payload={"run_id": run_id, "status": "failed", "job_id": run_id, "error": error_msg[:200]},
+                    callback_url=_run_row["callback_url"],
+                ))
+        except Exception as exc:
+            log.warning("Webhook dispatch failed (non-fatal): %s", exc)
 
 
 @router.post("/message", response_model=AgentMessageOut, status_code=202)
