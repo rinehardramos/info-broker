@@ -874,6 +874,18 @@ async def _run_is_research(
         await push_event(uid, {
             "type": "pipeline.run.complete", "run_id": run_id, "status": "succeeded",
         })
+        # Fire webhook if callback_url is set
+        try:
+            _run_row = fetch_one("SELECT callback_url FROM pipeline_runs WHERE id = %s", (run_id,))
+            if _run_row and _run_row.get("callback_url"):
+                from app.services.webhook import deliver_webhook
+                asyncio.create_task(deliver_webhook(
+                    run_id=run_id,
+                    payload={"run_id": run_id, "status": "succeeded", "job_id": run_id},
+                    callback_url=_run_row["callback_url"],
+                ))
+        except Exception as exc:
+            log.warning("Webhook dispatch failed (non-fatal): %s", exc)
     except Exception as exc:
         error_msg = str(exc)[:1000]
         log.error("IS Brain failed: %s", error_msg)
@@ -891,6 +903,18 @@ async def _run_is_research(
             "type": "pipeline.run.complete", "run_id": run_id, "status": "failed",
             "error": error_msg,
         })
+        # Fire webhook if callback_url is set
+        try:
+            _run_row = fetch_one("SELECT callback_url FROM pipeline_runs WHERE id = %s", (run_id,))
+            if _run_row and _run_row.get("callback_url"):
+                from app.services.webhook import deliver_webhook
+                asyncio.create_task(deliver_webhook(
+                    run_id=run_id,
+                    payload={"run_id": run_id, "status": "failed", "job_id": run_id, "error": error_msg[:200]},
+                    callback_url=_run_row["callback_url"],
+                ))
+        except Exception as exc:
+            log.warning("Webhook dispatch failed (non-fatal): %s", exc)
 
 
 @router.post("/message", response_model=AgentMessageOut, status_code=202)
