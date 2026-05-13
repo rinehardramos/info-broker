@@ -512,6 +512,9 @@ ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS budget_stop_reason  TEXT;
 -- RBAC: admin flag on ui_users
 ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false;
 UPDATE ui_users SET is_admin = true WHERE username = 'admin';
+
+-- Session multi-turn hypothesis memory
+ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS investigated_hypotheses JSONB DEFAULT '[]'::jsonb;
 """
 
 
