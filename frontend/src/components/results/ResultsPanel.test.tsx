@@ -311,3 +311,77 @@ describe('ResultsPanel — dynamic run tabs', () => {
     expect(screen.queryByText('RUN RESULTS')).not.toBeInTheDocument()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Results tab
+// ---------------------------------------------------------------------------
+
+describe('ResultsPanel — Results tab', () => {
+  const RUNS = [
+    {
+      id: 'run-aaa', pipeline_id: 'pipe-1', pipeline_name: 'Alpha Pipeline',
+      status: 'succeeded', trigger_type: 'manual',
+      started_at: new Date('2026-05-13T10:00:00Z').toISOString(), finished_at: null,
+      step_count: 2, steps_done: 2, error_message: null, query: null,
+    },
+    {
+      id: 'run-bbb', pipeline_id: 'pipe-2', pipeline_name: 'Beta Pipeline',
+      status: 'failed', trigger_type: 'manual',
+      started_at: new Date('2026-05-13T09:00:00Z').toISOString(), finished_at: null,
+      step_count: 2, steps_done: 1, error_message: null, query: null,
+    },
+  ]
+
+  beforeEach(() => {
+    mockListAllPipelineRuns.mockResolvedValue(RUNS)
+    mockListPipelines.mockResolvedValue([])
+  })
+
+  it('renders a Results tab button', () => {
+    wrap(<ResultsPanel />)
+    expect(screen.getByTestId('results-tab-button')).toBeInTheDocument()
+  })
+
+  it('clicking Results tab shows run list', async () => {
+    const user = userEvent.setup()
+    wrap(<ResultsPanel />)
+    await user.click(screen.getByTestId('results-tab-button'))
+    await waitFor(() => expect(screen.getByTestId('runs-list-tab')).toBeInTheDocument())
+  })
+
+  it('run list shows pipeline names', async () => {
+    const user = userEvent.setup()
+    wrap(<ResultsPanel />)
+    await user.click(screen.getByTestId('results-tab-button'))
+    await waitFor(() => {
+      // Pipeline names appear both in the dynamic tab bar and in the runs list
+      expect(screen.getAllByText('Alpha Pipeline').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Beta Pipeline').length).toBeGreaterThanOrEqual(1)
+    })
+  })
+
+  it('run list shows status badges', async () => {
+    const user = userEvent.setup()
+    wrap(<ResultsPanel />)
+    await user.click(screen.getByTestId('results-tab-button'))
+    await waitFor(() => {
+      expect(screen.getByText('succeeded')).toBeInTheDocument()
+      expect(screen.getByText('failed')).toBeInTheDocument()
+    })
+  })
+
+  it('clicking a run row switches away from the Results tab', async () => {
+    mockGetPipelineRun.mockResolvedValue({
+      id: 'run-aaa', pipeline_id: 'pipe-1', status: 'succeeded',
+      trigger_type: 'manual', started_at: new Date().toISOString(), finished_at: null,
+      steps: [], research: null,
+    })
+    const user = userEvent.setup()
+    wrap(<ResultsPanel />)
+    await user.click(screen.getByTestId('results-tab-button'))
+    await waitFor(() => screen.getByTestId('run-row-run-aaa'))
+    await user.click(screen.getByTestId('run-row-run-aaa'))
+    // The runs-list-tab should no longer be visible (we've switched to the run tab)
+    await waitFor(() => expect(screen.queryByTestId('runs-list-tab')).not.toBeInTheDocument())
+  })
+})
