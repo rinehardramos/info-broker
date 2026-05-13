@@ -2,12 +2,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 from uuid import UUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., max_length=255)
+    password: str = Field(..., max_length=1024)
 
 
 class TokenResponse(BaseModel):
@@ -51,8 +51,8 @@ class PluginConfigOut(BaseModel):
 
 
 class CoreSettingIn(BaseModel):
-    key: str
-    value: str
+    key: str = Field(..., max_length=255)
+    value: str = Field(..., max_length=4000)
     is_secret: bool = False
 
 
@@ -61,9 +61,9 @@ class CoreSettingsOut(BaseModel):
 
 
 class MonitorIn(BaseModel):
-    name: str
-    type: str                          # 'rss' | 'twitter' | 'facebook' | 'linkedin'
-    target: str
+    name: str = Field(..., max_length=255)
+    type: str = Field(..., max_length=64)   # 'rss' | 'twitter' | 'facebook' | 'linkedin'
+    target: str = Field(..., max_length=4000)
     poll_interval_minutes: int = 60
 
 
@@ -79,8 +79,14 @@ class MonitorOut(BaseModel):
 
 
 class AgentMessageIn(BaseModel):
-    message: str
+    message: str = Field(..., max_length=8000)
     session_id: str | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _sanitize_message(cls, v: str) -> str:
+        from app.security import sanitize_user_input
+        return sanitize_user_input(v, max_length=8000)
     context_job_id: str | None = None
     use_intelligent_search: bool = False
     parent_run_id: str | None = None
@@ -238,10 +244,24 @@ class PipelineEdgeOut(PipelineEdgeIn):
 
 
 class PipelineIn(BaseModel):
-    name: str
-    description: str | None = None
+    name: str = Field(..., max_length=255)
+    description: str | None = Field(None, max_length=4000)
     nodes: list[PipelineNodeIn] = []
     edges: list[PipelineEdgeIn] = []
+
+    @field_validator("name")
+    @classmethod
+    def _sanitize_name(cls, v: str) -> str:
+        from app.security import sanitize_user_input
+        return sanitize_user_input(v, max_length=255)
+
+    @field_validator("description")
+    @classmethod
+    def _sanitize_desc(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        from app.security import sanitize_user_input
+        return sanitize_user_input(v, max_length=4000)
 
 
 class PipelineOut(BaseModel):
