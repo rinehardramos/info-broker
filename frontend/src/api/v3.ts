@@ -422,3 +422,24 @@ export const getMetricsSummary = (days = 30): Promise<MetricsSummary> =>
 
 export const getRunHistory = (limit = 50): Promise<RunHistoryItem[]> =>
   api.get(`/v3/metrics/runs?limit=${limit}`).then(r => r.data)
+
+// --- Admin: User Management ---
+
+export interface UserRecord {
+  id: string
+  username: string
+  email: string | null
+  is_admin: boolean
+  is_active: boolean
+  org_id: string
+  created_at: string
+}
+
+export const listUsers = (): Promise<UserRecord[]> =>
+  api.get('/v3/auth/users').then(r => r.data)
+
+export const patchUser = (
+  userId: string,
+  body: Partial<Pick<UserRecord, 'is_admin' | 'is_active'>>,
+): Promise<UserRecord> =>
+  api.patch(`/v3/auth/users/${userId}`, body).then(r => r.data)

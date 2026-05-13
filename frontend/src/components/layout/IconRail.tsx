@@ -17,11 +17,15 @@ const NAV = [
   { icon: '⚙', path: '/settings',  label: 'Settings' },
 ]
 
+const NAV_ADMIN = [
+  { icon: '◫', path: '/admin/users', label: 'User Management' },
+]
+
 export default function IconRail() {
   const navigate  = useNavigate()
   const location  = useLocation()
   const { theme, toggle } = useTheme()
-  const { logout, username } = useSessionStore()
+  const { logout, username, isAdmin } = useSessionStore()
 
   const { data: pluginRequests } = useQuery({
     queryKey: ['plugin-requests'],
@@ -29,6 +33,8 @@ export default function IconRail() {
     refetchInterval: 30000,
   })
   const pendingCount = pluginRequests?.filter(r => r.status === 'pending').length ?? 0
+
+  const allNav = isAdmin ? [...NAV, ...NAV_ADMIN] : NAV
 
   return (
     <div
@@ -42,7 +48,7 @@ export default function IconRail() {
       <span style={{ color: 'var(--accent)', fontSize: 14 }}>✦</span>
 
       <div className="flex-1 flex flex-col items-center gap-3 mt-2">
-        {NAV.map(({ icon, path, label }) => {
+        {allNav.map(({ icon, path, label }) => {
           const active = location.pathname === path
           const hasBadge = path === '/plugins' && pendingCount > 0
           return (

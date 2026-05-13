@@ -1,7 +1,7 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import AuthGuard from './components/AuthGuard'
+import AuthGuard from '.[REDACTED:high-entropy-base64:21ch:hash=8bcbde38]'
 import Login from './pages/Login'
 import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
@@ -19,6 +19,7 @@ const PipelinePage   = lazy(() => import('./pages/PipelinePage'))
 const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
 const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
 const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
+const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/admin/processes" element={<AuthGuard><LiveProcessesPage /></AuthGuard>} />
+            <Route path="/admin/users" element={<AuthGuard><AdminUsersPage /></AuthGuard>} />
             <Route path="/knowledge" element={<AuthGuard><KnowledgeGraphPage /></AuthGuard>} />
             <Route path="/performance" element={<AuthGuard><PerformanceDashboardPage /></AuthGuard>} />
             <Route path="*" element={<Navigate to="/" replace />} />
