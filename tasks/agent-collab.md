@@ -31,6 +31,7 @@
 - [2026-04-07] - [Gemini CLI] - [Feature: Light Data Export & Personalized Email Generation] - [None]
 - [2026-04-07] - [Gemini CLI] - [Feature: Data Export System (JSON, CSV, XLSX)] - [None]
 - [2026-04-07] - [Gemini CLI] - [Phase 1 MVP: ReAct Loop for Research Agent] - [None]
+- [2026-05-13] - [Claude/main] - [fix #36: stale closure + save feedback in PipelineBuilder - PR #49] - [PipelineBuilder.tsx]
 
 ## 🔴 BLOCKED / Needs User Input
 - 
