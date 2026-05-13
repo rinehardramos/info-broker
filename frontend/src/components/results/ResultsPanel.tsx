@@ -12,8 +12,8 @@ import { ActionDrawer } from './ActionDrawer'
 import { InvestigationBreakdown } from './InvestigationBreakdown'
 import { Sparkles, ArrowDownToLine, Save, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
 
-// Tab is either the static 'Pipeline' tab or a dynamic run tab identified by run ID
-type Tab = 'Pipeline' | `run:${string}`
+// Tab is either the static 'Pipeline' tab, the static 'Results' tab, or a dynamic run tab identified by run ID
+type Tab = 'Pipeline' | 'Results' | `run:${string}`
 
 // ---------------------------------------------------------------------------
 // SwipeToDelete — swipe left to reveal delete action
@@ -1712,6 +1712,92 @@ function PipelineTabContent() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// RunsListTab — flat list of all pipeline runs with status badges
+// ---------------------------------------------------------------------------
+
+const RUN_STATUS_COLOR: Record<string, string> = {
+  succeeded:        '#4ade80',
+  failed:           '#f87171',
+  budget_exhausted: '#f87171',
+  running:          '#60a5fa',
+  queued:           '#60a5fa',
+  awaiting_input:   '#fbbf24',
+  confirm_pending:  '#fbbf24',
+}
+
+function RunsListTab({
+  runs,
+  onOpenRun,
+}: {
+  runs: Array<{ id: string; pipeline_name: string; status: string; started_at: string; pipeline_id: string }>
+  onOpenRun: (runId: string) => void
+}) {
+  if (runs.length === 0) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>
+        No pipeline runs yet.
+      </div>
+    )
+  }
+
+  const sorted = [...runs].sort(
+    (a, b) => new Date(b.started_at).getTime() - new Date(a.started_at).getTime(),
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: 10 }} data-testid="runs-list-tab">
+      {sorted.map(run => {
+        const badgeColor = RUN_STATUS_COLOR[run.status] ?? '#94a3b8'
+        const shortId = run.id.slice(0, 8)
+        const ts = new Date(run.started_at).toLocaleString(undefined, {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+        })
+        return (
+          <button
+            key={run.id}
+            data-testid={`run-row-${run.id}`}
+            onClick={() => onOpenRun(run.id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              background: '#1e293b',
+              border: '1px solid #334155',
+              borderLeft: `3px solid ${badgeColor}`,
+              borderRadius: 6,
+              padding: '6px 10px',
+              cursor: 'pointer',
+              textAlign: 'left',
+              width: '100%',
+            }}
+          >
+            {/* Status badge */}
+            <span
+              style={{
+                fontSize: 9, fontWeight: 700, color: '#0f172a',
+                background: badgeColor,
+                borderRadius: 4, padding: '1px 5px',
+                flexShrink: 0, textTransform: 'uppercase', letterSpacing: 0.3,
+              }}
+            >
+              {run.status.replace('_', ' ')}
+            </span>
+
+            {/* Pipeline name */}
+            <span style={{ fontSize: 11, color: '#e2e8f0', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {run.pipeline_name}
+            </span>
+
+            {/* Short run ID + timestamp */}
+            <span style={{ fontSize: 9, color: '#64748b', flexShrink: 0 }}>
+              {shortId} · {ts}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function ResultsPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('Pipeline')
   const [dismissedTabs, setDismissedTabs] = useState<Set<string>>(new Set())
@@ -1806,6 +1892,21 @@ export default function ResultsPanel() {
             Pipeline
           </button>
 
+          {/* Results tab (static, no close button) */}
+          <button
+            onClick={() => setActiveTab('Results')}
+            className="px-2 py-1 rounded text-[11px] font-medium transition-colors flex-shrink-0"
+            style={{
+              background: activeTab === 'Results' ? 'var(--panel2)' : 'transparent',
+              color:      activeTab === 'Results' ? 'var(--accent)' : 'var(--muted)',
+              border:     activeTab === 'Results' ? '1px solid var(--border)' : '1px solid transparent',
+              cursor: 'pointer',
+            }}
+            data-testid="results-tab-button"
+          >
+            Results
+          </button>
+
           {/* Dynamic run tabs with close button */}
           {tabsToRender.map(run => {
             const tabId: Tab = `run:${run.id}`
@@ -1888,6 +1989,17 @@ export default function ResultsPanel() {
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">
         {activeTab === 'Pipeline' && <PipelineTabContent />}
+
+        {activeTab === 'Results' && (
+          <RunsListTab
+            runs={runs}
+            onOpenRun={(runId) => {
+              setDismissedTabs(prev => { const n = new Set(prev); n.delete(runId); return n })
+              setActiveTab(`run:${runId}`)
+              setCol1Content({ type: 'pipeline_run', runId })
+            }}
+          />
+        )}
 
         {activeRunId && (
           <div key={activeRunId} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
