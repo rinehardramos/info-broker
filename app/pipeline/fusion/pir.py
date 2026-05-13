@@ -1,7 +1,19 @@
 """PIR (Priority Intelligence Requirements) decomposition and coverage tracking."""
 
 from __future__ import annotations
-import re
+import re as _re
+
+
+def _keyword_matches(keyword: str, content: str) -> bool:
+    """Word-boundary aware keyword match. Handles @ specially.
+
+    Uses word boundaries AND negative lookbehind/lookahead for hyphens so that
+    compound words like 'anti-fraud' do not match the keyword 'fraud'.
+    """
+    if keyword == "@":
+        return bool(_re.search(r'@\S+', content))
+    pattern = rf'(?<!-)\b{_re.escape(keyword)}\b(?!-)'
+    return bool(_re.search(pattern, content, _re.IGNORECASE))
 
 # Pre-defined PIR templates per entity type
 PERSON_PIRS = [
@@ -167,7 +179,7 @@ def map_findings_to_pirs(pirs: list[dict], findings: list[dict]) -> list[dict]:
             for sir in pir["sirs"]:
                 for eei in sir["eeis"]:
                     for keyword in eei.get("keywords", []):
-                        if keyword.lower() in content:
+                        if _keyword_matches(keyword, content):
                             eei["resolved"] = True
                             eei["evidence"].append({
                                 "source": source,
