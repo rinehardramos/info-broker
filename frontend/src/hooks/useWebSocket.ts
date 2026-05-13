@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { useEffect, useRef, useCallback } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
+import { useChatStore } from '../stores/chatStore'
 
 export type WsEvent = {
   type: string
@@ -48,6 +49,24 @@ function connect(token: string) {
     try {
       const event: WsEvent = JSON.parse(e.data)
       if (event.type !== 'ping') {
+        // Handle fast+thorough phase events centrally
+        switch (event.type) {
+          case 'research.fast.started':
+            useChatStore.getState().setThoroughInProgress(true)
+            break
+          case 'research.fast.completed':
+            useChatStore.getState().setFastResearchDone(true)
+            // Fast findings arrive via existing job.update/findings mechanism
+            // This event signals "preview ready, thorough still running"
+            break
+          case 'research.thorough.started':
+            // Both runs are underway — no extra state change needed
+            break
+          case 'research.thorough.completed':
+            useChatStore.getState().setFastResearchDone(false)
+            useChatStore.getState().setThoroughInProgress(false)
+            break
+        }
         _handlers.forEach(h => h(event))
       }
     } catch {

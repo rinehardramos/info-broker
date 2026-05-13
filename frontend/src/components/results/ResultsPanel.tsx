@@ -574,6 +574,7 @@ function ResearchResults({
       await submitFindingFeedback(runId, index, score, reason, title)
     }
   }
+  const thoroughInProgress = useChatStore(s => s.thoroughInProgress)
   const { findings, trail } = research
   // Always allow Go Deeper when findings exist — use trail leads if available, else derive from findings
   const canGoDeeper = findings.length > 0
@@ -735,6 +736,19 @@ function ResearchResults({
                 <span style={{ color: 'var(--subtext)', fontWeight: 600, opacity: isError ? 0.6 : 1 }}>
                   {f.title ?? 'Finding'}
                 </span>
+                {/* Phase badge — shown when finding has phase metadata */}
+                {(f as any).phase === 'fast' && (f as any).confirmed_by_thorough && (
+                  <span style={{
+                    fontSize: 9, color: '#4ade80', marginLeft: 6, fontWeight: 700,
+                    background: '#14532d44', padding: '1px 5px', borderRadius: 3,
+                  }}>✓</span>
+                )}
+                {(f as any).phase === 'thorough' && (
+                  <span style={{
+                    fontSize: 9, color: '#60a5fa', marginLeft: 6, fontWeight: 700,
+                    background: '#1e3a5f44', padding: '1px 5px', borderRadius: 3,
+                  }}>NEW</span>
+                )}
                 {f.branch && (
                   <span style={{ color: 'var(--muted)', fontSize: 9, marginLeft: 'auto' }}>
                     {f.branch} d{f.depth}
@@ -890,6 +904,18 @@ function ResearchResults({
           )
         })}
       </div>
+
+      {/* Thorough research in-progress indicator */}
+      {thoroughInProgress && (
+        <div style={{
+          padding: '8px 12px', fontSize: 11, color: '#94a3b8',
+          borderTop: '1px solid #1e293b',
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <span style={{ animation: 'pulse 1.5s infinite' }}>⏳</span>
+          Thorough research in progress…
+        </div>
+      )}
 
       {/* Investigation Breakdown scorecard */}
       {runId && <InvestigationBreakdown runId={runId} />}

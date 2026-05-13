@@ -15,6 +15,9 @@ interface ChatState {
   sessionId: string | null
   genesisQuery: string | null
   sessionRunIds: string[]
+  // Phase state for fast+thorough two-phase display
+  fastResearchDone: boolean
+  thoroughInProgress: boolean
   addMessage: (msg: Message) => void
   updateMessage: (id: string, patch: Partial<Message>) => void
   setMessages: (msgs: Message[]) => void
@@ -22,6 +25,8 @@ interface ChatState {
   setGenesisQuery: (q: string) => void
   pushSessionRun: (runId: string) => void
   clearMessages: () => void
+  setFastResearchDone: (done: boolean) => void
+  setThoroughInProgress: (inProgress: boolean) => void
 }
 
 export const useChatStore = create<ChatState>()(
@@ -31,6 +36,8 @@ export const useChatStore = create<ChatState>()(
       sessionId: null,
       genesisQuery: null,
       sessionRunIds: [],
+      fastResearchDone: false,
+      thoroughInProgress: false,
       addMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),
       updateMessage: (id, patch) =>
         set((s) => ({
@@ -40,7 +47,9 @@ export const useChatStore = create<ChatState>()(
       setSessionId: (id) => set({ sessionId: id }),
       setGenesisQuery: (q) => set({ genesisQuery: q }),
       pushSessionRun: (runId) => set((s) => ({ sessionRunIds: [...s.sessionRunIds, runId] })),
-      clearMessages: () => set({ messages: [], sessionId: null, genesisQuery: null, sessionRunIds: [] }),
+      clearMessages: () => set({ messages: [], sessionId: null, genesisQuery: null, sessionRunIds: [], fastResearchDone: false, thoroughInProgress: false }),
+      setFastResearchDone: (done) => set({ fastResearchDone: done }),
+      setThoroughInProgress: (inProgress) => set({ thoroughInProgress: inProgress }),
     }),
     {
       name: 'ib-chat',
