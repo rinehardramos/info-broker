@@ -4,6 +4,13 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["'Inter'", 'system-ui', '-apple-system', "'Segoe UI'", 'sans-serif'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+      },
+      letterSpacing: {
+        'widest-brand': '0.18em',
+      },
       colors: {
         border: 'var(--border)',
         input: 'var(--input)',

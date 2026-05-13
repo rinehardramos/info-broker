@@ -23,7 +23,7 @@ const SIZE_MAP: Record<LogoSize, { markPx: number; wordmarkPx: number; taglinePx
   lg: { markPx: 48, wordmarkPx: 24, taglinePx: 13, gapPx: 14 },
 }
 
-const FONT_STACK = '"Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif'
+const FONT_STACK = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif"
 
 export function Logo({
   size = 'md',
