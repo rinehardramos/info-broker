@@ -5,8 +5,10 @@ import AuthGuard from './components/AuthGuard'
 import Login from './pages/Login'
 import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
+import { ResultDrawer } from './components/runs/ResultDrawer'
 
 // Lazy-load pages to keep initial bundle small
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Research = lazy(() => import('./pages/Research'))
 const Jobs      = lazy(() => import('./pages/Jobs'))
 const Monitors  = lazy(() => import('./pages/Monitors'))
@@ -46,7 +48,9 @@ export default function App() {
         <Suspense fallback={<Spinner />}>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/" element={<AuthGuard><Research /></AuthGuard>} />
+            <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
+            <Route path="/dashboard" element={<AuthGuard><Dashboard /></AuthGuard>} />
+            <Route path="/research" element={<AuthGuard><Research /></AuthGuard>} />
             <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
             <Route path="/monitors" element={<AuthGuard><Monitors /></AuthGuard>} />
             <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
@@ -64,6 +68,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
+        <ResultDrawer />
       </BrowserRouter>
     </QueryClientProvider>
   )

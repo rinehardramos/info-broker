@@ -3,10 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { useTheme } from '../../hooks/useTheme'
 import { useSessionStore } from '../../stores/sessionStore'
 import { THEMES } from '../../lib/theme'
+import { LayoutDashboard } from 'lucide-react'
 import { listPluginRequests } from '../../api/pipelines'
 
 const NAV = [
-  { icon: '⬡', path: '/',          label: 'Research' },
+  { icon: <LayoutDashboard size={14} />, path: '/dashboard', label: 'Dashboard' },
+  { icon: '⬡', path: '/research',  label: 'Research' },
   { icon: '◉', path: '/jobs',      label: 'Jobs' },
   { icon: '◈', path: '/monitors',  label: 'Monitors' },
   { icon: '▤', path: '/history',   label: 'History' },
