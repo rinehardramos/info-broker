@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.deps import require_api_key
 from app.routers.v3.auth import get_current_user
+from app.routers.v3.tenancy import require_analyst_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.tenancy import user_org_id
 
@@ -96,7 +97,7 @@ async def _process_source(source_id: str, user_id: str, file_path: str, filename
 async def upload_source(
     file: UploadFile = File(...),
     run_id: str = Form(None),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_analyst_user),
 ) -> dict:
     """Upload a file, persist metadata, and kick off async parsing."""
     # Validate extension
@@ -318,7 +319,7 @@ async def query_source_data(
 
 
 @router.delete("/{source_id}")
-def delete_source(source_id: str, user: dict = Depends(get_current_user)) -> dict:
+def delete_source(source_id: str, user: dict = Depends(require_analyst_user)) -> dict:
     """Delete a source metadata row."""
     row = fetch_one(
         "SELECT id FROM research_sources WHERE id = %s AND user_id = %s",

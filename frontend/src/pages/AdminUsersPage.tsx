@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { listUsers, patchUser, UserRecord } from '../api/v3'
+import { listUsers, patchUser, UserRecord, UserRole } from '../api/v3'
 import IconRail from '../components/layout/IconRail'
 import { useSessionStore } from '../stores/sessionStore'
 
@@ -56,7 +56,7 @@ export default function AdminUsersPage() {
   })
 
   const patch = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: Partial<Pick<UserRecord, 'is_admin' | 'is_active'>> }) =>
+    mutationFn: ({ id, body }: { id: string; body: Partial<Pick<UserRecord, 'is_admin' | 'is_active' | 'role'>> }) =>
       patchUser(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
   })
@@ -115,7 +115,7 @@ export default function AdminUsersPage() {
               >
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['Username', 'Email', 'Org', 'Admin', 'Active', 'Created'].map(h => (
+                    {['Username', 'Email', 'Org', 'Role', 'Admin', 'Active', 'Created'].map(h => (
                       <th
                         key={h}
                         style={{
@@ -164,6 +164,27 @@ export default function AdminUsersPage() {
                         </td>
                         <td style={{ padding: '8px 12px', color: 'var(--subtext)', fontFamily: 'monospace', fontSize: 11 }}>
                           {user.org_id ? user.org_id.slice(0, 8) + '…' : '—'}
+                        </td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <select
+                            value={user.role ?? 'analyst'}
+                            disabled={isSelf}
+                            onChange={e => patch.mutate({ id: user.id, body: { role: e.target.value as UserRole } })}
+                            style={{
+                              background: 'var(--panel)',
+                              color: 'var(--text)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 4,
+                              fontSize: 11,
+                              padding: '2px 6px',
+                              cursor: isSelf ? 'not-allowed' : 'pointer',
+                              opacity: isSelf ? 0.5 : 1,
+                            }}
+                          >
+                            <option value="admin">admin</option>
+                            <option value="analyst">analyst</option>
+                            <option value="viewer">viewer</option>
+                          </select>
                         </td>
                         <td style={{ padding: '8px 12px' }}>
                           <Toggle

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import execute, fetch_all, fetch_one
-from app.routers.v3.tenancy import user_org_id
+from app.routers.v3.tenancy import user_org_id, require_analyst_user
 from app.routers.v3.models import AgentMessageIn, AgentMessageOut, AgentPipelineOut
 from app.services.session_service import (
     classify_turn,
@@ -141,7 +141,7 @@ class AgentPipelineIn(BaseModel):
 
 
 @router.put("/pipeline", response_model=AgentPipelineOut)
-def set_agent_pipeline(body: AgentPipelineIn, user: dict = Depends(get_current_user)):
+def set_agent_pipeline(body: AgentPipelineIn, user: dict = Depends(require_analyst_user)):
     from app.pipeline.nodes import NodeRegistry
     NodeRegistry.auto_discover()
 
@@ -275,7 +275,7 @@ async def get_brain_status(user: dict = Depends(get_current_user)):
 @router.post("/research/sync")
 async def run_research_sync(
     body: dict,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_analyst_user),
 ):
     """Run the IS brain synchronously and return the full result.
 
@@ -982,7 +982,7 @@ async def _run_is_research(
 @router.post("/message", response_model=AgentMessageOut, status_code=202)
 async def send_message(
     body: AgentMessageIn,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_analyst_user),
 ):
     from app.pipeline.workflow import NodeSpec, EdgeSpec
     from app.pipeline.runner import launch_pipeline_run

@@ -425,11 +425,14 @@ export const getRunHistory = (limit = 50): Promise<RunHistoryItem[]> =>
 
 // --- Admin: User Management ---
 
+export type UserRole = 'admin' | 'analyst' | 'viewer'
+
 export interface UserRecord {
   id: string
   username: string
   email: string | null
   is_admin: boolean
+  role: UserRole
   is_active: boolean
   org_id: string
   created_at: string
@@ -440,6 +443,6 @@ export const listUsers = (): Promise<UserRecord[]> =>
 
 export const patchUser = (
   userId: string,
-  body: Partial<Pick<UserRecord, 'is_admin' | 'is_active'>>,
+  body: Partial<Pick<UserRecord, 'is_admin' | 'is_active' | 'role'>>,
 ): Promise<UserRecord> =>
   api.patch(`/v3/auth/users/${userId}`, body).then(r => r.data)
