@@ -353,14 +353,16 @@ export default function PluginsPage() {
           {/* Suggested (pending) */}
           {pendingRequests.length > 0 && (
             <section style={{ marginBottom: 28 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <h2 style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#f87171', margin: 0 }}>
-                  SUGGESTED PLUGINS ({pendingRequests.length})
-                </h2>
+              <h2 style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', color: '#f87171', margin: '0 0 12px' }}>
+                SUGGESTED PLUGINS ({pendingRequests.length})
+              </h2>
+              {/* Position "Create All" anchored to the top-right of the grid so it stays next to the last card */}
+              <div style={{ position: 'relative' }}>
                 <button
                   onClick={() => createAllMutation.mutate()}
                   disabled={createAllMutation.isPending || pendingRequests.length === 0}
                   style={{
+                    position: 'absolute', top: -32, right: 0,
                     fontSize: 9, fontWeight: 700, padding: '4px 10px', borderRadius: 6,
                     background: createAllMutation.isPending ? '#1e293b' : '#f87171',
                     color: createAllMutation.isPending ? '#64748b' : '#fff',
@@ -370,7 +372,6 @@ export default function PluginsPage() {
                 >
                   {createAllMutation.isPending ? 'Creating...' : 'Create All'}
                 </button>
-              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
                 {pendingRequests.map(req => (
                   <div key={req.id} style={{ background: 'var(--panel2)', border: '1px solid #f8717133', borderRadius: 8, padding: 14 }}>
@@ -402,6 +403,7 @@ export default function PluginsPage() {
                     <p style={{ fontSize: 9, color: '#fb923c', margin: 0 }}>Reason: {req.spec.reason}</p>
                   </div>
                 ))}
+              </div>
               </div>
             </section>
           )}
