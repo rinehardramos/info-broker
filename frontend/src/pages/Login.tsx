@@ -106,7 +106,7 @@ export default function Login() {
               value={username}
               onChange={e => setUsername(e.target.value)}
               autoComplete="username"
-              className="text-sm"
+              className="text-sm h-12"
               style={{ background: 'var(--panel2)', borderColor: 'var(--border)', color: 'var(--text)' }}
             />
             <Input
@@ -116,7 +116,7 @@ export default function Login() {
               value={password}
               onChange={e => setPassword(e.target.value)}
               autoComplete="current-password"
-              className="text-sm"
+              className="text-sm h-12"
               style={{ background: 'var(--panel2)', borderColor: 'var(--border)', color: 'var(--text)' }}
             />
 
@@ -126,9 +126,10 @@ export default function Login() {
 
             <Button
               type="submit"
+              size="lg"
               disabled={loading}
-              className="w-full text-sm font-semibold mt-1"
-              style={{ background: '#a78bfa', color: '#1e1b4b', border: 'none' }}
+              className="w-full font-semibold mt-1 text-base tracking-wide"
+              style={{ background: '#a78bfa', color: '#1e1b4b', border: 'none', height: 52 }}
             >
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
