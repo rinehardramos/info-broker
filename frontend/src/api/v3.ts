@@ -395,3 +395,30 @@ export async function submitScorecardGrade(
 ): Promise<void> {
   await api.post(`/v3/research-trails/${runId}/scorecard/grade`, { level, name, grade })
 }
+
+// --- Metrics ---
+
+export interface MetricsSummary {
+  period_days: number
+  runs: { total: number; succeeded: number; failed: number; budget_exhausted: number; success_rate: number }
+  latency: { avg_seconds: number; p50_seconds: number; p95_seconds: number }
+  steps: { node_type: string; total: number; succeeded: number; avg_items: number }[]
+  strategies: { strategy: string; uses: number; avg_score: number }[]
+}
+
+export interface RunHistoryItem {
+  id: string
+  status: string
+  trigger_type: string
+  query: string
+  started_at: string
+  finished_at: string | null
+  duration_seconds: number | null
+  error_message: string | null
+}
+
+export const getMetricsSummary = (days = 30): Promise<MetricsSummary> =>
+  api.get(`/v3/metrics/summary?days=${days}`).then(r => r.data)
+
+export const getRunHistory = (limit = 50): Promise<RunHistoryItem[]> =>
+  api.get(`/v3/metrics/runs?limit=${limit}`).then(r => r.data)
