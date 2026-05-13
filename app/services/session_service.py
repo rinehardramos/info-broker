@@ -172,6 +172,23 @@ new candidate is bounded by H_COMPOSITE and ACH consistency with the rejection.
         except Exception as exc:
             log.warning("Rejection context build failed (non-fatal): %s", exc)
 
+    # Inject prior hypothesis outcomes to avoid re-exploring settled branches
+    prior_hypotheses = session.get("investigated_hypotheses") or []
+    hypothesis_section = ""
+    if prior_hypotheses:
+        confirmed = [h for h in prior_hypotheses if h.get("status") == "confirmed"]
+        rejected = [h for h in prior_hypotheses if h.get("status") == "rejected"]
+
+        hypothesis_section = "\n## PRIOR INVESTIGATION MEMORY\n"
+        if confirmed:
+            hypothesis_section += "Confirmed in prior turns (do not re-investigate):\n"
+            for h in confirmed[-5:]:
+                hypothesis_section += f"  + {h['hypothesis']} (confidence: {h.get('confidence', 0)}%)\n"
+        if rejected:
+            hypothesis_section += "Ruled out in prior turns (do not revisit unless new evidence):\n"
+            for h in rejected[-5:]:
+                hypothesis_section += f"  - {h['hypothesis']}\n"
+
     return f"""## SESSION CONTEXT
 This is turn {turn_count + 1} of an ongoing investigation session.
 
@@ -186,7 +203,7 @@ What has been found so far:
 
 Key confirmed findings from prior turns:
 {findings_text}
-{rejection_section}
+{hypothesis_section}{rejection_section}
 Current message (the latest refinement/direction):
   "{current_message}"
 
@@ -251,6 +268,33 @@ def build_conversational_reply(
         return "I couldn't generate a reply from the session context. Please try again."
 
 
+def _extract_hypothesis_outcomes(result: dict) -> list[dict]:
+    """Extract hypothesis outcomes from a research result for session memory."""
+    outcomes = []
+
+    # Top finding = confirmed hypothesis
+    findings = result.get("findings") or []
+    if findings:
+        top = findings[0]
+        outcomes.append({
+            "hypothesis": top.get("title") or top.get("summary") or "",
+            "status": "confirmed",
+            "confidence": top.get("confidence") or 0,
+            "query": result.get("query") or "",
+        })
+
+    # Considered alternatives = explored but not selected
+    for alt in (result.get("considered_alternatives") or [])[:5]:
+        outcomes.append({
+            "hypothesis": str(alt),
+            "status": "rejected",
+            "confidence": 0,
+            "query": result.get("query") or "",
+        })
+
+    return outcomes
+
+
 def update_session_after_run(
     session_id: str,
     user_message: str,
@@ -259,6 +303,7 @@ def update_session_after_run(
     findings: list[dict],
     entity_type: str,
     is_investigation: bool,
+    result: dict | None = None,
 ) -> None:
     """Update session thread, summary, key_findings after a run completes."""
     try:
@@ -310,5 +355,17 @@ def update_session_after_run(
                 session_id,
             ),
         )
+
+        # Append hypothesis outcomes to session memory
+        new_outcomes = _extract_hypothesis_outcomes(result or {})
+        if new_outcomes:
+            execute(
+                """UPDATE agent_sessions
+                   SET investigated_hypotheses = (
+                     COALESCE(investigated_hypotheses, '[]'::jsonb) || %s::jsonb
+                   )
+                   WHERE id = %s""",
+                (json.dumps(new_outcomes), session_id),
+            )
     except Exception as exc:
         log.warning("update_session_after_run failed: %s", exc)

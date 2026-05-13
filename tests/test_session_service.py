@@ -102,3 +102,25 @@ def test_classifier_mode_validation_rejects_injected_value():
         mock_client.messages.create.return_value = mock_response
         result = classify_turn("new question", thread, "some summary")
     assert result == "investigation"
+
+
+# --- Hypothesis memory tests ---
+
+def test_extract_hypothesis_outcomes_with_findings():
+    from app.services.session_service import _extract_hypothesis_outcomes
+    result = {
+        "findings": [{"title": "Alice Johnson at TechCorp", "confidence": 85}],
+        "considered_alternatives": ["Bob Smith at MegaCorp", "Chris Lee freelancer"],
+        "query": "find Alice Johnson",
+    }
+    outcomes = _extract_hypothesis_outcomes(result)
+    assert len(outcomes) >= 1
+    confirmed = [o for o in outcomes if o["status"] == "confirmed"]
+    assert len(confirmed) == 1
+    assert "Alice Johnson" in confirmed[0]["hypothesis"]
+
+
+def test_extract_hypothesis_outcomes_empty_result():
+    from app.services.session_service import _extract_hypothesis_outcomes
+    outcomes = _extract_hypothesis_outcomes({})
+    assert outcomes == []
