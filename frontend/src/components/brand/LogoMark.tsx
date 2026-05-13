@@ -1,35 +1,64 @@
 export type LogoMarkProps = {
-  /** Pixel size of the square mark. Default: 32. */
   size?: number
-  /** Override the mark colour. Defaults to var(--brand-violet). */
   color?: string
-  /** Optional className passthrough. */
   className?: string
-  /** Optional ARIA label. Default: "infobroker". */
   title?: string
 }
 
-// Geometry: hub at (32,32), orbit radius 24, 5 satellites at 72° from top.
-// Exact coordinates from the spec §2.2 and §2.3.
-const SATELLITES = [
-  { cx: 32.00, cy: 8.00,  r: 4.0, opacity: 1.00 },
-  { cx: 54.83, cy: 24.58, r: 3.4, opacity: 0.85 },
-  { cx: 46.11, cy: 51.41, r: 2.8, opacity: 0.70 },
-  { cx: 17.89, cy: 51.41, r: 2.4, opacity: 0.55 },
-  { cx: 9.17,  cy: 24.58, r: 3.0, opacity: 0.78 },
+// Network graph mark — hub + 5 outer nodes + cross-connections between nodes.
+// Rendered at 20px–48px; hub and outer nodes are similar size so it reads as
+// a graph (not a star). Cross-edges between adjacent outer nodes make the
+// network structure unmistakable.
+
+const HUB = { cx: 32, cy: 32, r: 7 }
+
+// 5 outer nodes, orbit radius 22, starting at top (270° = 12 o'clock)
+const DEG_TO_RAD = Math.PI / 180
+function polar(deg: number, r: number): { cx: number; cy: number } {
+  const rad = (deg - 90) * DEG_TO_RAD   // -90 so 0° = top
+  return { cx: +(32 + r * Math.cos(rad)).toFixed(2), cy: +(32 + r * Math.sin(rad)).toFixed(2) }
+}
+const ORBIT = 22
+const OUTER = [
+  { ...polar(0,   ORBIT), r: 5.5, opacity: 1.00 },   // top
+  { ...polar(72,  ORBIT), r: 4.8, opacity: 0.90 },   // upper-right
+  { ...polar(144, ORBIT), r: 4.2, opacity: 0.78 },   // lower-right
+  { ...polar(216, ORBIT), r: 3.8, opacity: 0.68 },   // lower-left
+  { ...polar(288, ORBIT), r: 4.5, opacity: 0.85 },   // upper-left
 ]
 
-const LINES = [
-  { x1: 32.00, y1: 22.00, x2: 32.00, y2: 12.00, opacity: 0.55 },
-  { x1: 41.51, y1: 28.91, x2: 51.60, y2: 25.65, opacity: 0.45 },
-  { x1: 37.88, y1: 40.09, x2: 44.46, y2: 44.85, opacity: 0.40 },
-  { x1: 26.12, y1: 40.09, x2: 19.59, y2: 44.85, opacity: 0.35 },
-  { x1: 22.49, y1: 28.91, x2: 12.40, y2: 25.65, opacity: 0.45 },
-]
+// Hub-to-node spokes — from hub edge to node edge
+function spoke(node: typeof OUTER[0]) {
+  const dx = node.cx - HUB.cx
+  const dy = node.cy - HUB.cy
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  const ux = dx / dist, uy = dy / dist
+  return {
+    x1: +(HUB.cx + ux * HUB.r).toFixed(2),
+    y1: +(HUB.cy + uy * HUB.r).toFixed(2),
+    x2: +(node.cx - ux * node.r).toFixed(2),
+    y2: +(node.cy - uy * node.r).toFixed(2),
+  }
+}
+
+// Cross-connections between adjacent outer nodes (0–1, 1–2, 3–4, 4–0)
+// Skip 2–3 to leave a deliberate gap → asymmetry that reads as data flow
+const CROSS_PAIRS: [number, number][] = [[0,1],[1,2],[3,4],[4,0]]
+function crossEdge(a: typeof OUTER[0], b: typeof OUTER[0]) {
+  const dx = b.cx - a.cx, dy = b.cy - a.cy
+  const dist = Math.sqrt(dx * dx + dy * dy)
+  const ux = dx / dist, uy = dy / dist
+  return {
+    x1: +(a.cx + ux * a.r).toFixed(2),
+    y1: +(a.cy + uy * a.r).toFixed(2),
+    x2: +(b.cx - ux * b.r).toFixed(2),
+    y2: +(b.cy - uy * b.r).toFixed(2),
+  }
+}
 
 export function LogoMark({ size = 32, color, className, title = 'infobroker' }: LogoMarkProps) {
-  const fill = color ?? 'var(--brand-violet)'
-  const stroke = color ?? 'var(--brand-violet)'
+  const fill   = color ?? 'var(--brand-violet, #a78bfa)'
+  const stroke = color ?? 'var(--brand-violet, #a78bfa)'
 
   return (
     <svg
@@ -43,35 +72,40 @@ export function LogoMark({ size = 32, color, className, title = 'infobroker' }: 
     >
       <title>{title}</title>
 
-      {/* 1. Connector lines (bottom layer) */}
-      {LINES.map((l, i) => (
-        <line
-          key={i}
-          x1={l.x1}
-          y1={l.y1}
-          x2={l.x2}
-          y2={l.y2}
-          stroke={stroke}
-          strokeWidth="1.25"
-          strokeLinecap="round"
-          opacity={l.opacity}
+      {/* Cross-connections between adjacent outer nodes */}
+      {CROSS_PAIRS.map(([i, j], idx) => {
+        const e = crossEdge(OUTER[i], OUTER[j])
+        return (
+          <line key={`cross-${idx}`}
+            x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
+            stroke={stroke} strokeWidth="1.2" strokeLinecap="round"
+            opacity="0.28"
+          />
+        )
+      })}
+
+      {/* Hub-to-node spokes */}
+      {OUTER.map((node, i) => {
+        const s = spoke(node)
+        return (
+          <line key={`spoke-${i}`}
+            x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+            stroke={stroke} strokeWidth="1.5" strokeLinecap="round"
+            opacity={+(node.opacity * 0.65).toFixed(2)}
+          />
+        )
+      })}
+
+      {/* Outer nodes */}
+      {OUTER.map((node, i) => (
+        <circle key={`node-${i}`}
+          cx={node.cx} cy={node.cy} r={node.r}
+          fill={fill} opacity={node.opacity}
         />
       ))}
 
-      {/* 2. Satellite circles (middle layer) */}
-      {SATELLITES.map((s, i) => (
-        <circle
-          key={i}
-          cx={s.cx}
-          cy={s.cy}
-          r={s.r}
-          fill={fill}
-          opacity={s.opacity}
-        />
-      ))}
-
-      {/* 3. Central hub (top layer) */}
-      <circle cx="32" cy="32" r="10" fill={fill} />
+      {/* Central hub */}
+      <circle cx={HUB.cx} cy={HUB.cy} r={HUB.r} fill={fill} />
     </svg>
   )
 }
