@@ -1,9 +1,25 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getPerformanceDashboard, TechniquePerf, TacticPerf } from '../../api/v3'
+import {
+  getPerformanceDashboard,
+  TechniquePerf,
+  TacticPerf,
+  getMetricsSummary,
+  getRunHistory,
+  MetricsSummary,
+  RunHistoryItem,
+} from '../../api/v3'
 
 const SOURCE_COLORS: Record<string, string> = {
   A: '#22c55e', B: '#4ade80', C: '#facc15', D: '#fb923c', E: '#f87171', F: '#6b7280',
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  succeeded: '#4ade80',
+  failed: '#f87171',
+  running: '#60a5fa',
+  awaiting_input: '#fbbf24',
+  budget_exhausted: '#fb923c',
 }
 
 function parseGrade(g: string): [string, string] {
@@ -34,6 +50,45 @@ function GradePill({ grade }: { grade: string }) {
     >
       {src}{cred}
     </span>
+  )
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const color = STATUS_COLORS[status] ?? '#6b7280'
+  return (
+    <span
+      style={{
+        background: color + '22',
+        border: `1px solid ${color}`,
+        color,
+        borderRadius: 4,
+        padding: '1px 7px',
+        fontSize: 11,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {status}
+    </span>
+  )
+}
+
+function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
+  return (
+    <div
+      style={{
+        background: 'var(--panel)',
+        border: '1px solid var(--border)',
+        borderRadius: 6,
+        padding: '10px 14px',
+        minWidth: 120,
+        flex: '1 1 120px',
+      }}
+    >
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)' }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
+    </div>
   )
 }
 
@@ -96,8 +151,6 @@ function useSortableTable<T>(initialKey: SortKey<T>, initialDir: 'asc' | 'desc')
 function TechniqueTable({ rows }: { rows: TechniquePerf[] }) {
   const { sort, header } = useSortableTable<TechniquePerf>('avg_numeric', 'desc')
   const sorted = sort(rows)
-
-  const thStyle: React.CSSProperties = {}
 
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -185,6 +238,162 @@ function TacticTable({ rows }: { rows: TacticPerf[] }) {
   )
 }
 
+// --- Metrics sections ---
+
+const sectionHeadStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--accent)',
+  marginBottom: 10,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
+const thStyle: React.CSSProperties = {
+  padding: '5px 10px',
+  textAlign: 'left',
+  fontSize: 11,
+  color: 'var(--muted)',
+  borderBottom: '1px solid var(--border)',
+  whiteSpace: 'nowrap',
+}
+
+function MetricsSummarySection({ data }: { data: MetricsSummary }) {
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <h2 style={sectionHeadStyle}>Run Summary — last {data.period_days} days</h2>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+        <StatCard label="Total Runs" value={data.runs.total} />
+        <StatCard
+          label="Success Rate"
+          value={`${(data.runs.success_rate * 100).toFixed(1)}%`}
+          sub={`${data.runs.succeeded} succeeded`}
+        />
+        <StatCard label="Failed" value={data.runs.failed} />
+        <StatCard label="Budget Exhausted" value={data.runs.budget_exhausted} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <StatCard label="Avg Latency" value={`${data.latency.avg_seconds.toFixed(1)}s`} />
+        <StatCard label="P50 Latency" value={`${data.latency.p50_seconds.toFixed(1)}s`} />
+        <StatCard label="P95 Latency" value={`${data.latency.p95_seconds.toFixed(1)}s`} />
+      </div>
+
+      {data.steps.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Top Nodes
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Node Type</th>
+                  <th style={thStyle}>Total Calls</th>
+                  <th style={thStyle}>Success Rate</th>
+                  <th style={thStyle}>Avg Items</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.steps.map((s, i) => {
+                  const rate = s.total > 0 ? (s.succeeded / s.total) * 100 : 0
+                  return (
+                    <tr key={s.node_type} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
+                      <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>{s.node_type}</td>
+                      <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.total}</td>
+                      <td style={{ padding: '5px 10px', color: rate >= 80 ? '#4ade80' : rate >= 50 ? '#fbbf24' : '#f87171' }}>
+                        {rate.toFixed(0)}%
+                      </td>
+                      <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.avg_items.toFixed(1)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {data.strategies.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Strategy Usage
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Strategy</th>
+                  <th style={thStyle}>Uses</th>
+                  <th style={thStyle}>Avg Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.strategies.map((s, i) => (
+                  <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
+                    <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{s.strategy}</td>
+                    <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
+                    <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.avg_score.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function RunHistorySection({ runs }: { runs: RunHistoryItem[] }) {
+  const recent = runs.slice(0, 20)
+  return (
+    <section style={{ marginBottom: 28 }}>
+      <h2 style={sectionHeadStyle}>Recent Runs</h2>
+      {recent.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--muted)' }}>No runs recorded yet.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Query</th>
+                <th style={thStyle}>Status</th>
+                <th style={thStyle}>Duration</th>
+                <th style={thStyle}>Started</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((r, i) => (
+                <tr key={r.id} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
+                  <td style={{ padding: '5px 10px', color: 'var(--text)', maxWidth: 280 }}>
+                    <span
+                      title={r.query}
+                      style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {r.query}
+                    </span>
+                  </td>
+                  <td style={{ padding: '5px 10px' }}>
+                    <StatusBadge status={r.status} />
+                  </td>
+                  <td style={{ padding: '5px 10px', color: 'var(--subtext)', whiteSpace: 'nowrap' }}>
+                    {r.duration_seconds != null ? `${r.duration_seconds.toFixed(1)}s` : '—'}
+                  </td>
+                  <td style={{ padding: '5px 10px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                    {new Date(r.started_at).toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function PerformanceDashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['performance-dashboard'],
@@ -192,11 +401,21 @@ export default function PerformanceDashboard() {
     staleTime: 60_000,
   })
 
-  if (isLoading) {
+  const { data: metricsSummary, isLoading: metricsLoading } = useQuery({
+    queryKey: ['metrics-summary'],
+    queryFn: () => getMetricsSummary(30),
+    staleTime: 60_000,
+  })
+
+  const { data: runHistory, isLoading: runsLoading } = useQuery({
+    queryKey: ['run-history'],
+    queryFn: () => getRunHistory(50),
+    staleTime: 60_000,
+  })
+
+  if (isLoading || metricsLoading || runsLoading) {
     return (
-      <div
-        style={{ padding: 24, color: 'var(--muted)', fontSize: 12 }}
-      >
+      <div style={{ padding: 24, color: 'var(--muted)', fontSize: 12 }}>
         Loading performance data…
       </div>
     )
@@ -220,7 +439,13 @@ export default function PerformanceDashboard() {
 
   return (
     <div style={{ padding: 16, color: 'var(--text)' }}>
-      {/* Summary bar */}
+      {/* Metrics summary — run stats, latency, top nodes, strategy usage */}
+      {metricsSummary && <MetricsSummarySection data={metricsSummary} />}
+
+      {/* Recent run history */}
+      {runHistory && <RunHistorySection runs={runHistory} />}
+
+      {/* Technique/tactic leaderboard (existing) */}
       <div
         style={{
           display: 'flex',
@@ -241,20 +466,8 @@ export default function PerformanceDashboard() {
         </span>
       </div>
 
-      {/* Technique leaderboard */}
       <section style={{ marginBottom: 32 }}>
-        <h2
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--accent)',
-            marginBottom: 8,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-          }}
-        >
-          Tool Leaderboard
-        </h2>
+        <h2 style={{ ...sectionHeadStyle, marginBottom: 8 }}>Tool Leaderboard</h2>
         {data.techniques.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>No technique data yet.</p>
         ) : (
@@ -262,20 +475,8 @@ export default function PerformanceDashboard() {
         )}
       </section>
 
-      {/* Tactic summary */}
       <section>
-        <h2
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--accent)',
-            marginBottom: 8,
-            textTransform: 'uppercase',
-            letterSpacing: '0.05em',
-          }}
-        >
-          Tactic Summary
-        </h2>
+        <h2 style={{ ...sectionHeadStyle, marginBottom: 8 }}>Tactic Summary</h2>
         {data.tactics.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>No tactic data yet.</p>
         ) : (
