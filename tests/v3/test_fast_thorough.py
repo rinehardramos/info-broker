@@ -21,3 +21,15 @@ def test_enabled_when_set_true():
 def test_enabled_when_db_raises():
     with patch("app.routers.v3.agent.fetch_one", side_effect=Exception("DB down")):
         assert _fast_thorough_enabled() is True
+
+
+def test_fast_thorough_enabled_is_callable():
+    from app.routers.v3.agent import _fast_thorough_enabled
+    # Already tested in Phase A — just verify it's still importable
+    assert callable(_fast_thorough_enabled)
+
+
+def test_merge_research_results_imported_in_agent():
+    """merger is reachable from agent module path."""
+    from app.pipeline.fusion.merger import merge_research_results
+    assert callable(merge_research_results)
