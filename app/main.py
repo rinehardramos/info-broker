@@ -332,6 +332,7 @@ from app.routers.v3.brain_questions import router as v3_brain_questions_router  
 from app.routers.v3.sources_api import router as v3_sources_router  # noqa: E402
 from app.routers.v3.sessions_api import router as v3_sessions_router  # noqa: E402
 from app.routers.v3.metrics import router as v3_metrics_router  # noqa: E402
+from app.routers.v3.brain import router as v3_brain_router, runs_router as v3_runs_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -352,3 +353,5 @@ app.include_router(v3_brain_questions_router)
 app.include_router(v3_sources_router)
 app.include_router(v3_sessions_router)
 app.include_router(v3_metrics_router, prefix="/api/v3")
+app.include_router(v3_brain_router)
+app.include_router(v3_runs_router)
