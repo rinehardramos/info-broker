@@ -26,15 +26,16 @@ test('IS brain: research query produces findings in UI', async ({ page }) => {
   await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 10_000 })
 
   // Navigate to agent chat
-  await page.goto('/')
+  await page.goto('/research')
   await page.waitForLoadState('networkidle')
 
   // Count existing run tabs before sending
-  const runTabsBefore = await page.locator('text=/Research:/').count()
+  const runTabsBefore = await page.locator('text=/Research:|AI agent/').count()
   console.log(`[TEST] Existing run tabs: ${runTabsBefore}`)
 
   // Send the research query
-  const textarea = page.getByPlaceholder(/ask info-broker/i)
+  const textarea = page.getByPlaceholder('Ask info-broker… (Enter to send)')
+  await expect(textarea).toBeVisible({ timeout: 10_000 })
   await textarea.fill('Who are the top 3 AI agent framework founders in 2026?')
   await textarea.press('Enter')
   console.log('[TEST] Message sent, waiting for IS brain...')
@@ -48,16 +49,25 @@ test('IS brain: research query produces findings in UI', async ({ page }) => {
   }).toPass({ timeout: 30_000 })
   console.log('[TEST] New run tab appeared!')
 
-  // Click the new run tab to view it
-  const newTab = page.locator('text=/Research:|AI agent/').last()
-  await newTab.click()
-
-  // Wait for the run to complete — look for "succeeded" status or findings content
-  // The run shows "IS Research — queued" then "IS Research — running" then results
+  // Wait for the run to complete, hit the confirm gate, or error
   await expect(async () => {
     const text = await page.locator('body').innerText()
+
+    // Fail fast on auth/error states
+    if (text.includes('not authenticated') || text.includes('Claude Code error') ||
+        text.includes('IS Research — Failed') || text.includes('Research failed')) {
+      throw new Error(`Research failed: ${text.match(/Research failed[^\n]*/)?.[0] ?? 'see UI'}`)
+    }
+
+    // Confirm gate — click through it and keep waiting
+    if (text.includes("Yes, that's it")) {
+      console.log('[TEST] Confirm gate appeared — clicking through')
+      await page.getByText("Yes, that's it").first().click()
+    }
+
     const hasResults = text.includes('succeeded') || text.includes('Findings') ||
-                       text.includes('confidence') || text.includes('Go Deeper')
+                       text.includes('confidence') || text.includes('Go Deeper') ||
+                       text.includes('RESULT FOUND')
     expect(hasResults).toBe(true)
   }).toPass({ timeout: 240_000 })
   console.log('[TEST] Research completed with results!')

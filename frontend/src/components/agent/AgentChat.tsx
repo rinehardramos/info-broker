@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
 import { sendMessage, getBrainStatus, archiveSession } from '../../api/v3'
@@ -32,9 +33,15 @@ export default function AgentChat() {
     }
   }
   const messages = chatMessages
-  const [input, setInput]       = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [input, setInput]       = useState(() => searchParams.get('q') ?? '')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
+
+  // Clear ?q= from URL after pre-filling input so back-navigation doesn't re-fill
+  useEffect(() => {
+    if (searchParams.get('q')) setSearchParams({}, { replace: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
