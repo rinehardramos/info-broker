@@ -1,6 +1,5 @@
 import React from 'react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
-import { DagPreview } from '@/components/pipeline/DagPreview'
 import { ResearchFlow } from '@/components/results/ResearchFlow'
 import type { RunEdge } from '@/stores/runStreamStore'
 import type { PipelineNodeOut, PipelineEdgeOut, PipelineStepRun } from '@/api/pipelines'
@@ -23,9 +22,7 @@ export function FlowFullscreenOverlay({
   runId,
   kind,
   extraEdges,
-  pipelineNodes = [],
-  pipelineEdges = [],
-  stepRuns = [],
+  // pipelineNodes, pipelineEdges, stepRuns kept in interface for future pipeline diagram support
 }: FlowFullscreenOverlayProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -51,12 +48,9 @@ export function FlowFullscreenOverlay({
           {kind === 'is' ? (
             <ResearchFlow runId={runId} extraEdges={extraEdges} />
           ) : (
-            <DagPreview
-              nodes={pipelineNodes}
-              edges={pipelineEdges}
-              stepRuns={stepRuns}
-              extraEdges={extraEdges}
-            />
+            <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
+              Flow diagram available for IS runs
+            </div>
           )}
         </div>
       </DialogContent>

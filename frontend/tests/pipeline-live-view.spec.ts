@@ -63,7 +63,8 @@ test.describe('Pipeline live view', () => {
 
     // Should have tabs
     const tabs = dialog.locator('[role="tab"]')
-    await expect(tabs).toHaveCount({ minimum: 3 }, { timeout: 1000 })
+    const tabCount = await tabs.count()
+    expect(tabCount).toBeGreaterThanOrEqual(3)
 
     // Close with Escape
     await page.keyboard.press('Escape')

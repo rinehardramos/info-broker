@@ -33,7 +33,10 @@ export default function AgentChat() {
   }
   const messages = chatMessages
   const hasActiveRun = useRunStreamStore(
-    (s) => Object.values(s.runsById).some((r) => r.status === 'running'),
+    (s) => {
+      const jobId = useSessionStore.getState().activeJobId
+      return !!jobId && s.runsById[jobId]?.status === 'running'
+    },
   )
 
   const [input, setInput]       = useState('')
@@ -213,9 +216,11 @@ export default function AgentChat() {
     const text = input.trim()
     if (!text || sending) return
 
-    // Change 2: route to node injection when a pipeline run is active
-    const activeRunId = Object.entries(useRunStreamStore.getState().runsById)
-      .find(([, r]) => r.status === 'running')?.[0]
+    // Change 2: route to node injection when the currently focused run is active
+    const activeJobId = useSessionStore.getState().activeJobId
+    const activeRunId = activeJobId && useRunStreamStore.getState().runsById[activeJobId]?.status === 'running'
+      ? activeJobId
+      : null
 
     if (activeRunId && text) {
       void brainApi.injectNode(activeRunId, { instruction: text })

@@ -134,6 +134,15 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
       const runsById = { ...state.runsById }
       const run = ensureRun(runsById, runId, kind)
       run.status = status
+      // Clean up streaming buffers for terminated runs
+      if (status === 'succeeded' || status === 'failed' || status === 'canceled') {
+        for (const key of Object.keys(_chunkBuffer)) {
+          if (key.startsWith(`${runId}:`)) {
+            delete _chunkBuffer[key]
+            delete _rafPending[key]
+          }
+        }
+      }
       if (status === 'canceled') {
         const updatedCards = { ...run.cards }
         for (const [id, card] of Object.entries(updatedCards)) {
