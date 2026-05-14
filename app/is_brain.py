@@ -157,8 +157,13 @@ async def run_research(
 
                     etype = event.get("type", "")
 
-                    # Capture tool call events for streaming
-                    if etype == "assistant":
+                    # Capture tool calls (in assistant events) and tool results
+                    # (in user events). Claude Code's stream-json puts tool_use
+                    # blocks on assistant turns and tool_result blocks on user
+                    # turns (the tool's response back to the model). Treating
+                    # both event types lets the frontend stream per-tool results
+                    # in real time instead of waiting for the whole run.
+                    if etype in ("assistant", "user"):
                         for content in event.get("message", {}).get("content", []):
                             if content.get("type") == "tool_use":
                                 tool_name = content.get("name", "")

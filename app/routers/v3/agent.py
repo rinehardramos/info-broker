@@ -436,6 +436,14 @@ async def _run_is_research(
                     inp.get("q") or
                     ""
                 )[:120]
+                # Defensively JSON-encode the input so non-serializable values
+                # (e.g., bytes) never bubble up and abort the WS push, which
+                # would propagate out of on_tool_event and tear down the brain
+                # subprocess's stream reader.
+                try:
+                    safe_input = json.loads(json.dumps(inp, default=str))
+                except Exception:
+                    safe_input = {}
                 await push_event(uid, {
                     "type": "is.tool_call",
                     "job_id": run_id, "run_id": run_id,
@@ -443,6 +451,11 @@ async def _run_is_research(
                     "status": ev.get("status", ""),
                     "call_id": ev.get("id", ""),
                     "query_preview": query_preview,
+                    # Full input dict for the detail modal's Input tab.
+                    # query_preview is a 120-char truncation derived from this;
+                    # the modal needs the complete params to show the user
+                    # exactly what the tool was called with.
+                    "input": safe_input,
                 })
 
         # Only advertise healthy+enabled tools to the brain

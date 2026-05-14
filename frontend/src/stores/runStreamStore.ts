@@ -13,6 +13,9 @@ export interface NodeCard {
   output?: unknown
   sources?: Array<{ url?: string; label?: string }>
   injectedBy?: 'chat' | 'suggestion'
+  // Tool input parameters (the full args the tool was called with).
+  // Surfaced on the detail modal's Input tab.
+  input?: Record<string, unknown>
   // IS-specific
   confidence?: number
   branchId?: string
@@ -216,3 +219,10 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
     })
   },
 }))
+
+// Debug-only: expose the store on window for E2E inspection and devtools.
+// Stripped by Vite in production builds.
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(window as any).useRunStreamStore = useRunStreamStore
+}

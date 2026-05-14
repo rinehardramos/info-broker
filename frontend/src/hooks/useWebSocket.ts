@@ -18,6 +18,7 @@ export type WsEvent = {
   parent_call_id?: string | null
   tool?: string
   params?: Record<string, unknown>
+  input?: Record<string, unknown>  // is.tool_call full input
   call_count?: number
   max_calls?: number
   depth?: number
@@ -179,6 +180,10 @@ function connect(token: string) {
                 // modal's Formatted tab shows what the tool is searching for.
                 // result_preview replaces this when the call succeeds.
                 ...(event.query_preview ? { preview: event.query_preview } : {}),
+                // Full input params for the modal's Input tab.
+                ...(event.input && typeof event.input === 'object'
+                  ? { input: event.input as Record<string, unknown> }
+                  : {}),
                 ...(event.pir ? { pir: event.pir } : {}),
               })
               break

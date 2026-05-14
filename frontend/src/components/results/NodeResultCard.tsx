@@ -41,6 +41,10 @@ const NodeResultCard = React.memo(
     const badgeClass = STATUS_BADGE[card.status] ?? 'bg-muted text-muted-foreground'
     const isPending = card.status === 'pending'
     const isStreaming = card.status === 'streaming'
+    const isTerminal = card.status === 'succeeded' || card.status === 'failed'
+    // First source URL (if any) is shown as an inline 'link' badge so the user
+    // can jump to the source without opening the modal.
+    const firstSourceUrl = card.sources?.find((s) => s.url)?.url
 
     return (
       <div
@@ -68,7 +72,15 @@ const NodeResultCard = React.memo(
           <span className="ml-auto text-[10px] text-muted-foreground">{elapsedLabel(card)}</span>
         </div>
 
-        <p className="text-xs text-foreground/80 leading-relaxed line-clamp-3">
+        {/* Body — while running, line-clamp the query preview to keep the card
+            small. Once finished, show the full result text so the user can
+            read it inline without opening the modal. */}
+        <p
+          className={cn(
+            'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
+            !isTerminal && 'line-clamp-3',
+          )}
+        >
           {card.preview || (isPending ? 'Waiting to run…' : '')}
           {isStreaming && (
             <span className="inline-block w-0.5 h-3 bg-violet-500 animate-pulse ml-0.5 align-text-bottom" />
@@ -98,7 +110,40 @@ const NodeResultCard = React.memo(
           </div>
         )}
 
-        <p className="text-[10px] text-muted-foreground/60 mt-1.5 italic">Click to expand →</p>
+        {/* Finished-card action row: source link + Rate stub. */}
+        {isTerminal && (firstSourceUrl || true) && (
+          <div className="mt-2 flex items-center gap-2">
+            {firstSourceUrl && (
+              <a
+                href={firstSourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-[10px] text-sky-400 hover:underline"
+              >
+                link ↗
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                // Rate is wired up in the modal (Admiralty rating row) for
+                // findings. Per-tool ratings aren't persisted server-side
+                // yet — this button just opens the modal to the Sources tab
+                // for now.
+                onClick()
+              }}
+              className="text-[10px] px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-violet-500 transition-colors"
+            >
+              Rate
+            </button>
+            <span className="ml-auto text-[10px] text-muted-foreground/60 italic">Click for details →</span>
+          </div>
+        )}
+        {!isTerminal && (
+          <p className="text-[10px] text-muted-foreground/60 mt-1.5 italic">Click to expand →</p>
+        )}
       </div>
     )
   },

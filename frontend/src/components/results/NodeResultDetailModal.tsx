@@ -45,18 +45,94 @@ function RawTab({ card }: { card: NodeCard }) {
   )
 }
 
+// Render URLs in text as clickable links, preserve other text verbatim.
+function renderLinkified(text: string) {
+  const urlRe = /(https?:\/\/[^\s)\]]+)/g
+  const parts = text.split(urlRe)
+  return parts.map((part, i) =>
+    urlRe.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-sky-400 hover:underline break-all"
+      >
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  )
+}
+
 function FormattedTab({ card }: { card: NodeCard }) {
   const content =
     card.preview ||
     (typeof card.output === 'string'
       ? card.output
       : JSON.stringify(card.output, null, 2))
+  if (!content) {
+    return (
+      <span className="text-sm text-muted-foreground italic">No formatted output yet.</span>
+    )
+  }
   return (
     <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-      {content || (
-        <span className="text-muted-foreground italic">No formatted output yet.</span>
-      )}
+      {renderLinkified(content)}
     </div>
+  )
+}
+
+function InputTab({ card }: { card: NodeCard }) {
+  if (!card.input || Object.keys(card.input).length === 0) {
+    return <span className="text-sm text-muted-foreground italic">No input parameters recorded.</span>
+  }
+  const text = JSON.stringify(card.input, null, 2)
+  return (
+    <div className="relative">
+      <div className="absolute right-2 top-2">
+        <CopyButton text={text} />
+      </div>
+      <pre className="text-xs text-foreground/80 bg-muted/30 rounded p-3 overflow-auto max-h-96 whitespace-pre-wrap">
+        {text}
+      </pre>
+    </div>
+  )
+}
+
+function TimingTab({ card }: { card: NodeCard }) {
+  const started = card.startedAt ? new Date(card.startedAt).toLocaleString() : '—'
+  const finished = card.finishedAt ? new Date(card.finishedAt).toLocaleString() : '—'
+  const durationMs =
+    card.startedAt && card.finishedAt
+      ? card.finishedAt - card.startedAt
+      : card.startedAt
+        ? Date.now() - card.startedAt
+        : null
+  const durationLabel =
+    durationMs == null
+      ? '—'
+      : durationMs < 1000
+        ? `${durationMs} ms`
+        : `${(durationMs / 1000).toFixed(2)} s`
+  return (
+    <dl className="text-sm grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3">
+      <dt className="text-muted-foreground">Status</dt>
+      <dd className="text-foreground/90">{card.status}</dd>
+      <dt className="text-muted-foreground">Started</dt>
+      <dd className="text-foreground/90 font-mono text-xs">{started}</dd>
+      <dt className="text-muted-foreground">Finished</dt>
+      <dd className="text-foreground/90 font-mono text-xs">{finished}</dd>
+      <dt className="text-muted-foreground">Duration</dt>
+      <dd className="text-foreground/90">{durationLabel}</dd>
+      {card.nodeId && (
+        <>
+          <dt className="text-muted-foreground">Call ID</dt>
+          <dd className="text-foreground/60 font-mono text-[11px] break-all">{card.nodeId}</dd>
+        </>
+      )}
+    </dl>
   )
 }
 
@@ -137,12 +213,17 @@ export function NodeResultDetailModal({ card, open, onClose }: NodeResultDetailM
           <Tabs defaultValue="formatted">
             <TabsList className="mb-4">
               <TabsTrigger value="formatted">Formatted</TabsTrigger>
+              <TabsTrigger value="input">Input</TabsTrigger>
               {isIS && <TabsTrigger value="branch">Branch</TabsTrigger>}
               <TabsTrigger value="sources">Sources</TabsTrigger>
+              <TabsTrigger value="timing">Timing</TabsTrigger>
               <TabsTrigger value="raw">Raw Output</TabsTrigger>
             </TabsList>
             <TabsContent value="formatted">
               <FormattedTab card={card} />
+            </TabsContent>
+            <TabsContent value="input">
+              <InputTab card={card} />
             </TabsContent>
             {isIS && (
               <TabsContent value="branch">
@@ -151,6 +232,9 @@ export function NodeResultDetailModal({ card, open, onClose }: NodeResultDetailM
             )}
             <TabsContent value="sources">
               <SourcesTab card={card} />
+            </TabsContent>
+            <TabsContent value="timing">
+              <TimingTab card={card} />
             </TabsContent>
             <TabsContent value="raw">
               <RawTab card={card} />
