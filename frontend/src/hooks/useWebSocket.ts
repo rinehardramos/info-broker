@@ -191,11 +191,15 @@ function connect(token: string) {
               // Mark this run as IS — also upgrades runs that were created with
               // default kind='pipeline' by an earlier non-IS-specific event.
               stream.setRunStatus(rid, 'is', 'running')
+              // Backend uses 'preview' for is.tool_result (agent.py:407); the
+              // alternative result_preview is the pipeline-step.update field.
+              // Try both so neither shape silently drops the content.
+              const resultText = event.preview ?? event.result_preview ?? ''
               stream.upsertCard(rid, {
                 nodeId: event.call_id ?? event.node_id ?? rid,
                 status: 'succeeded',
                 finishedAt: Date.now(),
-                preview: event.result_preview ?? '',
+                preview: resultText,
               })
               break
             }
