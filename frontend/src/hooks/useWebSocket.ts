@@ -174,6 +174,11 @@ function connect(token: string) {
                 nodeName: event.tool ?? 'tool_call',
                 status: 'running',
                 startedAt: Date.now(),
+                // Backend already sends a human-readable query_preview for each call —
+                // store it as the card body so running cards aren't blank and the
+                // modal's Formatted tab shows what the tool is searching for.
+                // result_preview replaces this when the call succeeds.
+                ...(event.query_preview ? { preview: event.query_preview } : {}),
                 ...(event.pir ? { pir: event.pir } : {}),
               })
               break
