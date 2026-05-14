@@ -1,6 +1,6 @@
 # Design: Live Run Split-Pane Results, Streaming Cards & Brain Intent System
 
-**Status:** Approved (visual mockup confirmed)
+**Status:** Approved (visual mockup confirmed + dynamic node injection added)
 **Date:** 2026-05-14
 **Scope:** `frontend/` (primary) · `app/services/` and `app/routers/v3/` (additive backend)
 
@@ -262,15 +262,72 @@ Enrichment is strictly non-blocking. The pipeline never waits for the user to de
 
 ---
 
-## I. Performance & Edge Cases
+## I. Dynamic Node Injection
+
+The pipeline graph is **live and open-ended**. While a run is active, new nodes can be injected by two entry points:
+
+### I.1 Sources of injection
+
+**1. Chat input during a run**
+The chat input in `AgentChat` remains active while a run is in progress. A new user message sent while a run is running is treated as an **instruction injection**: the backend spawns additional nodes (or a sub-pipeline) connected to the in-progress run, emitting a `pipeline.node.injected` event. The frontend receives this and appends the new card to `cardOrder` with status `pending`. The DAG updates to show the new node wired in.
+
+**2. Brain suggestion click**
+Brain suggestions rendered in `BrainSuggestionBanner` that have an `action` of type `inject` carry a `payload.nodeSpec` describing the node to add. Clicking the primary CTA fires `POST /v3/runs/{runId}/inject` with the nodeSpec. The backend wires the node into the running graph and emits `pipeline.node.injected`. The banner transitions to a "queued" visual state (dimmed, spinner) until the new node's first `pipeline.step.update` event arrives.
+
+### I.2 New WebSocket events
+
+| Event | Payload | Meaning |
+|---|---|---|
+| `pipeline.node.injected` | `{ run_id, node_id, node_name, injected_by: 'chat'\|'suggestion', after_node_id?: string }` | A new node has been wired into the running graph. Frontend appends a `pending` card and re-renders the DAG edge set. |
+| `pipeline.node.injection_failed` | `{ run_id, node_id, reason }` | Injection was rejected (e.g., run already completed). Frontend shows an inline error on the banner. |
+
+### I.3 DAG updates on injection
+
+`DagPreview` and `ResearchFlow` currently render a static edge set derived from `PipelineEdgeOut[]`. For dynamic runs, the edge set must be reactive:
+
+- `runStreamStore` gains an `edges: Array<{ from: string; to: string; kind: 'result'|'injected' }>` field per run.
+- On `pipeline.node.injected`, append the new edge(s). Injected edges are rendered with a **dashed violet stroke** to distinguish them from the original pipeline edges.
+- Both `DagPreview` and `ResearchFlow` accept `extraEdges?: Edge[]` prop used only in compact/fullscreen modes driven by live run state. Static (builder) usage is unaffected.
+
+### I.4 Chat input state during injection
+
+- The chat input shows a subtle indicator while a run is active: a small pulsing border or "Pipeline running — your message will inject a node" tooltip.
+- Submitting a message during a run does **not** cancel the run — it appends to it.
+- If the user explicitly wants to cancel and restart, they use the existing cancel button in the run tab header (unchanged behavior).
+- Multiple injections are queued server-side; `cardOrder` grows in arrival order.
+
+### I.5 Suggestion banner state transitions
+
+```
+[active]  → user clicks CTA            → [queued: spinner]
+[queued]  → pipeline.node.injected     → [banner disappears, card appears in results pane]
+[queued]  → pipeline.node.injection_failed → [banner shows inline error, retry CTA]
+[active]  → user dismisses             → [gone for this session]
+```
+
+### I.6 Backend injection endpoint
+
+`POST /v3/runs/{runId}/inject`
+Body: `{ node_spec: { type, config }, instruction?: string, after_node_id?: string }`
+- `node_spec`: a pipeline node definition (same schema as `PipelineNodeOut`)
+- `instruction`: free-text instruction from chat, used when the source is a chat message
+- `after_node_id`: optional — if absent, backend decides where to wire it
+
+Returns: `{ node_id, status: 'queued' }` immediately; result streams via WS.
+
+---
+
+## J. Performance & Edge Cases
 
 | Scenario | Handling |
 |---|---|
 | 50+ node results | Simple "show last 30 + collapsed older section" — no premature virtualization. Cards are `React.memo` with `(nodeId, status, preview.length)` comparator. |
-| Reconnection during active run | On reconnect, `GET /v3/pipelines/runs/{runId}` backfills cards; `hydratedFromServer = true`. Subsequent WS events apply normally; duplicate chunks dropped by `seq`. |
-| Very fast run (all events before mount) | Central dispatcher populates store before `RunResultsView` mounts. First render shows complete state. No race. |
-| Cancellation mid-stream | `pipeline.run.complete` with `status:'canceled'` → all `running`/`streaming` cards → gray `canceled` variant. |
-| Node failure | `pipeline.step.update` with `status:'failed'` → red border card, error in modal Raw tab. |
+| Injected nodes on reconnect | `GET /v3/pipelines/runs/{runId}` backfill includes injected nodes and edges; `hydratedFromServer = true` reconciles store. |
+| Very fast run (all events before mount) | Central dispatcher populates store before `RunResultsView` mounts. First render shows complete state. |
+| Injection while run completes | If `pipeline.run.complete` arrives before `pipeline.node.injected`, injection is rejected server-side; frontend shows error on queued banner. |
+| Multiple simultaneous injections | Each gets its own `node_id`. `cardOrder` appends in arrival order. |
+| Cancellation mid-stream | `pipeline.run.complete` with `status:'canceled'` → all `running`/`streaming`/`pending` injected cards → gray `canceled` variant. |
+| Node failure (injected or original) | `pipeline.step.update` with `status:'failed'` → red border card, error in modal Raw tab. |
 | Empty runs | Single placeholder card "No node events received" + static DAG in mini preview. |
 | Tab close | `clearRun(runId)` called in existing tab-close handler in `ResultsPanel.tsx`. |
 | Memory | `clearRun` prevents unbounded store growth. |
