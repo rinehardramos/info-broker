@@ -22,7 +22,7 @@ export const useLayoutStore = create<LayoutState>()(
     (set) => ({
       theme: 'navy',
       sizes: { col1: 46, col2: 30, col3: 20 },
-      runSplit: { top: 65, bottom: 35 },
+      runSplit: { top: 60, bottom: 40 },
       setTheme: (theme) => set({ theme }),
       setSizes: (sizes) => set({ sizes }),
       setRunSplit: (runSplit) => set({ runSplit }),

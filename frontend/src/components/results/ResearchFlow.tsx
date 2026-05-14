@@ -597,11 +597,11 @@ function FlowGraph({ nodes, query, compact = false, extraEdges }: { nodes: FlowN
       width="100%"
       height="100%"
       viewBox={`0 0 ${svgW} ${svgH}`}
+      preserveAspectRatio="xMidYMid meet"
       style={{
         background: '#0a0e14',
         borderRadius: 6,
         minHeight: 200,
-        ...(compact ? { transform: 'scale(0.6)', transformOrigin: 'top left' } : {}),
       }}
       pointerEvents={compact ? 'none' : undefined}
     >

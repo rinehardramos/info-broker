@@ -34,15 +34,19 @@ export function FlowMiniPreview({
         className="relative w-full h-full cursor-zoom-in bg-background/50 hover:bg-background/70 transition-colors overflow-hidden"
         title="Click to expand flow diagram"
       >
-        <div className="absolute top-2 left-3 z-10 flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wide select-none">
-          {isRunning && (
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-          )}
-          Flow Diagram {isRunning ? '(running)' : ''} · click to expand
-        </div>
+        {/* Placeholder/overlay only when there's no IS run to render — otherwise
+            ResearchFlow shows its own header + progress bar. */}
+        {kind !== 'is' && (
+          <div className="absolute top-2 left-3 z-10 flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase tracking-wide select-none">
+            {isRunning && (
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+            )}
+            Flow Diagram {isRunning ? '(running)' : ''} · click to expand
+          </div>
+        )}
         <div className="w-full h-full pointer-events-none">
           {kind === 'is' ? (
-            <ResearchFlow runId={runId} compact extraEdges={extraEdges} />
+            <ResearchFlow runId={runId} extraEdges={extraEdges} />
           ) : (
             <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
               Flow diagram available for IS runs
