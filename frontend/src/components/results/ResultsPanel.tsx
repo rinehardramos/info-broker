@@ -1990,27 +1990,32 @@ export default function ResultsPanel() {
         </button>
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === 'Pipeline' && <PipelineTabContent />}
+      {/* Tab content — Pipeline/Results scroll; an active run fills the remaining
+          height as a flex column so RunResultsView's PanelGroup (percentages) gets
+          a defined parent height instead of collapsing to content size. */}
+      {activeRunId ? (
+        <div
+          key={activeRunId}
+          className="flex-1 min-h-0 flex flex-col"
+        >
+          <RunResultsView runId={activeRunId} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          {activeTab === 'Pipeline' && <PipelineTabContent />}
 
-        {activeTab === 'Results' && (
-          <RunsListTab
-            runs={runs}
-            onOpenRun={(runId) => {
-              setDismissedTabs(prev => { const n = new Set(prev); n.delete(runId); return n })
-              setActiveTab(`run:${runId}`)
-              setCol1Content({ type: 'pipeline_run', runId })
-            }}
-          />
-        )}
-
-        {activeRunId && (
-          <div key={activeRunId} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            <RunResultsView runId={activeRunId} />
-          </div>
-        )}
-      </div>
+          {activeTab === 'Results' && (
+            <RunsListTab
+              runs={runs}
+              onOpenRun={(runId) => {
+                setDismissedTabs(prev => { const n = new Set(prev); n.delete(runId); return n })
+                setActiveTab(`run:${runId}`)
+                setCol1Content({ type: 'pipeline_run', runId })
+              }}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }

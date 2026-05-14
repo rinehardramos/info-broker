@@ -3,9 +3,31 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { StreamingCardList } from './StreamingCardList'
 import { FlowMiniPreview } from './FlowMiniPreview'
 import { useLayoutStore } from '@/stores/layoutStore'
+import { useRunStreamStore } from '@/stores/runStreamStore'
 
 interface RunResultsViewProps {
   runId: string
+}
+
+function DebugBadge({ runId }: { runId: string }) {
+  const run = useRunStreamStore((s) => s.runsById[runId])
+  const allIds = useRunStreamStore((s) => Object.keys(s.runsById))
+  return (
+    <div className="px-2 py-1 text-[9px] font-mono border-b border-border bg-amber-500/5 text-amber-500/80 flex items-center gap-2 select-text">
+      <span title="Active runId from tab">run: <span className="text-amber-400">{runId.slice(0, 8)}</span></span>
+      <span>·</span>
+      <span title="Whether the runStreamStore has entries for this runId">
+        store: <span className={run ? 'text-emerald-400' : 'text-red-400'}>
+          {run ? `${run.kind}/${run.status} (${run.cardOrder.length} cards)` : 'MISS'}
+        </span>
+      </span>
+      {!run && allIds.length > 0 && (
+        <span title="Ids that ARE in the store" className="opacity-70">
+          · have: {allIds.map(id => id.slice(0, 8)).join(', ')}
+        </span>
+      )}
+    </div>
+  )
 }
 
 export function RunResultsView({ runId }: RunResultsViewProps) {
@@ -27,6 +49,7 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
   if (isMobile) {
     return (
       <div className="flex flex-col h-full">
+        <DebugBadge runId={runId} />
         <div className="flex-1 overflow-hidden">
           <StreamingCardList runId={runId} />
         </div>
@@ -53,7 +76,12 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
         minSize={30}
         className="overflow-hidden"
       >
-        <StreamingCardList runId={runId} />
+        <div className="flex flex-col h-full">
+          <DebugBadge runId={runId} />
+          <div className="flex-1 overflow-hidden">
+            <StreamingCardList runId={runId} />
+          </div>
+        </div>
       </Panel>
 
       <PanelResizeHandle className="h-1.5 bg-border hover:bg-violet-700/60 transition-colors cursor-row-resize relative group">
