@@ -27,7 +27,7 @@ interface ChatState {
   clearMessages: () => void
   setFastResearchDone: (done: boolean) => void
   setThoroughInProgress: (inProgress: boolean) => void
-  appendBrainSuggestionAsMessage: (suggestion: { id: string; title: string; body?: string }) => void
+  appendBrainSuggestionAsMessage: (suggestion: { id: string; title: string; body?: string; payload?: Record<string, unknown> }) => void
 }
 
 export const useChatStore = create<ChatState>()(
@@ -63,6 +63,7 @@ export const useChatStore = create<ChatState>()(
                 : suggestion.title,
               status: 'done' as const,
               type: 'plan' as const,
+              payload: suggestion.payload,
             },
           ],
         })),

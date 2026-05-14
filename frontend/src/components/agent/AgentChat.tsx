@@ -32,19 +32,15 @@ export default function AgentChat() {
     }
   }
   const messages = chatMessages
-  const hasActiveRun = useRunStreamStore(
-    (s) => {
-      const jobId = useSessionStore.getState().activeJobId
-      return !!jobId && s.runsById[jobId]?.status === 'running'
-    },
-  )
-
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
+  const hasActiveRun = useRunStreamStore(
+    (s) => !!activeJobId && s.runsById[activeJobId]?.status === 'running'
+  )
   const bottomRef               = useRef<HTMLDivElement>(null)
   const uploadZoneRef           = useRef<FileUploadZoneHandle>(null)
 

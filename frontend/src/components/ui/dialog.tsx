@@ -59,6 +59,9 @@ function DialogContent({
         {...props}
       >
         {children}
+        <DialogPrimitive.Description className="sr-only">
+          Dialog content
+        </DialogPrimitive.Description>
         <DialogPrimitive.Close
           className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity"
           aria-label="Close"
@@ -91,6 +94,19 @@ function DialogTitle({
   )
 }
 
+function DialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn('sr-only', className)}
+      {...props}
+    />
+  )
+}
+
 export {
   Dialog,
   DialogTrigger,
@@ -101,4 +117,5 @@ export {
   DialogHeader,
   DialogBody,
   DialogTitle,
+  DialogDescription,
 }

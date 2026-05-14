@@ -46,3 +46,9 @@ migrate.sh
 
 # Additional env file variants
 .env.*.worktrees/
+
+# Test results and Playwright outputs
+test-results/
+frontend/test-results/
+playwright-report/
+frontend/playwright-report/
