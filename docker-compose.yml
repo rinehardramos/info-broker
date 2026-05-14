@@ -46,7 +46,8 @@ services:
     environment:
       INFO_BROKER_API_KEY: ${INFO_BROKER_API_KEY:-changeme}
       OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
-      # Claude Code auth: auto-extracted by scripts/ensure-claude-auth.sh
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      CLAUDE_CODE_OAUTH_REFRESH_TOKEN: ${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}
       APIFY_BASE_URL: ${APIFY_BASE_URL:-https://api.apify.com/v2}
       POSTGRES_DB: info_broker
       POSTGRES_USER: user

@@ -89,7 +89,10 @@ async def run_research(
         session_context=session_context,
     )
 
-    # Resolve API key — DB first, then env. Skip expired OAuth tokens.
+    # Resolve API key — DB only. Subscription auth is used when no DB key is set.
+    # Intentionally does NOT fall back to ANTHROPIC_API_KEY env var: that var may
+    # be set for other SDK callers (ai_provider, intelligent_search) but the brain
+    # should use Claude subscription unless the operator explicitly stores a key in DB.
     api_key = ""
     try:
         from app.routers.v3.db import fetch_one
@@ -98,10 +101,6 @@ async def run_research(
             api_key = row["value"]
     except Exception:
         pass
-    if not api_key:
-        env_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if env_key.startswith("sk-ant-api"):
-            api_key = env_key
 
     # Use stream-json for real-time tool call events + checkpointing
     cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "stream-json", "--verbose"]
@@ -118,12 +117,17 @@ async def run_research(
     log.info("IS Brain: spawning Claude Code (api_key=%s, bare=%s) for query: %s",
              "yes" if api_key else "subscription", "--bare" in cmd, query[:80])
 
-    # Build spawn env — strip any stale ANTHROPIC_API_KEY so Claude Code uses subscription auth
+    # Build spawn env — strip stale auth vars so Claude Code uses subscription auth
+    # via the credentials file at ~/.claude/.credentials.json (populated by `claude auth login`).
+    # Env vars take precedence over the credentials file, so they must be cleared unless
+    # an operator explicitly set an API key in core_settings.
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
     if api_key:
         spawn_env["ANTHROPIC_API_KEY"] = api_key
     else:
         spawn_env.pop("ANTHROPIC_API_KEY", None)
+        spawn_env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        spawn_env.pop("CLAUDE_CODE_OAUTH_REFRESH_TOKEN", None)
 
     try:
         proc = await asyncio.create_subprocess_exec(

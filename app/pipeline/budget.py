@@ -86,12 +86,16 @@ def estimate_run_cost(budget: RunBudgetIn) -> float:
 def reserve_budget(user_id: str, org_id: str, estimated_units: float) -> bool:
     """Attempt to reserve budget from user wallet. Returns True if successful.
 
-    Uses a single atomic UPDATE with a WHERE guard so two concurrent runs
-    cannot both succeed if the balance is only sufficient for one.
-    Returns True (non-fatal) when the wallet row does not exist yet (Phase 1 compat).
+    Auto-provisions a wallet with 1000 units on first use. Uses an atomic
+    UPDATE with a WHERE guard so two concurrent runs cannot both succeed if
+    the balance is only sufficient for one.
     """
-    from app.routers.v3.db import fetch_one
+    from app.routers.v3.db import fetch_one, execute
     try:
+        execute(
+            "INSERT INTO user_budget_wallets (user_id, org_id) VALUES (%s, %s) ON CONFLICT (user_id) DO NOTHING",
+            (user_id, org_id),
+        )
         row = fetch_one(
             """UPDATE user_budget_wallets
                SET reserved_units = reserved_units + %s,
@@ -103,7 +107,7 @@ def reserve_budget(user_id: str, org_id: str, estimated_units: float) -> bool:
         )
         return row is not None
     except Exception:
-        # Non-fatal: if wallet doesn't exist or DB is unreachable, allow run
+        # Non-fatal: if DB is unreachable, allow run
         return True
 
 
