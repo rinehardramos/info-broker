@@ -11,8 +11,10 @@ interface ColumnSizes {
 interface LayoutState {
   theme: ThemeMode
   sizes: ColumnSizes
+  runSplit: { top: number; bottom: number }
   setTheme: (mode: ThemeMode) => void
   setSizes: (sizes: ColumnSizes) => void
+  setRunSplit: (split: { top: number; bottom: number }) => void
 }
 
 export const useLayoutStore = create<LayoutState>()(
@@ -20,8 +22,10 @@ export const useLayoutStore = create<LayoutState>()(
     (set) => ({
       theme: 'navy',
       sizes: { col1: 46, col2: 30, col3: 20 },
+      runSplit: { top: 65, bottom: 35 },
       setTheme: (theme) => set({ theme }),
       setSizes: (sizes) => set({ sizes }),
+      setRunSplit: (runSplit) => set({ runSplit }),
     }),
     { name: 'ib-layout' },
   ),

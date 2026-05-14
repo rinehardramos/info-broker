@@ -27,6 +27,7 @@ interface ChatState {
   clearMessages: () => void
   setFastResearchDone: (done: boolean) => void
   setThoroughInProgress: (inProgress: boolean) => void
+  appendBrainSuggestionAsMessage: (suggestion: { id: string; title: string; body?: string }) => void
 }
 
 export const useChatStore = create<ChatState>()(
@@ -50,6 +51,21 @@ export const useChatStore = create<ChatState>()(
       clearMessages: () => set({ messages: [], sessionId: null, genesisQuery: null, sessionRunIds: [], fastResearchDone: false, thoroughInProgress: false }),
       setFastResearchDone: (done) => set({ fastResearchDone: done }),
       setThoroughInProgress: (inProgress) => set({ thoroughInProgress: inProgress }),
+      appendBrainSuggestionAsMessage: (suggestion) =>
+        set((s) => ({
+          messages: [
+            ...s.messages,
+            {
+              id: suggestion.id,
+              role: 'assistant' as const,
+              content: suggestion.body
+                ? `**${suggestion.title}**\n\n${suggestion.body}`
+                : suggestion.title,
+              status: 'done' as const,
+              type: 'plan' as const,
+            },
+          ],
+        })),
     }),
     {
       name: 'ib-chat',
