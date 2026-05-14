@@ -150,8 +150,8 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
   addEdge(runId, edge) {
     set((state) => {
       const runsById = { ...state.runsById }
-      ensureRun(runsById, runId)
-      runsById[runId].edges = [...runsById[runId].edges, edge]
+      const run = ensureRun(runsById, runId)
+      run.edges = [...run.edges, edge]
       return { runsById }
     })
   },
@@ -159,8 +159,8 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
   addSuggestion(runId, suggestion) {
     set((state) => {
       const runsById = { ...state.runsById }
-      ensureRun(runsById, runId)
-      runsById[runId].suggestions = [...runsById[runId].suggestions, suggestion]
+      const run = ensureRun(runsById, runId)
+      run.suggestions = [...run.suggestions, suggestion]
       return { runsById }
     })
   },
