@@ -1,7 +1,9 @@
 from __future__ import annotations
 import uuid
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from app.routers.v3.auth import get_current_user
 
 router = APIRouter(prefix="/v3/brain", tags=["brain"])
 runs_router = APIRouter(prefix="/v3/runs", tags=["runs"])
@@ -32,26 +34,32 @@ class InjectNodeRequest(BaseModel):
 
 
 @router.post("/aggregate")
-async def aggregate(req: AggregateRequest):
-    return {"summary": f"Aggregated summary for run {req.run_id} (implementation pending)"}
+async def aggregate(req: AggregateRequest, current_user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
 @router.post("/report")
-async def report(req: ReportRequest):
-    return {"content": f"# Report for {req.run_id}\n\n(implementation pending)", "format": req.format}
+async def report(req: ReportRequest, current_user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
 @router.post("/presentation")
-async def presentation(req: PresentationRequest):
-    return {"slides": [{"title": f"Results: {req.run_id}", "bullets": []}]}
+async def presentation(req: PresentationRequest, current_user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
 @router.post("/save-as-pipeline")
-async def save_as_pipeline(req: SaveAsPipelineRequest):
-    return {"pipeline_id": f"saved-{req.run_id}"}
+async def save_as_pipeline(req: SaveAsPipelineRequest, current_user: dict = Depends(get_current_user)):
+    raise HTTPException(status_code=501, detail="Not implemented yet")
 
 
 @runs_router.post("/{run_id}/inject")
-async def inject_node(run_id: str, req: InjectNodeRequest):
+async def inject_node(
+    run_id: str,
+    req: InjectNodeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    # TODO: verify run_id belongs to current_user before mutating
+    # TODO: emit WS event to notify pipeline live-view of the injected node
     node_id = str(uuid.uuid4())
     return {"node_id": node_id, "status": "queued"}
