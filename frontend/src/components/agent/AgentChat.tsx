@@ -8,6 +8,10 @@ import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useChatStore, type Message } from '../../stores/chatStore'
 import FileUploadZone, { type FileUploadZoneHandle } from '../chat/FileUploadZone'
+import { useRunStreamStore } from '@/stores/runStreamStore'
+import { brainApi } from '@/api/brain'
+import { cn } from '@/lib/utils'
+import { BrainSuggestionBanner } from '@/components/results/BrainSuggestionBanner'
 
 let _msgCounter = 0
 
@@ -28,6 +32,10 @@ export default function AgentChat() {
     }
   }
   const messages = chatMessages
+  const hasActiveRun = useRunStreamStore(
+    (s) => Object.values(s.runsById).some((r) => r.status === 'running'),
+  )
+
   const [input, setInput]       = useState('')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
@@ -204,6 +212,23 @@ export default function AgentChat() {
   async function handleSend() {
     const text = input.trim()
     if (!text || sending) return
+
+    // Change 2: route to node injection when a pipeline run is active
+    const activeRunId = Object.entries(useRunStreamStore.getState().runsById)
+      .find(([, r]) => r.status === 'running')?.[0]
+
+    if (activeRunId && text) {
+      void brainApi.injectNode(activeRunId, { instruction: text })
+      useChatStore.getState().addMessage({
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: text,
+        status: 'done',
+      })
+      setInput('')
+      return
+    }
+
     setInput('')
     setSending(true)
     setAgentInput(text)
@@ -559,6 +584,30 @@ export default function AgentChat() {
             )
           }
 
+          // Change 3: enrichment plan messages render as BrainSuggestionBanner
+          if (m.type === 'plan' && m.payload?.kind === 'enrichment') {
+            return (
+              <BrainSuggestionBanner
+                key={m.id}
+                suggestion={{
+                  id: m.id,
+                  kind: 'enrichment',
+                  action: 'rerun-enriched',
+                  title: m.content.split('\n')[0].replace(/\*\*/g, ''),
+                  body: typeof m.payload?.body === 'string' ? m.payload.body : undefined,
+                  payload: m.payload as Record<string, unknown>,
+                  createdAt: Date.now(),
+                }}
+                onDismiss={() =>
+                  useChatStore.getState().updateMessage(m.id, { type: 'message' })
+                }
+                onAction={async () => {
+                  useChatStore.getState().updateMessage(m.id, { type: 'message' })
+                }}
+              />
+            )
+          }
+
           // Plan message — collapsible card
           if (m.type === 'plan') {
             const plan = (m.payload?.plan ?? {}) as { steps?: Record<string, unknown>[] }
@@ -678,20 +727,29 @@ export default function AgentChat() {
           </div>
         )}
 
-        <textarea
-          placeholder="Ask info-broker… (Enter to send)"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={sending}
-          rows={4}
-          className="w-full text-xs px-2 py-2 rounded resize-none outline-none disabled:opacity-50"
-          style={{
-            background: 'var(--panel2)',
-            color: 'var(--text)',
-            border: '1px solid var(--border)',
-          }}
-        />
+        {/* Change 1: injection hint ring when a pipeline run is active */}
+        <div className={cn('relative rounded-lg transition-all', hasActiveRun && 'ring-1 ring-violet-700/60')}>
+          <textarea
+            placeholder="Ask info-broker… (Enter to send)"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={sending}
+            rows={4}
+            className="w-full text-xs px-2 py-2 rounded resize-none outline-none disabled:opacity-50"
+            style={{
+              background: 'var(--panel2)',
+              color: 'var(--text)',
+              border: '1px solid var(--border)',
+            }}
+          />
+          {hasActiveRun && (
+            <p className="text-[10px] text-violet-500/80 mt-1 flex items-center gap-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+              Pipeline running — your message will inject a node
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )
