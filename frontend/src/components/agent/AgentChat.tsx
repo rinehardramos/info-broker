@@ -290,10 +290,31 @@ export default function AgentChat() {
         const { setCol1Content } = useSessionStore.getState()
         setCol1Content({ type: 'pipeline_run', runId: result.job_id! })
       }
-    } catch {
-      setMessages(prev => [
+    } catch (err: unknown) {
+      // Extract HTTP error detail from axios error if available
+      const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } }
+      const status = axiosErr?.response?.status
+      const detail = axiosErr?.response?.data?.detail
+
+      let errorContent: string
+      if (status === 402) {
+        errorContent = detail ?? 'Insufficient credits. Please top up your account to run research.'
+      } else if (status && detail) {
+        errorContent = `Error ${status}: ${detail}`
+      } else if (status) {
+        errorContent = `Request failed (HTTP ${status}). Check your connection.`
+      } else {
+        errorContent = 'Failed to start research. Check your connection.'
+      }
+
+      setMessages((prev) => [
         ...prev,
-        { id: `err-${++_msgCounter}`, role: 'agent', content: 'Failed to start research. Check your connection.' },
+        {
+          id: `err-${++_msgCounter}`,
+          role: 'agent' as const,
+          content: errorContent,
+          status: 'error' as const,
+        },
       ])
     } finally {
       setSending(false)
