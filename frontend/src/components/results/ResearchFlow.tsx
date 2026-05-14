@@ -455,7 +455,11 @@ export function ResearchFlow({ runId: filterRunId, compact = false, extraEdges }
           <div style={{ flex: 1, height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{
               height: '100%',
-              width: `${Math.min(100, (activeFlow.callCount / activeFlow.maxCalls) * 100)}%`,
+              // Once the run is terminal, the bar represents completion (100%),
+              // not the literal callCount/maxCalls ratio.
+              width: activeFlow.status === 'running'
+                ? `${Math.min(100, (activeFlow.callCount / activeFlow.maxCalls) * 100)}%`
+                : '100%',
               background: activeFlow.status === 'running' ? '#facc15' : '#4ade80',
               borderRadius: 2,
               transition: 'width 0.3s ease',

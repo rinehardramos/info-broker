@@ -44,7 +44,12 @@ export function FlowFullscreenOverlay({
           </button>
           <span className="text-xs text-muted-foreground">or click diagram</span>
         </div>
-        <div className="w-full h-full flex items-center justify-center p-8 pointer-events-none">
+        {/* Fill the dialog; pointer-events-none keeps the "click anywhere to
+            collapse" behavior. Previous `flex items-center justify-center`
+            collapsed ResearchFlow to its intrinsic content size, leaving most
+            of the screen empty — letting the child stretch via h-full is what
+            actually fills the viewport. */}
+        <div className="w-full h-full p-8 pt-16 pointer-events-none">
           {kind === 'is' ? (
             <ResearchFlow runId={runId} extraEdges={extraEdges} />
           ) : (
