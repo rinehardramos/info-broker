@@ -1034,7 +1034,16 @@ async def send_message(
 
         _reserved = reserve_budget(uid, user_org_id(user), _estimated_cost)
         if not _reserved:
-            raise HTTPException(status_code=402, detail="Insufficient budget — top up your wallet to run research")
+            _budget_error = "Insufficient budget — top up your wallet to run research"
+            try:
+                execute(
+                    "INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query, error_message, started_at, finished_at) "
+                    "VALUES (%s, %s, %s, %s, %s, 'failed', 'agent_is', %s, %s, NOW(), NOW())",
+                    (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message[:500], _budget_error),
+                )
+            except Exception:
+                pass  # Best-effort logging, don't block the error response
+            raise HTTPException(status_code=402, detail=_budget_error)
 
         fetch_one(
             """
@@ -1215,7 +1224,16 @@ async def send_message(
 
         _reserved = reserve_budget(uid, user_org_id(user), _estimated_cost)
         if not _reserved:
-            raise HTTPException(status_code=402, detail="Insufficient budget — top up your wallet to run research")
+            _budget_error = "Insufficient budget — top up your wallet to run research"
+            try:
+                execute(
+                    "INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query, error_message, started_at, finished_at) "
+                    "VALUES (%s, %s, %s, %s, %s, 'failed', 'agent', %s, %s, NOW(), NOW())",
+                    (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message[:500], _budget_error),
+                )
+            except Exception:
+                pass  # Best-effort logging, don't block the error response
+            raise HTTPException(status_code=402, detail=_budget_error)
 
         fetch_one(
             """
