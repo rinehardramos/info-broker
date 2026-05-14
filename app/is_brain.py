@@ -173,8 +173,27 @@ async def run_research(
                                     await on_event(tc)
                             elif content.get("type") == "tool_result":
                                 tool_result_data = content.get("content", "")
-                                # Truncate large results for WS transport
-                                preview = str(tool_result_data)[:2000] if tool_result_data else ""
+                                # MCP tool results often arrive as a list of
+                                # {"type":"text","text":"..."} blocks. Pull the
+                                # actual text out so the WS preview is the
+                                # tool's real output, not a Python list repr.
+                                if isinstance(tool_result_data, list):
+                                    parts: list[str] = []
+                                    for block in tool_result_data:
+                                        if isinstance(block, dict):
+                                            t = block.get("text")
+                                            if isinstance(t, str):
+                                                parts.append(t)
+                                                continue
+                                        parts.append(json.dumps(block) if isinstance(block, (dict, list)) else str(block))
+                                    preview = "\n".join(parts)[:2000]
+                                elif isinstance(tool_result_data, (dict, list)):
+                                    try:
+                                        preview = json.dumps(tool_result_data)[:2000]
+                                    except Exception:
+                                        preview = str(tool_result_data)[:2000]
+                                else:
+                                    preview = str(tool_result_data)[:2000] if tool_result_data else ""
                                 tc = {
                                     "type": "tool_result",
                                     "tool_use_id": content.get("tool_use_id", ""),

@@ -11,6 +11,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
 import { useChatStore } from '../../stores/chatStore'
+import { formatToolResult } from '../../lib/toolResultFormatter'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -361,6 +362,9 @@ export function ResearchFlow({ runId: filterRunId, compact = false, extraEdges }
     }
 
     if (event.type === 'is.tool_result' && event.run_id && event.call_id) {
+      // Derive a result count from the (often nested-JSON-encoded) preview so
+      // the per-tool graph node shows the actual hit count instead of 0.
+      const fmt = formatToolResult(event.preview ?? event.result_preview ?? '')
       setFlows(prev => {
         const next = new Map(prev)
         const flow = next.get(event.run_id!)
@@ -369,7 +373,15 @@ export function ResearchFlow({ runId: filterRunId, compact = false, extraEdges }
           ...flow,
           nodes: flow.nodes.map(n =>
             n.id === event.call_id
-              ? { ...n, status: 'succeeded' as const, resultPreview: event.preview ?? event.result_preview }
+              ? {
+                  ...n,
+                  status: 'succeeded' as const,
+                  resultPreview: event.preview ?? event.result_preview,
+                  // Fall back to a synthetic count of 1 when the result is
+                  // structured but no array shape matched, so we don't keep
+                  // the misleading '0 results' label.
+                  resultCount: fmt.count ?? (fmt.isStructured ? 1 : (n.resultCount ?? 0)),
+                }
               : n
           ),
         })

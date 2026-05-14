@@ -1,5 +1,6 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
+import { formatToolResult } from '@/lib/toolResultFormatter'
 import type { NodeCard } from '@/stores/runStreamStore'
 
 interface NodeResultCardProps {
@@ -45,6 +46,10 @@ const NodeResultCard = React.memo(
     // First source URL (if any) is shown as an inline 'link' badge so the user
     // can jump to the source without opening the modal.
     const firstSourceUrl = card.sources?.find((s) => s.url)?.url
+    // Pretty-print tool result JSON (unwrap nested encoding from MCP) when the
+    // call has finished. While running, the body is still just the query.
+    const formatted = isTerminal ? formatToolResult(card.preview) : null
+    const displayBody = formatted?.pretty ?? card.preview
 
     return (
       <div
@@ -73,19 +78,32 @@ const NodeResultCard = React.memo(
         </div>
 
         {/* Body — while running, line-clamp the query preview to keep the card
-            small. Once finished, show the full result text so the user can
-            read it inline without opening the modal. */}
-        <p
-          className={cn(
-            'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
-            !isTerminal && 'line-clamp-3',
-          )}
-        >
-          {card.preview || (isPending ? 'Waiting to run…' : '')}
-          {isStreaming && (
-            <span className="inline-block w-0.5 h-3 bg-violet-500 animate-pulse ml-0.5 align-text-bottom" />
-          )}
-        </p>
+            small. Once finished, show the full pretty-printed result so the
+            user can read it inline without opening the modal. */}
+        {isTerminal && formatted?.isStructured ? (
+          <pre className="text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap font-mono max-h-72 overflow-auto bg-muted/20 rounded p-2">
+            {displayBody}
+          </pre>
+        ) : (
+          <p
+            className={cn(
+              'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
+              !isTerminal && 'line-clamp-3',
+            )}
+          >
+            {displayBody || (isPending ? 'Waiting to run…' : '')}
+            {isStreaming && (
+              <span className="inline-block w-0.5 h-3 bg-violet-500 animate-pulse ml-0.5 align-text-bottom" />
+            )}
+          </p>
+        )}
+
+        {/* Count derived from items/results/findings array, if present */}
+        {isTerminal && formatted?.count != null && (
+          <div className="mt-1.5 text-[10px] text-emerald-400/80">
+            {formatted.count} {formatted.count === 1 ? 'result' : 'results'}
+          </div>
+        )}
 
         {card.sources && card.sources.length > 0 && (
           <div className="flex gap-1.5 mt-2 flex-wrap">

@@ -7,6 +7,7 @@ import {
   DialogBody,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { formatToolResult } from '@/lib/toolResultFormatter'
 import type { NodeCard } from '@/stores/runStreamStore'
 
 interface NodeResultDetailModalProps {
@@ -67,19 +68,36 @@ function renderLinkified(text: string) {
 }
 
 function FormattedTab({ card }: { card: NodeCard }) {
-  const content =
+  const raw =
     card.preview ||
     (typeof card.output === 'string'
       ? card.output
       : JSON.stringify(card.output, null, 2))
-  if (!content) {
+  if (!raw) {
     return (
       <span className="text-sm text-muted-foreground italic">No formatted output yet.</span>
     )
   }
+  // Unwrap MCP's double-encoded JSON shape so the user reads pretty text,
+  // not escaped quote spaghetti.
+  const fmt = formatToolResult(raw)
+  if (fmt.isStructured) {
+    return (
+      <div className="text-sm space-y-2">
+        {fmt.count != null && (
+          <div className="text-[11px] text-emerald-400/90">
+            {fmt.count} {fmt.count === 1 ? 'result' : 'results'}
+          </div>
+        )}
+        <pre className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap font-mono bg-muted/30 rounded p-3 overflow-auto max-h-[60vh]">
+          {fmt.pretty}
+        </pre>
+      </div>
+    )
+  }
   return (
     <div className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-      {renderLinkified(content)}
+      {renderLinkified(fmt.pretty)}
     </div>
   )
 }
