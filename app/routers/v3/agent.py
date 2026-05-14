@@ -604,13 +604,16 @@ async def _run_is_research(
             await push_event(uid, {"type": "research.fast.started", "run_id": run_id, "job_id": run_id})
             await push_event(uid, {"type": "research.thorough.started", "run_id": run_id, "job_id": run_id})
 
-            fast_result, thorough_result = await asyncio.gather(fast_task, thorough_task)
-
+            # Stream the fast preview the moment it lands so the user sees something
+            # within ~3 min instead of waiting the full ~5 min for thorough.
+            fast_result = await fast_task
             await push_event(uid, {
                 "type": "research.fast.completed", "run_id": run_id, "job_id": run_id,
                 "findings": fast_result.get("findings", []),
                 "count": len(fast_result.get("findings", [])),
             })
+
+            thorough_result = await thorough_task
 
             result = _merge(fast_result, thorough_result, query)
 

@@ -14,8 +14,9 @@ import { test, expect } from '@playwright/test'
 
 const TEST_USER = { username: 'admin', password: 'admin' }
 
-// IS brain research can take a while — 5 minutes
-test.setTimeout(300_000)
+// IS brain in fast+thorough parallel mode: ~3 min for fast, ~5 min for thorough.
+// Total budget 7 min to cover steady-state plus warm-up overhead on cold caches.
+test.setTimeout(420_000)
 
 test('IS brain: research query produces findings in UI', async ({ page }) => {
   // Login
@@ -69,7 +70,7 @@ test('IS brain: research query produces findings in UI', async ({ page }) => {
                        text.includes('confidence') || text.includes('Go Deeper') ||
                        text.includes('RESULT FOUND')
     expect(hasResults).toBe(true)
-  }).toPass({ timeout: 240_000 })
+  }).toPass({ timeout: 360_000 })
   console.log('[TEST] Research completed with results!')
 
   // Screenshot the results
