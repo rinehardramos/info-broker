@@ -445,42 +445,62 @@ export default function PerformanceDashboard() {
       {/* Recent run history */}
       {runHistory && <RunHistorySection runs={runHistory} />}
 
-      {/* Technique/tactic leaderboard (existing) */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 24,
-          marginBottom: 20,
-          fontSize: 12,
-          color: 'var(--subtext)',
-        }}
-      >
-        <span>
-          <strong style={{ color: 'var(--accent)' }}>{data.total_runs}</strong> runs analysed
-        </span>
-        <span>
-          <strong style={{ color: 'var(--text)' }}>{data.techniques.length}</strong> tools tracked
-        </span>
-        <span>
-          <strong style={{ color: 'var(--text)' }}>{data.tactics.length}</strong> tactics tracked
-        </span>
+      {/* Header stats */}
+      <div style={{ display: 'flex', gap: 24, marginBottom: 24, fontSize: 12, color: 'var(--subtext)' }}>
+        <span><strong style={{ color: 'var(--accent)' }}>{data.total_runs}</strong> runs analysed</span>
+        <span><strong style={{ color: 'var(--text)' }}>{(metricsSummary?.strategies ?? []).length}</strong> strategies</span>
+        <span><strong style={{ color: 'var(--text)' }}>{data.tactics.length}</strong> tactics</span>
+        <span><strong style={{ color: 'var(--text)' }}>{data.techniques.length}</strong> tools</span>
       </div>
 
+      {/* Strategy Summary */}
       <section style={{ marginBottom: 32 }}>
-        <h2 style={{ ...sectionHeadStyle, marginBottom: 8 }}>Tool Leaderboard</h2>
-        {data.techniques.length === 0 ? (
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>No technique data yet.</p>
+        <h2 style={{ ...sectionHeadStyle, marginBottom: 8 }}>Strategy Summary</h2>
+        {(metricsSummary?.strategies ?? []).length === 0 ? (
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>No strategy data yet — run an investigation to populate.</p>
         ) : (
-          <TechniqueTable rows={data.techniques} />
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {['Strategy', 'Uses', 'Avg Score'].map(h => (
+                    <th key={h} style={{ padding: '6px 10px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', borderBottom: '1px solid var(--border)' }}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(metricsSummary?.strategies ?? []).map((s, i) => (
+                  <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel2)' }}>
+                    <td style={{ padding: '6px 10px', color: 'var(--text)', fontFamily: 'monospace', fontSize: 11 }}>{s.strategy}</td>
+                    <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
+                    <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{s.avg_score.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
-      <section>
+      {/* Tactic Summary */}
+      <section style={{ marginBottom: 32 }}>
         <h2 style={{ ...sectionHeadStyle, marginBottom: 8 }}>Tactic Summary</h2>
         {data.tactics.length === 0 ? (
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>No tactic data yet.</p>
         ) : (
           <TacticTable rows={data.tactics} />
+        )}
+      </section>
+
+      {/* Technique / Tool Leaderboard */}
+      <section>
+        <h2 style={{ ...sectionHeadStyle, marginBottom: 8 }}>Technique Leaderboard</h2>
+        {data.techniques.length === 0 ? (
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>No technique data yet.</p>
+        ) : (
+          <TechniqueTable rows={data.techniques} />
         )}
       </section>
     </div>
