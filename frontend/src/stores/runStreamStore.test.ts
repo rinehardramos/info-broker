@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { useRunStreamStore } from './runStreamStore'
 
 const reset = () => useRunStreamStore.setState({ runsById: {} })
@@ -80,5 +80,42 @@ describe('runStreamStore — clearRun', () => {
     useRunStreamStore.getState().setRunStatus('run-del', 'pipeline', 'running')
     useRunStreamStore.getState().clearRun('run-del')
     expect(useRunStreamStore.getState().runsById['run-del']).toBeUndefined()
+  })
+})
+
+describe('runStreamStore — appendStreamChunk', () => {
+  beforeEach(reset)
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('accumulates chunks and sets status to streaming', async () => {
+    // Mock requestAnimationFrame to execute synchronously
+    const rafCalls: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { rafCalls.push(cb); return 0 })
+
+    const s = useRunStreamStore.getState()
+    s.upsertCard('run-raf', { nodeId: 'n1', nodeName: 'llm', status: 'running' })
+    s.appendStreamChunk('run-raf', 'n1', 'Hello ', 0)
+    s.appendStreamChunk('run-raf', 'n1', 'world', 1) // should be buffered (rAF already pending)
+
+    // rAF not yet called — card still at 'running'
+    expect(useRunStreamStore.getState().runsById['run-raf'].cards['n1'].status).toBe('running')
+
+    // Flush the rAF
+    rafCalls[0](0)
+
+    const card = useRunStreamStore.getState().runsById['run-raf'].cards['n1']
+    expect(card.status).toBe('streaming')
+    expect(card.preview).toBe('Hello world') // accumulated text
+  })
+})
+
+describe('runStreamStore — addEdge', () => {
+  beforeEach(reset)
+
+  it('appends edge to run', () => {
+    useRunStreamStore.getState().addEdge('run-e', { from: 'a', to: 'b', kind: 'injected' })
+    const edges = useRunStreamStore.getState().runsById['run-e'].edges
+    expect(edges).toHaveLength(1)
+    expect(edges[0]).toEqual({ from: 'a', to: 'b', kind: 'injected' })
   })
 })

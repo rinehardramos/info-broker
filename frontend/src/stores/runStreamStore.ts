@@ -84,6 +84,8 @@ function ensureRun(
       dismissedSuggestionIds: new Set(),
       hydratedFromServer: false,
     }
+  } else {
+    runsById[runId] = { ...runsById[runId] } // copy so mutations below don't touch old state
   }
   return runsById[runId]
 }
@@ -120,10 +122,10 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
     if (_rafPending[bufKey]) return
     _rafPending[bufKey] = true
     requestAnimationFrame(() => {
-      const buffered = _chunkBuffer[bufKey] ?? ''
-      delete _chunkBuffer[bufKey]
+      const accumulated = _chunkBuffer[bufKey] ?? ''
+      // Do NOT delete _chunkBuffer[bufKey] — it holds the full accumulated text
       delete _rafPending[bufKey]
-      get().upsertCard(runId, { nodeId, status: 'streaming', preview: buffered })
+      get().upsertCard(runId, { nodeId, status: 'streaming', preview: accumulated })
     })
   },
 
@@ -178,12 +180,22 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
     set((state) => {
       const runsById = { ...state.runsById }
       ensureRun(runsById, runId)
-      runsById[runId] = { ...runsById[runId], ...serverRun, hydratedFromServer: true }
+      const merged = { ...runsById[runId], ...serverRun, hydratedFromServer: true }
+      // Coerce to Set in case JSON deserialization sent an array
+      merged.dismissedSuggestionIds = new Set(merged.dismissedSuggestionIds)
+      runsById[runId] = merged
       return { runsById }
     })
   },
 
   clearRun(runId) {
+    // Clean up any dangling chunk buffers for this run
+    for (const key of Object.keys(_chunkBuffer)) {
+      if (key.startsWith(`${runId}:`)) {
+        delete _chunkBuffer[key]
+        delete _rafPending[key]
+      }
+    }
     set((state) => {
       const { [runId]: _, ...rest } = state.runsById
       return { runsById: rest }
