@@ -119,3 +119,26 @@ describe('runStreamStore — addEdge', () => {
     expect(edges[0]).toEqual({ from: 'a', to: 'b', kind: 'injected' })
   })
 })
+
+describe('runStreamStore — kind upgrade (issue #86)', () => {
+  beforeEach(reset)
+
+  it("upgrades existing pipeline run to 'is' when IS event arrives", () => {
+    const s = useRunStreamStore.getState()
+    s.upsertCard('run-k', { nodeId: 'x', status: 'running' })
+    expect(useRunStreamStore.getState().runsById['run-k'].kind).toBe('pipeline')
+
+    s.setRunStatus('run-k', 'is', 'running')
+    expect(useRunStreamStore.getState().runsById['run-k'].kind).toBe('is')
+  })
+
+  it("never downgrades 'is' back to 'pipeline'", () => {
+    const s = useRunStreamStore.getState()
+    s.setRunStatus('run-k', 'is', 'running')
+    expect(useRunStreamStore.getState().runsById['run-k'].kind).toBe('is')
+
+    s.setRunStatus('run-k', 'pipeline', 'succeeded')
+    expect(useRunStreamStore.getState().runsById['run-k'].kind).toBe('is')
+    expect(useRunStreamStore.getState().runsById['run-k'].status).toBe('succeeded')
+  })
+})

@@ -134,6 +134,11 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
       const runsById = { ...state.runsById }
       const run = ensureRun(runsById, runId, kind)
       run.status = status
+      // Upgrade-only kind classification: once a run is observed as 'is', never
+      // downgrade it back to 'pipeline'. Some IS runs receive a generic
+      // upsertCard before the first IS-specific event, which creates the run
+      // with the default 'pipeline' kind. The IS event must be able to fix that.
+      if (kind === 'is') run.kind = 'is'
       // Clean up streaming buffers for terminated runs
       if (status === 'succeeded' || status === 'failed' || status === 'canceled') {
         for (const key of Object.keys(_chunkBuffer)) {

@@ -166,10 +166,9 @@ function connect(token: string) {
             case 'is.tool_call': {
               const rid = event.run_id ?? event.job_id ?? ''
               if (!rid) break
-              // Ensure run is created with IS kind BEFORE upsertCard (which defaults to 'pipeline')
-              if (!useRunStreamStore.getState().runsById[rid]) {
-                stream.setRunStatus(rid, 'is', 'running')
-              }
+              // Mark this run as IS — also upgrades runs that were created with
+              // default kind='pipeline' by an earlier non-IS-specific event.
+              stream.setRunStatus(rid, 'is', 'running')
               stream.upsertCard(rid, {
                 nodeId: event.call_id ?? event.node_id ?? rid,
                 nodeName: event.tool ?? 'tool_call',
@@ -184,10 +183,9 @@ function connect(token: string) {
             case 'is.tool_result': {
               const rid = event.run_id ?? event.job_id ?? ''
               if (!rid) break
-              // Ensure run is created with IS kind BEFORE upsertCard (which defaults to 'pipeline')
-              if (!useRunStreamStore.getState().runsById[rid]) {
-                stream.setRunStatus(rid, 'is', 'running')
-              }
+              // Mark this run as IS — also upgrades runs that were created with
+              // default kind='pipeline' by an earlier non-IS-specific event.
+              stream.setRunStatus(rid, 'is', 'running')
               stream.upsertCard(rid, {
                 nodeId: event.call_id ?? event.node_id ?? rid,
                 status: 'succeeded',
