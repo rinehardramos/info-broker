@@ -11,6 +11,9 @@ import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
 import { InvestigationBreakdown } from './InvestigationBreakdown'
 import { Sparkles, ArrowDownToLine, Save, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
+import { RunResultsView } from './RunResultsView'
+import { RunningTabBadge } from './RunningTabBadge'
+import { useRunStreamStore } from '../../stores/runStreamStore'
 
 // Tab is either the static 'Pipeline' tab, the static 'Results' tab, or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | 'Results' | `run:${string}`
@@ -1937,10 +1940,10 @@ export default function ResultsPanel() {
                   }}
                   title={`${run.pipeline_name} — ${run.status}`}
                 >
-                  <span style={{ fontSize: 6, color: statusDot }}>●</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {run.pipeline_name?.slice(0, 14) ?? 'Run'}
-                  </span>
+                  <RunningTabBadge
+                    runId={run.id}
+                    label={run.pipeline_name?.slice(0, 14) ?? 'Run'}
+                  />
                   {run.id === sessionRunIds[0] && sessionRunIds.length > 1 && (
                     <span style={{
                       fontSize: 8, background: 'var(--accent)', color: 'var(--bg)',
@@ -1954,6 +1957,7 @@ export default function ResultsPanel() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    useRunStreamStore.getState().clearRun(run.id)
                     setDismissedTabs(prev => new Set(prev).add(run.id))
                     if (isActive) setActiveTab('Pipeline')
                   }}
@@ -2003,16 +2007,7 @@ export default function ResultsPanel() {
 
         {activeRunId && (
           <div key={activeRunId} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {sessionRunIds.length > 1 && sessionRunIds[0] === activeRunId ? (
-              // Session mode: show unified canvas across all session runs
-              <SessionCanvas runIds={sessionRunIds} />
-            ) : (
-              // Single run: existing behavior
-              <PipelineRunResults
-                runId={activeRunId}
-                onNavigateRun={(newRunId) => setActiveTab(`run:${newRunId}`)}
-              />
-            )}
+            <RunResultsView runId={activeRunId} />
           </div>
         )}
       </div>
