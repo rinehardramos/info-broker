@@ -145,22 +145,24 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
   // IS research run — completed with findings
   if (run.trigger_type === 'agent_is' && run.research) {
     return (
-      <ResearchResults
-        research={run.research}
-        status={run.status}
-        runId={runId}
-        goingDeeper={goingDeeper}
-        onGoDeeper={async (leads) => {
-          setGoingDeeper(true)
-          try {
-            const deeper = leads.join('; ')
-            const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
-            if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
-          } finally {
-            setGoingDeeper(false)
-          }
-        }}
-      />
+      <div className="h-full overflow-y-auto">
+        <ResearchResults
+          research={run.research}
+          status={run.status}
+          runId={runId}
+          goingDeeper={goingDeeper}
+          onGoDeeper={async (leads) => {
+            setGoingDeeper(true)
+            try {
+              const deeper = leads.join('; ')
+              const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
+              if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
+            } finally {
+              setGoingDeeper(false)
+            }
+          }}
+        />
+      </div>
     )
   }
 
@@ -244,25 +246,11 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
 
   // IS research run — still running, show live streaming view
   if (run.trigger_type === 'agent_is' && (run.status === 'queued' || run.status === 'running')) {
-    return (
-      <div className="p-3 flex flex-col h-full">
-        <div
-          className="rounded p-3 mb-3 text-xs"
-          style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}
-        >
-          <div className="flex items-center gap-2">
-            <span style={{ fontSize: 8, color: '#a78bfa' }}>◆</span>
-            <span style={{ color: '#a78bfa', fontWeight: 600 }}>IS Research — {run.status}</span>
-          </div>
-          <p style={{ color: 'var(--muted)', fontSize: 10, marginTop: 4 }}>
-            Brain is actively researching. Tool calls stream below in real-time.
-          </p>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <ResearchFlow runId={runId ?? undefined} />
-        </div>
-      </div>
-    )
+    // While the brain is running, show the split window: live tool-call cards
+    // on top and the flow diagram on the bottom. Once `run.research` arrives
+    // (status transitions to succeeded), the branch above renders the rich
+    // finding cards via ResearchResults.
+    return <RunResultsView runId={runId} />
   }
 
   const totalItems = run.steps.reduce((sum, s) => sum + s.item_count, 0)
@@ -1996,9 +1984,24 @@ export default function ResultsPanel() {
       {activeRunId ? (
         <div
           key={activeRunId}
+          // No overflow on the wrapper — the running branch needs a fixed-height
+          // parent for its PanelGroup. PipelineRunResults's content-heavy branches
+          // (ResearchResults, failed, confirm_pending) wrap themselves in scroll.
           className="flex-1 min-h-0 flex flex-col"
         >
-          <RunResultsView runId={activeRunId} />
+          {/* PipelineRunResults internally branches on run status:
+              - running/queued  → RunResultsView (split window)
+              - succeeded       → ResearchResults (rich finding cards w/ branches, Analyze, Go Deeper)
+              - failed          → error card with Retry
+              - confirm_pending → confirmation gate UI */}
+          <PipelineRunResults
+            runId={activeRunId}
+            onNavigateRun={(newRunId) => {
+              setDismissedTabs(prev => { const n = new Set(prev); n.delete(newRunId); return n })
+              setActiveTab(`run:${newRunId}`)
+              setCol1Content({ type: 'pipeline_run', runId: newRunId })
+            }}
+          />
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
