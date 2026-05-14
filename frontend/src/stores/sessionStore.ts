@@ -48,7 +48,7 @@ const storedToken = localStorage.getItem('access_token')
 const initialClaims = claimsFromToken(storedToken)
 
 export const useSessionStore = create<SessionState>((set) => ({
- [REDACTED:assigned-token:34ch:hash=9824825a]('access_token'),
+  accessToken: localStorage.getItem('access_token'),
   username: null,
   userId:   initialClaims.userId,
   isAdmin:  initialClaims.isAdmin,
