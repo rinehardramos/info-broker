@@ -168,6 +168,28 @@ def _parse_task_calls_from_events(events: list[dict[str, Any]]) -> list[dict[str
       {technique_id, params_template, expect_schema, fail_modes, budget_ru}
     """
     task_calls: list[dict[str, Any]] = []
+    # Index tool_results by their tool_use_id so we can pair them with calls
+    results_by_id: dict[str, str] = {}
+    for event in events:
+        if event.get("type") not in ("assistant", "user"):
+            continue
+        for content in event.get("message", {}).get("content", []):
+            if content.get("type") == "tool_result":
+                tid = content.get("tool_use_id", "")
+                data = content.get("content", "")
+                if isinstance(data, list):
+                    parts = [
+                        block.get("text", "") if isinstance(block, dict) else str(block)
+                        for block in data
+                    ]
+                    text = "\n".join(parts)
+                elif isinstance(data, (dict, list)):
+                    text = json.dumps(data)
+                else:
+                    text = str(data) if data else ""
+                if tid:
+                    results_by_id[tid] = text
+
     for event in events:
         etype = event.get("type", "")
         if etype not in ("assistant", "user"):
@@ -176,21 +198,24 @@ def _parse_task_calls_from_events(events: list[dict[str, Any]]) -> list[dict[str
             if content.get("type") != "tool_use":
                 continue
             tool_name = content.get("name", "")
-            # Only count info-broker MCP tools; ignore built-in Claude tools
-            # (ToolSearch/Bash/etc) that occasionally appear in the brain's output.
             if not tool_name.startswith("mcp__info-broker-mcp__"):
                 continue
-            # Strip MCP prefix AND the run_ prefix used by the MCP server:
-            # mcp__info-broker-mcp__run_web_search → web_search
             tail = tool_name.split("__")[-1]
             technique_id = tail[4:] if tail.startswith("run_") else tail
+            tool_use_id = content.get("id", "")
+            inline_result = results_by_id.get(tool_use_id, "")
             task_calls.append({
                 "technique_id": technique_id,
                 "params_template": content.get("input", {}),
                 "expect_schema": {},
                 "fail_modes": [],
                 "budget_ru": 1,
-                "_tool_use_id": content.get("id", ""),
+                "_tool_use_id": tool_use_id,
+                # Stdio MCP already returned the result inside the subprocess;
+                # carry it forward so the tactician doesn't try to re-execute
+                # via HTTP (which fails — see #19). When inline_result is set,
+                # the tactician skips the specialist re-call.
+                "inline_result": inline_result,
             })
     return task_calls
 

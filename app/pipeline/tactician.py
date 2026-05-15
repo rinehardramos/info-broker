@@ -343,6 +343,32 @@ async def execute_tactician(
             )
             continue
 
+        # Fast path: if the scoped subprocess already executed the tool via
+        # stdio MCP, the tool_result is carried in task_call["inline_result"].
+        # Skip the specialist HTTP re-call and synthesize a Finding directly.
+        # See #19 — the brain executed inside the subprocess; we just harvest.
+        inline = task_call.get("inline_result")
+        if inline:
+            resolved_source_class = _technique_to_source_class(technique_id)
+            params = task_call.get("params_template", {})
+            query_str = (
+                params.get("query") or params.get("q") or params.get("name") or ""
+            )
+            findings.append({
+                "candidate": query_str,
+                "candidate_name": query_str,
+                "source_class": resolved_source_class,
+                "source_url": None,
+                "evidence_snippet": str(inline)[:1500],
+                "confidence": 0.6,
+                "date": None,
+            })
+            specialist_calls += 1
+            ru_spent += task_ru
+            if query_str:
+                candidate_names_seen.add(query_str)
+            continue
+
         task_spec = TaskSpec(
             technique_id=technique_id,
             params_template=task_call.get("params_template", {}),
