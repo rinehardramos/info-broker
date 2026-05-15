@@ -85,9 +85,11 @@ const NodeResultCard = React.memo(
         </div>
 
         {/* Body — render findings as human-readable cards (FindingView) when
-            the shape matches; fall back to pretty text only when it doesn't. */}
+            the shape matches; fall back to pretty text only when it doesn't.
+            Pass onSelect directly so rows open the modal even if event
+            bubbling is interfered with by ancestor handlers. */}
         {isTerminal && hasStructuredFindings ? (
-          <FindingView data={card.output ?? card.preview} limit={3} clickable />
+          <FindingView data={card.output ?? card.preview} limit={3} clickable onSelect={onClick} />
         ) : (
           <p
             className={cn(

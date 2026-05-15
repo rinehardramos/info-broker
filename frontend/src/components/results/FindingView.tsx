@@ -15,17 +15,20 @@ function FindingRow({
   finding,
   compact = false,
   clickable = false,
+  onSelect,
 }: {
   finding: NormalizedFinding
   compact?: boolean
   clickable?: boolean
+  onSelect?: () => void
 }) {
   const confPct = finding.confidence != null ? Math.round(finding.confidence * 100) : null
   return (
     <div
+      onClick={onSelect ? (e) => { e.stopPropagation(); onSelect() } : undefined}
       className={
         'rounded-md border border-border/60 bg-card/40 p-2.5 space-y-1.5 ' +
-        (clickable
+        (clickable || onSelect
           ? 'cursor-pointer hover:bg-card/70 hover:border-violet-700/50 transition-colors'
           : '')
       }
@@ -91,6 +94,9 @@ interface FindingViewProps {
   limit?: number
   compact?: boolean
   clickable?: boolean
+  /** Optional — fires when a row is clicked. Takes precedence over relying
+   *  on click bubbling to a parent onClick. */
+  onSelect?: () => void
 }
 
 /**
@@ -99,7 +105,7 @@ interface FindingViewProps {
  *
  * (This is a React component, not a util — Fast Refresh friendly.)
  */
-export function FindingView({ data, limit, compact, clickable }: FindingViewProps) {
+export function FindingView({ data, limit, compact, clickable, onSelect }: FindingViewProps) {
   const findings = parseAndNormalize(data)
   if (!findings || findings.length === 0) return null
 
@@ -110,7 +116,7 @@ export function FindingView({ data, limit, compact, clickable }: FindingViewProp
   return (
     <div className="space-y-1.5">
       {visible.map((f, i) => (
-        <FindingRow key={i} finding={f} compact={compact} clickable={clickable} />
+        <FindingRow key={i} finding={f} compact={compact} clickable={clickable} onSelect={onSelect} />
       ))}
       {hiddenCount > 0 && (
         <div className="text-[10px] text-muted-foreground italic text-center pt-1">

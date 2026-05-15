@@ -379,14 +379,21 @@ export default function AgentChat() {
           query={preflightQuery}
           onCancel={() => {
             setPreflightQuery(null)
+            // Restore the query to the input so the user can edit and resubmit.
             setInput(preflightQuery)
           }}
-          onConfirmed={(_runId, _holdId) => {
-            // Hold placed — proceed with the normal send path (legacy)
+          onConfirmed={(runId, _holdId) => {
+            // POST /v3/preflight/confirm with start_run=true ALREADY launched
+            // engine_v2 in the background. We just need to:
+            //   1. dismiss the preflight overlay
+            //   2. surface the running run in ResultsPanel (its tab)
+            //   3. clear the chat input — we do NOT re-send via handleSend
+            //      because that would dump the query into chat as a legacy
+            //      message (which is what the user complained about).
             setPreflightQuery(null)
-            setInput(preflightQuery)
-            // Kick off the actual run via the normal flow
-            setTimeout(() => handleSend(), 0)
+            setInput('')
+            useSessionStore.getState().setActiveJobId(runId)
+            useSessionStore.getState().setCol1Content({ type: 'pipeline_run', runId })
           }}
         />
       </div>
