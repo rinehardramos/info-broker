@@ -51,12 +51,17 @@ const NodeResultCard = React.memo(
     // can jump to the source without opening the modal.
     const firstSourceUrl = card.sources?.find((s) => s.url)?.url
 
-    // Detect if the card's output is a recognizable finding shape.
-    // If yes, render via <FindingView>. If no, fall back to formatted text.
+    // Try to extract structured findings first (the rich case). If that
+    // fails we ONLY show counts or short status text — never raw escaped
+    // JSON, which is what produced the earlier "reverted to JSON" cards.
     const findingsInData = isTerminal ? parseAndNormalize(card.output ?? card.preview) : null
     const hasStructuredFindings = !!findingsInData && findingsInData.length > 0
     const formatted = isTerminal && !hasStructuredFindings ? formatToolResult(card.preview) : null
-    const displayBody = formatted?.pretty ?? card.preview
+    // For non-finding shapes, prefer a short prose summary derived from the
+    // tool result. Strip pure-JSON bodies — those belong in the modal.
+    const rawBody = formatted?.pretty ?? card.preview ?? ''
+    const looksLikeJson = rawBody.trim().startsWith('{') || rawBody.trim().startsWith('[')
+    const displayBody = looksLikeJson ? '' : rawBody
 
     return (
       <div
@@ -110,22 +115,36 @@ const NodeResultCard = React.memo(
             </ul>
           </div>
         ) : (
-          <p
-            className={cn(
-              'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
-              !isTerminal && 'line-clamp-2',
-              isTerminal && 'line-clamp-2',
+          <>
+            {/* Prose summary when we have one (and it isn't raw JSON) */}
+            {(displayBody || isPending || isStreaming) && (
+              <p
+                className={cn(
+                  'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
+                  'line-clamp-2',
+                )}
+              >
+                {displayBody || (isPending ? 'Waiting to run…' : '')}
+                {isStreaming && (
+                  <span className="inline-block w-0.5 h-3 bg-violet-500 animate-pulse ml-0.5 align-text-bottom" />
+                )}
+              </p>
             )}
-          >
-            {displayBody || (isPending ? 'Waiting to run…' : '')}
-            {isStreaming && (
-              <span className="inline-block w-0.5 h-3 bg-violet-500 animate-pulse ml-0.5 align-text-bottom" />
+            {/* Status line when we have no readable body — never dump JSON
+                here; the modal is the place for the raw structured data. */}
+            {isTerminal && !displayBody && (
+              <p className="text-xs text-foreground/70">
+                {formatted?.count != null
+                  ? `${formatted.count} ${formatted.count === 1 ? 'result' : 'results'}`
+                  : 'Result ready — click for details'}
+              </p>
             )}
-          </p>
+          </>
         )}
 
-        {/* Result count for non-finding shapes (e.g. raw web_search results) */}
-        {isTerminal && !hasStructuredFindings && formatted?.count != null && (
+        {/* Result count for non-finding shapes — only when not already shown
+            above as the sole body line */}
+        {isTerminal && !hasStructuredFindings && formatted?.count != null && displayBody && (
           <div className="mt-1.5 text-[10px] text-emerald-400/80">
             {formatted.count} {formatted.count === 1 ? 'result' : 'results'}
           </div>

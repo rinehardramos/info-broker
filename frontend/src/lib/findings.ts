@@ -32,6 +32,8 @@ function normalizeOne(obj: unknown): NormalizedFinding | null {
     (typeof o.snippet === 'string' && o.snippet) ||
     (typeof o.summary === 'string' && o.summary) ||
     (typeof o.description === 'string' && o.description) ||
+    (typeof o.text === 'string' && o.text) ||
+    (typeof o.content === 'string' && o.content) ||
     ''
   if (!candidate && !snippet) return null
   return {
@@ -40,6 +42,8 @@ function normalizeOne(obj: unknown): NormalizedFinding | null {
     source_url:
       (typeof o.source_url === 'string' && o.source_url) ||
       (typeof o.url === 'string' && o.url) ||
+      (typeof o.link === 'string' && o.link) ||
+      (typeof o.href === 'string' && o.href) ||
       undefined,
     evidence_snippet: snippet,
     confidence: typeof o.confidence === 'number' ? o.confidence : undefined,
