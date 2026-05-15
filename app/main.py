@@ -313,6 +313,7 @@ from app.search_engine.router import router as search_engine_router  # noqa: E40
 app.include_router(search_engine_router)
 
 from app.routers.v3.auth import router as v3_auth_router  # noqa: E402
+from app.routers.v3.oauth import router as v3_oauth_router  # noqa: E402
 from app.routers.v3.users import router as v3_users_router  # noqa: E402
 from app.routers.v3.plugins import router as v3_plugins_router  # noqa: E402
 from app.routers.v3.settings import router as v3_settings_router  # noqa: E402
@@ -340,6 +341,7 @@ from app.routers.v3.share import router as v3_share_router  # noqa: E402
 from app.routers.v3.templates import router as v3_templates_router  # noqa: E402
 from app.routers.v3.replay import router as v3_replay_router  # noqa: E402
 app.include_router(v3_auth_router)
+app.include_router(v3_oauth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
 app.include_router(v3_settings_router)

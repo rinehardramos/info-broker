@@ -517,6 +517,17 @@ UPDATE ui_users SET is_admin = true WHERE username = 'admin';
 ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS role VARCHAR(32) NOT NULL DEFAULT 'analyst';
 UPDATE ui_users SET role = 'admin' WHERE is_admin = true OR username = 'admin';
 
+-- SSO: Google/GitHub OAuth identity columns. SSO-only users have a NULL
+-- password_hash so the password_hash NOT NULL constraint is relaxed.
+ALTER TABLE ui_users ALTER COLUMN password_hash DROP NOT NULL;
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS oauth_provider VARCHAR(32);
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS oauth_sub      VARCHAR(255);
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS avatar_url     TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_ui_users_oauth_identity
+    ON ui_users(oauth_provider, oauth_sub) WHERE oauth_sub IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS ix_ui_users_email_unique
+    ON ui_users(LOWER(email)) WHERE email IS NOT NULL;
+
 
 -- Session multi-turn hypothesis memory
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS investigated_hypotheses JSONB DEFAULT '[]'::jsonb;

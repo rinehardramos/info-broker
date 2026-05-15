@@ -1,7 +1,8 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useSessionStore } from '../stores/sessionStore'
+import { api } from '@/api/client'
 import { Logo } from '@/components/brand/Logo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,6 +35,22 @@ export default function Login() {
   const [loading, setLoading]   = useState(false)
   const navigate                = useNavigate()
   const { setTokens }           = useSessionStore()
+
+  // Discover which SSO providers are configured on the backend so we can
+  // disable buttons (and label them as "coming soon") when keys aren't set.
+  const [providers, setProviders] = useState<{ google: boolean; github: boolean }>({
+    google: false, github: false,
+  })
+  useEffect(() => {
+    api.get('/v3/auth/providers')
+      .then((r) => setProviders(r.data))
+      .catch(() => { /* leave both disabled */ })
+  }, [])
+
+  function startOAuth(provider: 'google' | 'github') {
+    // Full-page navigation — backend will 302 to the provider and back.
+    window.location.href = `/api/v3/auth/${provider}/login`
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -69,10 +86,11 @@ export default function Login() {
             <Button
               type="button"
               variant="outline"
+              onClick={() => startOAuth('google')}
               className="w-full gap-2 text-sm"
-              style={{ borderColor: 'var(--border)', color: 'var(--subtext)', background: 'transparent' }}
-              disabled
-              title="Google login — coming soon"
+              style={{ borderColor: 'var(--border)', color: providers.google ? 'var(--text)' : 'var(--subtext)', background: 'transparent' }}
+              disabled={!providers.google}
+              title={providers.google ? 'Continue with your Google account' : 'Google login — not configured'}
             >
               <GoogleIcon />
               Continue with Google
@@ -80,10 +98,11 @@ export default function Login() {
             <Button
               type="button"
               variant="outline"
+              onClick={() => startOAuth('github')}
               className="w-full gap-2 text-sm"
-              style={{ borderColor: 'var(--border)', color: 'var(--subtext)', background: 'transparent' }}
-              disabled
-              title="GitHub login — coming soon"
+              style={{ borderColor: 'var(--border)', color: providers.github ? 'var(--text)' : 'var(--subtext)', background: 'transparent' }}
+              disabled={!providers.github}
+              title={providers.github ? 'Continue with your GitHub account' : 'GitHub login — not configured'}
             >
               <GithubIcon />
               Continue with GitHub

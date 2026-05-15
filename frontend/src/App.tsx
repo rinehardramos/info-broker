@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AuthGuard from './components/AuthGuard'
 import Login from './pages/Login'
+import AuthCallback from './pages/AuthCallback'
 import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
 import { ResultDrawer } from './components/runs/ResultDrawer'
@@ -51,6 +52,7 @@ export default function App() {
         <Suspense fallback={<Spinner />}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
             <Route path="/dashboard" element={<AuthGuard><Dashboard /></AuthGuard>} />
             <Route path="/research" element={<AuthGuard><Research /></AuthGuard>} />
