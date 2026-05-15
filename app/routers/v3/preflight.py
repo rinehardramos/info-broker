@@ -417,6 +417,21 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
             import asyncio as _asyncio
             from app.pipeline.engine_v2 import run_engine_v2
             from app.routers.v3.stream import push_event
+            from app.routers.v3.db import execute as _db_execute
+
+            # Synchronously insert pipeline_runs row BEFORE returning the
+            # response. This closes a race where the frontend's GET
+            # /v3/pipelines/runs/{runId} fires before engine_v2's async
+            # INSERT lands, and the user sees a "Run not found" page.
+            try:
+                _db_execute(
+                    """INSERT INTO pipeline_runs (id, pipeline_id, user_id, status, trigger_type, query)
+                       VALUES (%s, '00000000-0000-4000-8000-000000000001', %s, 'running', 'agent', %s)
+                       ON CONFLICT (id) DO NOTHING""",
+                    (run_id, uid, body.query),
+                )
+            except Exception as exc:
+                log.warning("preflight: pipeline_runs pre-insert failed (non-fatal): %s", exc)
 
             _envelope = BudgetEnvelope(
                 capability=cap if cap in CAPABILITY_LEVELS else "general",

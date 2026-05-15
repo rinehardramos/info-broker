@@ -227,6 +227,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
       query,
       envelope: { speed, capability, resource, hypothesis_count: hypothesisCount, depth },
       strategy_id: strategy,
+      start_run: true,
     })
     setConfirming(false)
     if (result) {

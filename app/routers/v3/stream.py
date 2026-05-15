@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections import defaultdict
+import time
+from collections import defaultdict, deque
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -13,9 +14,28 @@ router = APIRouter(tags=["v3-stream"])
 # In-process event bus: user_id → set of queues
 _queues: dict[str, set[asyncio.Queue]] = defaultdict(set)
 
+# Per-user ring buffer so events emitted during a WS disconnect can be replayed
+# on the next reconnect. Long-running pipelines (engine_v2) emit cards while
+# Cloudflare-tunneled WS connections cycle every ~10s; without this buffer the
+# live cards view is silently empty.
+_BUFFER_SIZE = 500
+_BUFFER_TTL_SEC = 120
+_event_buffer: dict[str, deque] = defaultdict(lambda: deque(maxlen=_BUFFER_SIZE))
+
+
+# Event types that aren't worth replaying (heartbeats, transient acks).
+_NO_REPLAY_TYPES = {"ping"}
+
 
 async def push_event(user_id: str, event: dict) -> None:
-    """Push a JSON event to all WebSocket connections for this user."""
+    """Push a JSON event to all WebSocket connections for this user.
+
+    Also stores the event in the per-user ring buffer so a reconnecting client
+    can replay anything emitted while the socket was down."""
+    etype = event.get("type", "")
+    if etype not in _NO_REPLAY_TYPES:
+        _event_buffer[user_id].append((time.time(), event))
+
     dead = set()
     for q in list(_queues.get(user_id, [])):
         try:
@@ -47,9 +67,29 @@ async def stream(websocket: WebSocket):
         await websocket.close(code=4001, reason="Invalid token")
         return
 
-    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
     _queues[user_id].add(queue)
     log.info("WebSocket connected: user=%s", user_id)
+
+    # Replay buffered events from any prior disconnect within the TTL window.
+    # The frontend stores are idempotent on (run_id, node_id) so replays merge
+    # cleanly rather than duplicating cards.
+    try:
+        cutoff = time.time() - _BUFFER_TTL_SEC
+        buf = _event_buffer.get(user_id) or ()
+        replayed = 0
+        for ts, ev in list(buf):
+            if ts < cutoff:
+                continue
+            try:
+                queue.put_nowait({**ev, "replayed": True})
+                replayed += 1
+            except asyncio.QueueFull:
+                break
+        if replayed:
+            log.info("Replayed %d buffered events on reconnect: user=%s", replayed, user_id)
+    except Exception as exc:
+        log.warning("event-buffer replay failed: %s", exc)
 
     # Replay any pending confirmation gates so the user sees them after reconnect
     try:
@@ -77,7 +117,9 @@ async def stream(websocket: WebSocket):
     try:
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=30)
+                # Keep ping interval short so Cloudflare-tunneled connections
+                # don't idle out between sparse engine_v2 events.
+                event = await asyncio.wait_for(queue.get(), timeout=8)
                 await websocket.send_text(json.dumps(event))
             except asyncio.TimeoutError:
                 await websocket.send_text(json.dumps({"type": "ping"}))

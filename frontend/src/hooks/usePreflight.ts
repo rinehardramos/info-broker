@@ -72,6 +72,8 @@ export interface PreflightConfirmIn {
   query: string
   envelope: Partial<DialsIn>
   strategy_id: string
+  /** When true, backend launches engine_v2 in the background after the wallet hold. */
+  start_run?: boolean
 }
 
 export interface PreflightConfirmResult {
