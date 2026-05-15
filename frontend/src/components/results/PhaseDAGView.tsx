@@ -4,10 +4,12 @@
  * Renders:
  *   1. PhaseProgress strip at top (always visible)
  *   2. TacticianSwimLanes scoped to the active phase
- *   3. A "Compact view" toggle that falls back to the legacy linear ResearchFlow
+ *   3. A view-mode toggle: "Live" | "Compact" | "DAG"
  *
- * The compact preference is persisted in localStorage under the key
- * "v2_live_view_compact" so it survives page reloads.
+ * View mode is persisted in localStorage under VIEW_MODE_STORAGE_KEY.
+ * Previously stored boolean "true"/"false" values are migrated transparently:
+ *   "true"  → "compact"
+ *   "false" → "live"
  */
 
 import React, { useState, useEffect } from 'react'
@@ -15,39 +17,44 @@ import { useRunStreamStore } from '@/stores/runStreamStore'
 import { PhaseProgress } from './PhaseProgress'
 import { TacticianSwimLanes } from './TacticianSwimLanes'
 import { ResearchFlow } from './ResearchFlow'
+import { InvestigationDAG } from './InvestigationDAG'
 
-const COMPACT_STORAGE_KEY = 'v2_live_view_compact'
+export type ViewMode = 'live' | 'compact' | 'dag'
 
-// Default phase order for media_identification strategy (MVP).
-// When more strategies land, the strategist can emit this via the phase_start events.
+/** Storage key — replaces the old "v2_live_view_compact" boolean key. */
+export const VIEW_MODE_STORAGE_KEY = 'v2_live_view_mode'
+
 const DEFAULT_PHASE_ORDER = ['signal_extraction', 'broaden', 'red_team', 'rank_verify']
 
 interface PhaseDAGViewProps {
   runId: string
-  /** Optional override of the phase order (e.g. from strategy metadata). */
   phaseOrder?: string[]
-  /** Callback when a tactician column is selected so the card list can filter. */
   onSelectTactician?: (filter: { phaseId: string; slotIdx: number } | null) => void
 }
 
-function readCompactPref(): boolean {
+function readViewMode(): ViewMode {
   try {
-    return localStorage.getItem(COMPACT_STORAGE_KEY) === 'true'
+    const raw = localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+    if (raw === 'live' || raw === 'compact' || raw === 'dag') return raw
+    // Migrate old boolean key
+    const legacy = localStorage.getItem('v2_live_view_compact')
+    if (legacy === 'true') return 'compact'
   } catch {
-    return false
+    // ignore storage errors
   }
+  return 'live'
 }
 
-function writeCompactPref(value: boolean) {
+function writeViewMode(mode: ViewMode) {
   try {
-    localStorage.setItem(COMPACT_STORAGE_KEY, value ? 'true' : 'false')
+    localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
   } catch {
     // ignore storage errors
   }
 }
 
 export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGViewProps) {
-  const [compact, setCompact] = useState<boolean>(readCompactPref)
+  const [viewMode, setViewMode] = useState<ViewMode>(readViewMode)
   const [selectedTactician, setSelectedTactician] = useState<{ phaseId: string; slotIdx: number } | null>(null)
 
   const run = useRunStreamStore(s => s.runsById[runId])
@@ -55,30 +62,23 @@ export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGV
   const tacticians = run?.tacticians ?? {}
   const activePhase = run?.activePhase ?? null
 
-  // Determine display phase order: use provided override, or fall back to
-  // the order inferred from keys in phases (arrival order), or the default.
   const derivedOrder = (() => {
     if (phaseOrder && phaseOrder.length > 0) return phaseOrder
     const knownKeys = Object.keys(phases)
     if (knownKeys.length > 0) {
-      // Sort by index in DEFAULT_PHASE_ORDER; unknowns appended at end
       return DEFAULT_PHASE_ORDER.concat(knownKeys.filter(k => !DEFAULT_PHASE_ORDER.includes(k)))
     }
     return DEFAULT_PHASE_ORDER
   })()
 
-  // The swim lanes show the active phase if running, or the last completed phase.
   const displayPhaseId = activePhase ?? (() => {
     const last = derivedOrder.slice().reverse().find(id => phases[id]?.status !== 'pending' && phases[id] != null)
     return last ?? null
   })()
 
-  function handleToggleCompact() {
-    setCompact(v => {
-      const next = !v
-      writeCompactPref(next)
-      return next
-    })
+  function handleSetViewMode(next: ViewMode) {
+    setViewMode(next)
+    writeViewMode(next)
   }
 
   function handleSelectTactician(slotIdx: number | null) {
@@ -91,6 +91,11 @@ export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGV
       setSelectedTactician(filter)
       onSelectTactician?.(filter)
     }
+  }
+
+  function handleDAGSelectTactician(filter: { phaseId: string; slotIdx: number } | null) {
+    setSelectedTactician(filter)
+    onSelectTactician?.(filter)
   }
 
   // Clear selection when phase changes
@@ -107,32 +112,46 @@ export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGV
         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
           v2 live view
         </span>
-        <button
-          type="button"
-          onClick={handleToggleCompact}
-          className="text-[10px] text-slate-500 hover:text-slate-300 transition-colors select-none"
-          title={compact ? 'Switch to phase DAG view' : 'Switch to compact legacy view'}
-        >
-          {compact ? 'DAG view' : 'Compact view'}
-        </button>
+        <div className="flex items-center gap-1">
+          {(['live', 'compact', 'dag'] as ViewMode[]).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => handleSetViewMode(mode)}
+              className={[
+                'text-[10px] px-1.5 py-0.5 rounded transition-colors select-none',
+                viewMode === mode
+                  ? 'bg-slate-700 text-slate-200'
+                  : 'text-slate-500 hover:text-slate-300',
+              ].join(' ')}
+              title={
+                mode === 'live' ? 'Phase DAG + swim lanes' :
+                mode === 'compact' ? 'Compact legacy flow' :
+                'Full investigation DAG'
+              }
+            >
+              {mode === 'live' ? 'Live' : mode === 'compact' ? 'Compact' : 'DAG'}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {compact ? (
-        /* Compact fallback — legacy linear flow */
+      {viewMode === 'compact' ? (
         <div className="flex-1 overflow-hidden">
           <ResearchFlow runId={runId} compact />
         </div>
+      ) : viewMode === 'dag' ? (
+        <div className="flex-1 overflow-hidden">
+          <InvestigationDAG runId={runId} onSelectTactician={handleDAGSelectTactician} />
+        </div>
       ) : (
-        /* Full DAG view */
+        /* Live view */
         <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Phase strip */}
           <PhaseProgress
             phases={phases}
             activePhase={activePhase}
             phaseOrder={derivedOrder}
           />
-
-          {/* Swim lanes for active / most-recent phase */}
           <div className="flex-1 overflow-y-auto">
             {displayPhaseId != null ? (
               <TacticianSwimLanes

@@ -563,7 +563,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
         },
     ]
 
-    async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None):
+    async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None, event_emit=None):
         """Return a RunResult as if the strategist ran 2 slots and produced 2 candidates."""
         phase_out = PhaseOutput(
             phase_id="broaden",
@@ -734,7 +734,7 @@ def test_engine_v2_run_complete_includes_ach_matrix():
         },
     ]
 
-    async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None):
+    async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None, event_emit=None):
         phase_out = PhaseOutput(
             phase_id="broaden",
             aggregated_findings=canned_findings,
@@ -825,3 +825,87 @@ def test_engine_v2_run_complete_includes_ach_matrix():
         assert "hypothesis_name" in cell
         assert "mark" in cell
         assert cell["mark"] in {"consistent", "inconsistent", "neutral", "unknown"}
+
+
+def test_engine_v2_emits_phase_replan_when_gate_fails_and_depth_allows():
+    """is.phase_replan is emitted when a gate fails and depth > shallow allows a replan.
+
+    Fake tactician fails on first attempt, passes on second — confirms that:
+    1. is.phase_replan event is emitted with required fields.
+    2. run completes successfully after the corrected attempt passes the gate.
+    3. The event's phase_id, run_id, attempt, and strategy fields are present.
+    """
+    from app.pipeline.tactician import TacticianOutput
+
+    # Phase with a gate that first fails (0 signals) then passes (1 signal)
+    phases = [
+        _make_phase(
+            "signal_extraction",
+            hypothesis_count_policy="fixed:1",
+            on_fail="replan",
+            checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
+        ),
+    ]
+
+    attempt_counter = [0]
+
+    async def _varying_fake_execute_tactician(
+        phase,
+        unit_of_work,
+        slot_idx,
+        tactics_catalog,
+        techniques_catalog,
+        specialist_fn,
+        mcp_invoke_fn,
+        capability_tier,
+        budget_ru,
+        tactic_runner_fn,
+    ):
+        attempt_counter[0] += 1
+        # First attempt: 0 primary signals (gate fails); second: 1 signal (gate passes)
+        signals = 1 if attempt_counter[0] > 1 else 0
+        return TacticianOutput(
+            slot_idx=slot_idx,
+            candidate_names=["Candidate A"] if signals else [],
+            findings=[
+                {
+                    "candidate": "Candidate A",
+                    "candidate_name": "Candidate A",
+                    "source_class": "web_search_live",
+                    "source_url": "https://example.com/test",
+                    "evidence_snippet": "test snippet",
+                    "confidence": 0.8,
+                }
+            ] if signals else [],
+            tactic_used="hypothesis_first_search",
+            specialist_calls=1,
+            metadata={"hypotheses_explored": 1, "ru_spent": 2, "budget_ru": budget_ru,
+                      "primary_signals_count": signals},
+        )
+
+    # _make_envelope() already uses depth="search" (1 replan allowed)
+    result, emitted, *_ = asyncio.run(_run_engine_v2_with_fakes(
+        phases=phases,
+        execute_tactician_override=_varying_fake_execute_tactician,
+    ))
+
+    # Run should complete (second attempt passes gate)
+    assert result.status == "completed", (
+        f"Expected completed, got {result.status}: {result.terminate_reason}"
+    )
+
+    # is.phase_replan event must be present
+    replan_events = [e for e in emitted if e.get("type") == "is.phase_replan"]
+    assert len(replan_events) >= 1, (
+        f"Expected at least 1 is.phase_replan event; got events: {[e['type'] for e in emitted]}"
+    )
+
+    evt = replan_events[0]
+    assert evt["type"] == "is.phase_replan"
+    assert "run_id" in evt
+    assert "phase_id" in evt
+    assert evt["phase_id"] == "signal_extraction"
+    assert "attempt" in evt
+    assert "max_attempts" in evt
+    assert "reason" in evt
+    assert "strategy" in evt

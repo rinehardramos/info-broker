@@ -65,6 +65,18 @@ def _build_scoped_prompt(
         "# Scoped Tactic Runner",
         f"Model: {model}",
         "",
+    ]
+
+    # P3: inject corrective hint from prior failed attempt, if present
+    corrective_hint = unit_of_work.get("corrective_hint")
+    if corrective_hint:
+        lines += [
+            "### CORRECTIVE HINT FROM PREVIOUS ATTEMPT",
+            corrective_hint,
+            "",
+        ]
+
+    lines += [
         "## Unit of Work",
         f"Objective: {unit_of_work.get('objective', '')}",
         f"Briefing: {unit_of_work.get('briefing', '')}",

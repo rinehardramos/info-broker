@@ -298,13 +298,14 @@ class TestEngineV2EventOrdering:
 
         original_execute = Strategist.execute
 
-        async def _patched_execute(self_inner, query, classifier_output, tactician_fn, phase_complete_cb=None):
+        async def _patched_execute(self_inner, query, classifier_output, tactician_fn, phase_complete_cb=None, event_emit=None):
             return await original_execute(
                 self_inner,
                 query,
                 classifier_output,
                 fake_tactician_fn,  # substitute our fake for the real scoped_brain runner
                 phase_complete_cb=phase_complete_cb,
+                event_emit=event_emit,
             )
 
         async def _run_test():

@@ -226,33 +226,40 @@ def test_gate_fail_ask_user_returns_ask_user_status():
 
 
 # ---------------------------------------------------------------------------
-# test_replan_on_fail_terminates_in_mvp
-# Defends: replan/swap_tactic are not implemented in MVP; run terminates with
-#          a distinct reason code so callers can detect the gap.
-# TODO(P3): remove this test when replan logic is implemented.
+# test_replan_on_fail_with_no_budget_terminates_immediately (P3 replacement)
+# Defends: replan/swap_tactic with depth=shallow (0 replans) terminates
+#          immediately rather than hanging on the old stub reason code.
 # ---------------------------------------------------------------------------
 
 
-def test_replan_on_fail_terminates_in_mvp():
-    """on_fail=replan and on_fail=swap_tactic both terminate with 'replan_required_but_not_implemented'."""
-    for on_fail in ("replan", "swap_tactic"):
-        phase = _make_phase(
-            "broaden",
-            on_fail=on_fail,
-            checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
-        )
-        strategy = _make_strategy([phase])
+def test_replan_on_fail_with_no_budget_terminates_immediately():
+    """on_fail=replan with depth=shallow (0 replans) terminates without replanning."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
 
-        async def fake_tactician(phase, unit_of_work, slot_idx):
-            return _make_passing_output(primary_signals_count=0)
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        return _make_passing_output(primary_signals_count=0)
 
-        strategist = _make_strategist(strategy)
+    # shallow depth -> 0 replans
+    envelope = BudgetEnvelope(hypothesis_count="competing", depth="shallow")
+    strategist = Strategist(
+        strategy=strategy,
+        envelope=envelope,
+        run_id="run-test-001",
+        user_id="user-test-001",
+        hold_id="hold-test-001",
+    )
 
-        with patch("app.pipeline.strategist.wallet.consume"):
-            result = run_sync(strategist.execute("query", {}, fake_tactician))
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
 
-        assert result.status == "terminated"
-        assert result.terminate_reason == "replan_required_but_not_implemented"
+    assert result.status == "terminated"
+    assert result.terminate_reason is not None
+    assert "replan_required_but_not_implemented" not in result.terminate_reason
 
 
 # ---------------------------------------------------------------------------
@@ -987,3 +994,358 @@ def test_ach_uses_strategy_signal_weights():
         f"Expected score 1.0 with weight=1.0 consistent, got {matrix.scores['Alice']}"
     )
     assert enriched[0]["signal_scores"]["primary"] == "match"
+
+
+# ---------------------------------------------------------------------------
+# P3: Replan / recurse tests (§8.2, DEPTH_TO_REPLAN_BUDGET)
+# ---------------------------------------------------------------------------
+
+from app.pipeline.strategist import DEPTH_TO_REPLAN_BUDGET, _get_failing_check_kind
+
+
+def _make_always_failing_tactician(candidate_name="Candidate X"):
+    """Returns a fake tactician that always produces output failing min_primary_signals."""
+    async def _fn(phase, unit_of_work, slot_idx):
+        # primary_signals_count=0 → gate fails when min=99
+        return {
+            "findings": [{"candidate_name": candidate_name, "source_class": "web_search",
+                          "confidence": 0.5, "evidence_summary": "found"}],
+            "metadata": {
+                "primary_signals_count": 0,
+                "hypotheses_explored": 1,
+                "disconfirm_count": 0,
+                "surviving_hypothesis_count": 1,
+                "actual_ru": 1,
+            },
+            "ranked_candidates": [],
+        }
+    return _fn
+
+
+def _make_strategist_with_depth(strategy, depth):
+    envelope = BudgetEnvelope(hypothesis_count="competing", depth=depth)
+    return Strategist(
+        strategy=strategy,
+        envelope=envelope,
+        run_id="run-test-p3",
+        user_id="user-test-p3",
+        hold_id="hold-test-p3",
+    )
+
+
+def test_shallow_depth_zero_replans_terminates_immediately():
+    """depth=shallow → 0 replans; gate fail on first attempt terminates immediately."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "shallow")
+
+    attempt_count = [0]
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        attempt_count[0] += 1
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    # shallow = 0 replans → terminates after 1 attempt with no replan
+    assert result.status == "terminated"
+    assert attempt_count[0] == 1  # exactly 1 attempt, no replan
+
+
+def test_search_depth_one_replan_then_terminate():
+    """depth=search → 1 replan; gate fails twice → terminates after 2 total attempts."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "search")
+
+    attempt_count = [0]
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        attempt_count[0] += 1
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    # search=1 → 1 replan allowed → 2 total attempts
+    assert result.status == "terminated"
+    assert attempt_count[0] == 2
+
+
+def test_deep_depth_three_replans_then_terminate():
+    """depth=deep → 3 replans; gate fails 4 times → terminates after 4 total attempts."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "deep")
+
+    attempt_count = [0]
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        attempt_count[0] += 1
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    # deep=3 → 3 replans allowed → 4 total attempts
+    assert result.status == "terminated"
+    assert attempt_count[0] == 4
+
+
+def test_replan_with_corrective_hint_added_to_unit_of_work():
+    """on_fail=replan injects corrective_hint into unit_of_work on second attempt."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "distinct_identity_count", "params": {"min": 3}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "search")
+
+    received_hints: list[str | None] = []
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        received_hints.append(unit_of_work.get("corrective_hint"))
+        # Always fail: only 1 distinct candidate
+        return {
+            "findings": [{"candidate_name": "Alice", "source_class": "web_search",
+                          "confidence": 0.5}],
+            "metadata": {"primary_signals_count": 1, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    assert result.status == "terminated"
+    # First attempt: no hint
+    assert received_hints[0] is None
+    # Second attempt (replan): hint present and mentions identities
+    assert received_hints[1] is not None
+    assert "distinct identit" in received_hints[1].lower() or "alternative" in received_hints[1].lower()
+
+
+def test_swap_tactic_picks_alternative_from_catalog():
+    """on_fail=swap_tactic swaps to an alternative tactic from the catalog."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="swap_tactic",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "search")
+
+    tactic_overrides_seen: list[str | None] = []
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        tactic_overrides_seen.append(unit_of_work.get("_tactic_override"))
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    # Inject a fake tactics catalog with 2 broaden-compatible tactics
+    from app.pipeline.catalogs.schemas import Tactic, TaskSpec
+    fake_tactic_a = Tactic(
+        id="fake_tactic_a",
+        phase_compatibility=["broaden"],
+        accepts={},
+        produces=[TaskSpec(technique_id="web_search", params_template={}, budget_ru=1)],
+        cost_class="cheap",
+        required_techniques=["web_search"],
+        enforcement={},
+    )
+    fake_tactic_b = Tactic(
+        id="fake_tactic_b",
+        phase_compatibility=["broaden"],
+        accepts={},
+        produces=[TaskSpec(technique_id="web_search", params_template={}, budget_ru=1)],
+        cost_class="moderate",
+        required_techniques=["web_search"],
+        enforcement={},
+    )
+    fake_catalog = {"fake_tactic_a": fake_tactic_a, "fake_tactic_b": fake_tactic_b}
+
+    with (
+        patch("app.pipeline.strategist.wallet.consume"),
+        patch("app.pipeline.strategist.Strategist._pick_alternative_tactic",
+              side_effect=lambda ph, used, cat: fake_tactic_b if fake_tactic_a.id not in used else None),
+    ):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    # Should have tried tactic_b on second attempt before terminating
+    assert result.status == "terminated"
+    assert len(tactic_overrides_seen) == 2
+    assert tactic_overrides_seen[0] is None   # first attempt: no override
+    assert tactic_overrides_seen[1] == fake_tactic_b.id
+
+
+def test_swap_tactic_returns_terminated_when_no_alternative():
+    """swap_tactic with no alternatives → terminate with no_alt_tactic_available."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="swap_tactic",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "deep")
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with (
+        patch("app.pipeline.strategist.wallet.consume"),
+        patch("app.pipeline.strategist.Strategist._pick_alternative_tactic", return_value=None),
+    ):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    assert result.status == "terminated"
+    assert result.terminate_reason == "no_alt_tactic_available"
+
+
+def test_replan_succeeds_when_corrected_attempt_passes_gate():
+    """Replan loop exits cleanly when the corrected attempt passes the gate."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "search")
+
+    attempt_count = [0]
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        attempt_count[0] += 1
+        # First attempt fails (0 signals), second attempt passes (1 signal)
+        signals = 1 if attempt_count[0] > 1 else 0
+        return {
+            "findings": [{"candidate_name": "Alice", "source_class": "web_search",
+                          "confidence": 0.7}] if signals else [],
+            "metadata": {"primary_signals_count": signals, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    assert result.status == "completed"
+    assert attempt_count[0] == 2  # 1 fail + 1 pass
+
+
+def test_replan_emits_is_phase_replan_event():
+    """Replan attempt emits is.phase_replan event with correct fields."""
+    phase = _make_phase(
+        "broaden",
+        on_fail="replan",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    strategist = _make_strategist_with_depth(strategy, "search")
+
+    emitted_events: list[dict] = []
+
+    async def fake_event_emit(payload):
+        emitted_events.append(payload)
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute(
+            "query", {}, fake_tactician, event_emit=fake_event_emit
+        ))
+
+    replan_events = [e for e in emitted_events if e.get("type") == "is.phase_replan"]
+    assert len(replan_events) >= 1
+
+    evt = replan_events[0]
+    assert evt["type"] == "is.phase_replan"
+    assert evt["run_id"] == "run-test-p3"
+    assert evt["phase_id"] == "broaden"
+    assert evt["attempt"] == 1
+    assert evt["max_attempts"] == DEPTH_TO_REPLAN_BUDGET["search"]
+    assert "reason" in evt
+    assert "strategy" in evt
+
+
+def test_ask_user_escalation_does_not_replan():
+    """on_fail=ask_user always returns ask_user immediately — no replan loop entered."""
+    phase = _make_phase(
+        "signal_extraction",
+        on_fail="ask_user",
+        hypothesis_count_policy="fixed:1",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
+    )
+    strategy = _make_strategy([phase])
+    # Use deep so replans would be allowed if mistakenly entered
+    strategist = _make_strategist_with_depth(strategy, "deep")
+
+    attempt_count = [0]
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        attempt_count[0] += 1
+        return {
+            "findings": [],
+            "metadata": {"primary_signals_count": 0, "hypotheses_explored": 1,
+                         "disconfirm_count": 0, "surviving_hypothesis_count": 1, "actual_ru": 1},
+            "ranked_candidates": [],
+        }
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    assert result.status == "ask_user"
+    assert result.user_question is not None
+    # Only 1 attempt — ask_user never replans
+    assert attempt_count[0] == 1

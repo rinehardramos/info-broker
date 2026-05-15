@@ -371,6 +371,7 @@ async def run_engine_v2(
             classifier_output=classifier_output,
             tactician_fn=_tracked_tactician_fn,
             phase_complete_cb=_phase_complete_cb,
+            event_emit=event_emit,
         )
 
     except Exception as exc:

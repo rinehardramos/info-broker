@@ -30,6 +30,17 @@ from app.pipeline.ach import (
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Depth dial → replan budget (§5.2, §8.2 P3)
+# ---------------------------------------------------------------------------
+
+DEPTH_TO_REPLAN_BUDGET: dict[str, int] = {
+    "shallow": 0,
+    "search": 1,
+    "deep": 3,
+    "abyss": 99,  # effectively unlimited; cu_ceiling caps it
+}
+
+# ---------------------------------------------------------------------------
 # Hypothesis-count dial → integer mapping (§5.2.3)
 # ---------------------------------------------------------------------------
 
@@ -444,6 +455,26 @@ def _enrich_ranked_candidates(
 
 
 # ---------------------------------------------------------------------------
+# Gate failure detail helpers (P3 replan support)
+# ---------------------------------------------------------------------------
+
+
+def _get_failing_check_kind(
+    phase_output: PhaseOutput,
+    phase: PhaseSpec,
+    envelope: BudgetEnvelope,
+) -> str:
+    """Return the kind string of the first gate check that failed, or 'unknown'."""
+    for check in phase.gate.checks:
+        fn = _GATE_CHECKS.get(check.kind)
+        if fn is None:
+            continue
+        if not fn(phase_output, check.params, envelope):
+            return check.kind
+    return "unknown"
+
+
+# ---------------------------------------------------------------------------
 # Strategist
 # ---------------------------------------------------------------------------
 
@@ -483,6 +514,7 @@ class Strategist:
         classifier_output: dict,
         tactician_fn: Callable,
         phase_complete_cb: Callable | None = None,
+        event_emit: Callable | None = None,
     ) -> RunResult:
         """Run the phase DAG and return a RunResult.
 
@@ -498,87 +530,139 @@ class Strategist:
                                ``(phase, phase_output, gate_passed) -> None``.
                                Fires AFTER the gate check and wallet.consume but
                                BEFORE the next phase begins (or early return).
+            event_emit:        Optional async callable for emitting is.phase_replan
+                               events. When None, replan events are silently dropped.
         """
         phases_in_order = _topo_sort(self._strategy.phases)
         completed_phases: list[PhaseOutput] = []
         # Map phase_id → PhaseOutput for downstream unit_of_work construction
         phase_outputs_by_id: dict[str, PhaseOutput] = {}
 
-        for phase_idx, phase in enumerate(phases_in_order):
-            unit_of_work = self._build_unit_of_work(
-                phase, query, classifier_output, phase_outputs_by_id
-            )
+        max_replans = DEPTH_TO_REPLAN_BUDGET.get(self._envelope.depth, 1)
+        # tactics_catalog is loaded from the catalog registries for tactic swap.
+        # Loaded lazily so tests that don't exercise swap_tactic pay no overhead.
+        _tactics_catalog: dict | None = None
 
-            n_tacticians = self._resolve_n_tacticians(
-                phase, phase_outputs_by_id
-            )
-
-            # P4: forbidden_per_slot was pre-computed in _build_unit_of_work.
-            # Inject the per-slot slice into a copy of unit_of_work so each
-            # tactician sees only its own forbidden list (no cross-slot leakage).
-            forbidden_per_slot: list[list[str]] = unit_of_work.get("forbidden_per_slot", [])
-            # Extend with empty lists if n_tacticians exceeds pre-computed length
-            # (can happen when from_prior_phase grows beyond hypothesis_count_int).
-            while len(forbidden_per_slot) < n_tacticians:
-                forbidden_per_slot.append([])
-
-            # Spawn tacticians in parallel; visibility invariant enforced by
-            # limiting the tactician_fn signature to (phase, unit_of_work, slot_idx).
-            # Each slot receives a shallow copy with forbidden_candidates injected.
-            def _uow_for_slot(slot_idx: int) -> dict:
-                slot_uow = dict(unit_of_work)
-                slot_uow["forbidden_candidates"] = forbidden_per_slot[slot_idx]
-                return slot_uow
-
-            tactician_tasks = [
-                tactician_fn(phase, _uow_for_slot(slot_idx), slot_idx)
-                for slot_idx in range(n_tacticians)
-            ]
-            raw_outputs: list[dict] = await asyncio.gather(*tactician_tasks)
-
-            phase_output = self._aggregate(phase.id, raw_outputs)
-            # Audit: record forbidden_per_slot in phase metadata for research_trails
-            phase_output.metadata["forbidden_per_slot"] = forbidden_per_slot[:n_tacticians]
-            gate_passed = _run_gate(phase_output, phase, self._envelope)
-
-            # Consume RU for this phase regardless of gate outcome
-            wallet.consume(
-                user_id=self._user_id,
-                run_id=self._run_id,
-                phase_n=phase_idx,
-                actual_ru=phase_output.metadata.get("actual_ru", 1),
-                idempotency_key=f"{self._run_id}:phase_{phase.id}:consume",
-            )
-
-            completed_phases.append(phase_output)
-            phase_outputs_by_id[phase.id] = phase_output
-
-            # Notify the engine layer that this phase has completed its gate check.
-            # Fires AFTER gate eval, BEFORE next phase or early return.
-            if phase_complete_cb is not None:
+        def _get_tactics_catalog() -> dict:
+            nonlocal _tactics_catalog
+            if _tactics_catalog is None:
                 try:
-                    if inspect.iscoroutinefunction(phase_complete_cb):
-                        await phase_complete_cb(phase, phase_output, gate_passed)
-                    else:
-                        phase_complete_cb(phase, phase_output, gate_passed)
-                except Exception as exc:  # pragma: no cover
-                    log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+                    from pathlib import Path as _P
+                    from app.pipeline.catalogs.loader import load_catalog
+                    _base = _P(__file__).parent / "catalogs" / "registries" / "tactics"
+                    _tactics_catalog = load_catalog("tactic", _base)
+                except Exception as exc:
+                    log.warning("strategist: could not load tactics catalog for swap: %s", exc)
+                    _tactics_catalog = {}
+            return _tactics_catalog
 
-            if not gate_passed:
-                on_fail = phase.gate.on_fail
+        for phase_idx, phase in enumerate(phases_in_order):
+            replan_attempts = 0
+            tactics_used_this_phase: list[str] = []
+            # current_unit_of_work may be augmented with corrective_hint on replan
+            current_unit_of_work: dict | None = None
 
-                if on_fail == "terminate":
-                    return RunResult(
+            while True:
+                unit_of_work = self._build_unit_of_work(
+                    phase, query, classifier_output, phase_outputs_by_id
+                )
+                # Overlay corrective hint and tactic override from prior attempts
+                if current_unit_of_work is not None:
+                    if "corrective_hint" in current_unit_of_work:
+                        unit_of_work["corrective_hint"] = current_unit_of_work["corrective_hint"]
+                    if "_tactic_override" in current_unit_of_work:
+                        unit_of_work["_tactic_override"] = current_unit_of_work["_tactic_override"]
+                current_unit_of_work = unit_of_work
+
+                n_tacticians = self._resolve_n_tacticians(
+                    phase, phase_outputs_by_id
+                )
+
+                # P4: forbidden_per_slot was pre-computed in _build_unit_of_work.
+                # Inject the per-slot slice into a copy of unit_of_work so each
+                # tactician sees only its own forbidden list (no cross-slot leakage).
+                forbidden_per_slot: list[list[str]] = unit_of_work.get("forbidden_per_slot", [])
+                # Extend with empty lists if n_tacticians exceeds pre-computed length
+                # (can happen when from_prior_phase grows beyond hypothesis_count_int).
+                while len(forbidden_per_slot) < n_tacticians:
+                    forbidden_per_slot.append([])
+
+                # Spawn tacticians in parallel; visibility invariant enforced by
+                # limiting the tactician_fn signature to (phase, unit_of_work, slot_idx).
+                # Each slot receives a shallow copy with forbidden_candidates injected.
+                def _uow_for_slot(slot_idx: int, _uow: dict = unit_of_work) -> dict:
+                    slot_uow = dict(_uow)
+                    slot_uow["forbidden_candidates"] = forbidden_per_slot[slot_idx]
+                    return slot_uow
+
+                try:
+                    tactician_tasks = [
+                        tactician_fn(phase, _uow_for_slot(slot_idx), slot_idx)
+                        for slot_idx in range(n_tacticians)
+                    ]
+                    raw_outputs: list[dict] = await asyncio.gather(*tactician_tasks)
+                except Exception as exc:
+                    # Subprocess/runtime error counts as a consumed attempt.
+                    log.error(
+                        "strategist: phase '%s' attempt %d raised: %s",
+                        phase.id, replan_attempts, exc,
+                    )
+                    raw_outputs = []
+
+                phase_output = self._aggregate(phase.id, raw_outputs)
+                # Audit: record forbidden_per_slot in phase metadata for research_trails
+                phase_output.metadata["forbidden_per_slot"] = forbidden_per_slot[:n_tacticians]
+                # Audit: record replan attempt number for research_trails
+                phase_output.metadata["replan_attempt"] = replan_attempts
+
+                gate_passed = _run_gate(phase_output, phase, self._envelope)
+
+                if gate_passed:
+                    # Consume RU for this phase
+                    wallet.consume(
+                        user_id=self._user_id,
                         run_id=self._run_id,
-                        status="terminated",
-                        phases=completed_phases,
-                        terminate_reason=(
-                            f"Gate failed on phase '{phase.id}': "
-                            f"checks did not pass"
-                        ),
+                        phase_n=phase_idx,
+                        actual_ru=phase_output.metadata.get("actual_ru", 1),
+                        idempotency_key=f"{self._run_id}:phase_{phase.id}:attempt_{replan_attempts}:consume",
                     )
 
+                    completed_phases.append(phase_output)
+                    phase_outputs_by_id[phase.id] = phase_output
+
+                    if phase_complete_cb is not None:
+                        try:
+                            if inspect.iscoroutinefunction(phase_complete_cb):
+                                await phase_complete_cb(phase, phase_output, True)
+                            else:
+                                phase_complete_cb(phase, phase_output, True)
+                        except Exception as exc:  # pragma: no cover
+                            log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+                    break  # next phase
+
+                # Gate failed — consume RU for the failed attempt
+                wallet.consume(
+                    user_id=self._user_id,
+                    run_id=self._run_id,
+                    phase_n=phase_idx,
+                    actual_ru=phase_output.metadata.get("actual_ru", 1),
+                    idempotency_key=f"{self._run_id}:phase_{phase.id}:attempt_{replan_attempts}:consume",
+                )
+
+                on_fail = phase.gate.on_fail
+
+                # ask_user escalates immediately — no replan regardless of depth
                 if on_fail == "ask_user":
+                    completed_phases.append(phase_output)
+                    phase_outputs_by_id[phase.id] = phase_output
+                    if phase_complete_cb is not None:
+                        try:
+                            if inspect.iscoroutinefunction(phase_complete_cb):
+                                await phase_complete_cb(phase, phase_output, False)
+                            else:
+                                phase_complete_cb(phase, phase_output, False)
+                        except Exception as exc:  # pragma: no cover
+                            log.warning("phase_complete_cb raised (non-fatal): %s", exc)
                     return RunResult(
                         run_id=self._run_id,
                         status="ask_user",
@@ -589,13 +673,124 @@ class Strategist:
                         ),
                     )
 
-                # "replan" and "swap_tactic" are deferred to post-MVP P3.
-                # MVP terminates with a distinct reason so callers can detect it.
-                return RunResult(
-                    run_id=self._run_id,
-                    status="terminated",
-                    phases=completed_phases,
-                    terminate_reason="replan_required_but_not_implemented",
+                if replan_attempts >= max_replans:
+                    # Replan budget exhausted — honour original on_fail
+                    completed_phases.append(phase_output)
+                    phase_outputs_by_id[phase.id] = phase_output
+                    if phase_complete_cb is not None:
+                        try:
+                            if inspect.iscoroutinefunction(phase_complete_cb):
+                                await phase_complete_cb(phase, phase_output, False)
+                            else:
+                                phase_complete_cb(phase, phase_output, False)
+                        except Exception as exc:  # pragma: no cover
+                            log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+
+                    if on_fail == "terminate":
+                        return RunResult(
+                            run_id=self._run_id,
+                            status="terminated",
+                            phases=completed_phases,
+                            terminate_reason=(
+                                f"Gate failed on phase '{phase.id}': "
+                                f"checks did not pass"
+                            ),
+                        )
+                    # replan / swap_tactic budget exhausted
+                    return RunResult(
+                        run_id=self._run_id,
+                        status="terminated",
+                        phases=completed_phases,
+                        terminate_reason=(
+                            f"Replan budget exhausted on phase '{phase.id}' "
+                            f"after {replan_attempts} attempt(s)"
+                        ),
+                    )
+
+                # Decide replan strategy and prepare next attempt
+                failing_check_kind = _get_failing_check_kind(phase_output, phase, self._envelope)
+                replan_strategy: str
+
+                if on_fail == "replan":
+                    hint = self._compute_corrective_hint(phase, phase_output, failing_check_kind)
+                    current_unit_of_work["corrective_hint"] = hint
+                    replan_strategy = "hint_added"
+
+                elif on_fail == "swap_tactic":
+                    tactics_catalog = _get_tactics_catalog()
+                    current_tactic_id = current_unit_of_work.get("_tactic_override") or ""
+                    if current_tactic_id:
+                        tactics_used_this_phase.append(current_tactic_id)
+                    alt = self._pick_alternative_tactic(
+                        phase, tactics_used_this_phase, tactics_catalog
+                    )
+                    if alt is None:
+                        completed_phases.append(phase_output)
+                        phase_outputs_by_id[phase.id] = phase_output
+                        if phase_complete_cb is not None:
+                            try:
+                                if inspect.iscoroutinefunction(phase_complete_cb):
+                                    await phase_complete_cb(phase, phase_output, False)
+                                else:
+                                    phase_complete_cb(phase, phase_output, False)
+                            except Exception as exc:  # pragma: no cover
+                                log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+                        return RunResult(
+                            run_id=self._run_id,
+                            status="terminated",
+                            phases=completed_phases,
+                            terminate_reason="no_alt_tactic_available",
+                        )
+                    current_unit_of_work["_tactic_override"] = alt.id
+                    tactics_used_this_phase.append(alt.id)
+                    replan_strategy = "swap_tactic"
+
+                else:
+                    # on_fail == "terminate" — no replans possible
+                    completed_phases.append(phase_output)
+                    phase_outputs_by_id[phase.id] = phase_output
+                    if phase_complete_cb is not None:
+                        try:
+                            if inspect.iscoroutinefunction(phase_complete_cb):
+                                await phase_complete_cb(phase, phase_output, False)
+                            else:
+                                phase_complete_cb(phase, phase_output, False)
+                        except Exception as exc:  # pragma: no cover
+                            log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+                    return RunResult(
+                        run_id=self._run_id,
+                        status="terminated",
+                        phases=completed_phases,
+                        terminate_reason=(
+                            f"Gate failed on phase '{phase.id}': "
+                            f"checks did not pass"
+                        ),
+                    )
+
+                replan_attempts += 1
+
+                # Emit is.phase_replan event (auditable in research_trails)
+                if event_emit is not None:
+                    try:
+                        replan_event = {
+                            "type": "is.phase_replan",
+                            "run_id": self._run_id,
+                            "phase_id": phase.id,
+                            "attempt": replan_attempts,
+                            "max_attempts": max_replans,
+                            "reason": failing_check_kind,
+                            "strategy": replan_strategy,
+                        }
+                        if inspect.iscoroutinefunction(event_emit):
+                            await event_emit(replan_event)
+                        else:
+                            event_emit(replan_event)
+                    except Exception as exc:  # pragma: no cover
+                        log.warning("strategist: event_emit for phase_replan failed: %s", exc)
+
+                log.info(
+                    "strategist: phase '%s' replan attempt %d/%d strategy=%s reason=%s",
+                    phase.id, replan_attempts, max_replans, replan_strategy, failing_check_kind,
                 )
 
         # All phases completed — ranked_candidates come from last phase, enriched.
@@ -777,3 +972,93 @@ class Strategist:
             metadata=combined_metadata,
             ranked_candidates=ranked_candidates,
         )
+
+    # -----------------------------------------------------------------------
+    # P3 Replan helpers
+    # -----------------------------------------------------------------------
+
+    def _compute_corrective_hint(
+        self,
+        phase: PhaseSpec,
+        phase_output: PhaseOutput,
+        failing_check_kind: str,
+    ) -> str:
+        """Return a corrective hint string for the next replan attempt.
+
+        The hint is inserted into unit_of_work["corrective_hint"] so that
+        _build_scoped_prompt includes it verbatim before the briefing.
+        """
+        if failing_check_kind == "distinct_identity_count":
+            required = _resolve_hypothesis_count(self._envelope.hypothesis_count)
+            names = ", ".join(phase_output.distinct_candidate_names) or "(none)"
+            n = len(phase_output.distinct_candidate_names)
+            return (
+                f"Previous attempt produced only {n} distinct identities ({names}). "
+                f"Generate at least {required} alternatives with different identity names."
+            )
+        if failing_check_kind == "per_hypothesis_live_source":
+            return (
+                "Previous findings relied on prior_research only. "
+                "Run live searches for each hypothesis with web_search/google_news/image_search."
+            )
+        if failing_check_kind == "disconfirm_logged_per_hypothesis":
+            # Identify hypotheses missing disconfirm entries
+            disconfirm_count = phase_output.metadata.get("disconfirm_count", 0)
+            surviving = phase_output.metadata.get("surviving_hypothesis_count", 0)
+            missing = max(0, surviving - disconfirm_count)
+            names = ", ".join(phase_output.distinct_candidate_names) or "(unknown)"
+            return (
+                f"Need disconfirm search for: {names}. "
+                f"({missing} hypothesis(es) missing a disconfirmation entry.)"
+            )
+        # Generic fallback
+        return (
+            f"Previous attempt failed gate '{failing_check_kind}'. "
+            f"Retry with corrective focus."
+        )
+
+    def _pick_alternative_tactic(
+        self,
+        phase: PhaseSpec,
+        tactics_used: list[str],
+        tactics_catalog: dict,
+    ):
+        """Return the next compatible tactic not yet used in this phase, or None.
+
+        Selection criteria:
+        1. phase.id in tactic.phase_compatibility
+        2. tactic.id not in tactics_used
+        3. Prefer cost_class "cheap" first; then "moderate"; then "expensive"
+
+        Returns the Tactic object (from catalog) or None if no alternative found.
+        """
+        from app.pipeline.catalogs.schemas import Tactic as _Tactic
+
+        cost_order = {"cheap": 0, "moderate": 1, "expensive": 2}
+        candidates = []
+
+        for tactic_id, tactic in tactics_catalog.items():
+            if tactic_id in tactics_used:
+                continue
+            # Support both Tactic schema objects and raw dicts (catalog may return either)
+            if isinstance(tactic, dict):
+                compat = tactic.get("phase_compatibility", [])
+                cost = tactic.get("cost_class", "moderate")
+                tactic_id_actual = tactic.get("id", tactic_id)
+            else:
+                compat = getattr(tactic, "phase_compatibility", [])
+                cost = getattr(tactic, "cost_class", "moderate")
+                tactic_id_actual = getattr(tactic, "id", tactic_id)
+
+            if phase.id not in compat:
+                continue
+            if tactic_id_actual in tactics_used:
+                continue
+
+            candidates.append((cost_order.get(cost, 1), tactic))
+
+        if not candidates:
+            return None
+
+        candidates.sort(key=lambda t: t[0])
+        return candidates[0][1]
