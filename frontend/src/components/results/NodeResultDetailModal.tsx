@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatToolResult } from '@/lib/toolResultFormatter'
+import { tryRenderFindings } from './FindingView'
 import type { NodeCard } from '@/stores/runStreamStore'
 import { GradingRow } from './GradingRow'
 import { HypothesisTab } from './HypothesisTab'
@@ -72,6 +73,14 @@ function renderLinkified(text: string) {
 }
 
 function FormattedTab({ card }: { card: NodeCard }) {
+  // Prefer the structured-finding rendering when the data matches that shape
+  // (candidate / snippet / confidence / source_url / source_class). Falls back
+  // to formatted text only when the shape isn't a finding.
+  const findingsView = tryRenderFindings(card.output ?? card.preview, { compact: false })
+  if (findingsView) {
+    return <div className="max-h-[60vh] overflow-auto pr-1">{findingsView}</div>
+  }
+
   const raw =
     card.preview ||
     (typeof card.output === 'string'
@@ -82,8 +91,8 @@ function FormattedTab({ card }: { card: NodeCard }) {
       <span className="text-sm text-muted-foreground italic">No formatted output yet.</span>
     )
   }
-  // Unwrap MCP's double-encoded JSON shape so the user reads pretty text,
-  // not escaped quote spaghetti.
+  // Last-resort: unwrap any nested-encoded JSON so we display pretty text
+  // rather than escaped quote spaghetti.
   const fmt = formatToolResult(raw)
   if (fmt.isStructured) {
     return (

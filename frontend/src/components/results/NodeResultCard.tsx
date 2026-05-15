@@ -1,6 +1,7 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { formatToolResult } from '@/lib/toolResultFormatter'
+import { tryRenderFindings } from './FindingView'
 import type { NodeCard } from '@/stores/runStreamStore'
 import { SourceClassBadge } from './SourceClassBadge'
 import type { SourceClass } from '@/types/research'
@@ -48,9 +49,13 @@ const NodeResultCard = React.memo(
     // First source URL (if any) is shown as an inline 'link' badge so the user
     // can jump to the source without opening the modal.
     const firstSourceUrl = card.sources?.find((s) => s.url)?.url
-    // Pretty-print tool result JSON (unwrap nested encoding from MCP) when the
-    // call has finished. While running, the body is still just the query.
-    const formatted = isTerminal ? formatToolResult(card.preview) : null
+
+    // Try to render as a structured finding (candidate, snippet, confidence,
+    // source link). Falls back to formatted text when shape doesn't match.
+    const structuredBody = isTerminal
+      ? tryRenderFindings(card.output ?? card.preview, { limit: 3, compact: false })
+      : null
+    const formatted = isTerminal && !structuredBody ? formatToolResult(card.preview) : null
     const displayBody = formatted?.pretty ?? card.preview
 
     return (
@@ -79,18 +84,16 @@ const NodeResultCard = React.memo(
           <span className="ml-auto text-[10px] text-muted-foreground">{elapsedLabel(card)}</span>
         </div>
 
-        {/* Body — while running, line-clamp the query preview to keep the card
-            small. Once finished, show the full pretty-printed result so the
-            user can read it inline without opening the modal. */}
-        {isTerminal && formatted?.isStructured ? (
-          <pre className="text-[11px] text-foreground/80 leading-relaxed whitespace-pre-wrap font-mono max-h-72 overflow-auto bg-muted/20 rounded p-2">
-            {displayBody}
-          </pre>
+        {/* Body — render findings as human-readable cards (FindingView) when
+            the shape matches; fall back to pretty text only when it doesn't. */}
+        {isTerminal && structuredBody ? (
+          structuredBody
         ) : (
           <p
             className={cn(
               'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
               !isTerminal && 'line-clamp-3',
+              isTerminal && 'line-clamp-4',
             )}
           >
             {displayBody || (isPending ? 'Waiting to run…' : '')}
