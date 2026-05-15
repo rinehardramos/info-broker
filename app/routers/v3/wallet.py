@@ -272,17 +272,17 @@ def get_forecast(current_user: dict = Depends(get_current_user)):
         """SELECT COALESCE(SUM(ABS(delta_ru)), 0)::int AS consumed
              FROM wallet_operations
             WHERE user_id = %s
-              AND op LIKE 'consume%'
+              AND op LIKE %s
               AND created_at >= now() - INTERVAL '30 days'""",
-        (user_id,),
+        (user_id, "consume%"),
     )
     row_7d = fetch_one(
         """SELECT COALESCE(SUM(ABS(delta_ru)), 0)::int AS consumed
              FROM wallet_operations
             WHERE user_id = %s
-              AND op LIKE 'consume%'
+              AND op LIKE %s
               AND created_at >= now() - INTERVAL '7 days'""",
-        (user_id,),
+        (user_id, "consume%"),
     )
 
     last_30d = int(row_30d["consumed"]) if row_30d else 0

@@ -247,6 +247,8 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
       )}
 
       <div
+        data-testid="preflight-panel"
+        className="preflight-panel"
         style={{
           border: '1px solid var(--border)',
           borderRadius: 8,

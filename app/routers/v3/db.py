@@ -795,11 +795,116 @@ CREATE TABLE IF NOT EXISTS user_defaults (
 """
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Split SQL on ';' but respect string literals and dollar-quoted blocks.
+
+    psycopg2's execute() runs only the first statement of a multi-statement
+    string. A naive split-on-';' breaks two cases:
+      1. DO $$ BEGIN ... END; $$;  — ';' inside the dollar-quoted body
+      2. '...$2b$12$.../...' — bcrypt hashes inside string literals contain '$'
+         which can look like dollar-quote markers
+    """
+    statements: list[str] = []
+    buf: list[str] = []
+    i = 0
+    in_dollar = False
+    dollar_tag = ""
+    in_single = False
+    in_line_comment = False
+    in_block_comment = False
+    while i < len(sql):
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < len(sql) else ""
+        # Block comment /* ... */
+        if in_block_comment:
+            buf.append(ch)
+            if ch == "*" and nxt == "/":
+                buf.append(nxt)
+                i += 2
+                in_block_comment = False
+                continue
+            i += 1
+            continue
+        # Line comment -- ... \n
+        if in_line_comment:
+            buf.append(ch)
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+        # Inside single-quoted string
+        if in_single:
+            buf.append(ch)
+            if ch == "'":
+                # Check for escaped '' (two adjacent single quotes)
+                if nxt == "'":
+                    buf.append(nxt)
+                    i += 2
+                    continue
+                in_single = False
+            i += 1
+            continue
+        # Inside dollar-quoted block
+        if in_dollar:
+            if ch == "$" and sql.startswith(dollar_tag, i):
+                buf.append(dollar_tag)
+                i += len(dollar_tag)
+                in_dollar = False
+                dollar_tag = ""
+                continue
+            buf.append(ch)
+            i += 1
+            continue
+        # Not in any quote — check for openers
+        if ch == "-" and nxt == "-":
+            in_line_comment = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "/" and nxt == "*":
+            in_block_comment = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "'":
+            in_single = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == "$":
+            # Match $$ or $<identifier>$ where identifier starts with letter/underscore
+            end = sql.find("$", i + 1)
+            if end != -1:
+                tag_body = sql[i + 1 : end]
+                if tag_body == "" or (tag_body[0].isalpha() or tag_body[0] == "_") and all(
+                    c.isalnum() or c == "_" for c in tag_body
+                ):
+                    dollar_tag = sql[i : end + 1]
+                    in_dollar = True
+                    buf.append(dollar_tag)
+                    i = end + 1
+                    continue
+        if ch == ";":
+            stmt = "".join(buf).strip()
+            if stmt:
+                statements.append(stmt)
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    trailing = "".join(buf).strip()
+    if trailing:
+        statements.append(trailing)
+    return statements
+
+
 def run_migrations() -> None:
-    # psycopg2 execute() only runs the first statement in a multi-statement
-    # string. Split on ";" and run each non-empty statement individually.
-    all_sql = _MIGRATION + _SEED + _MIGRATION_WALLET_V2 + _MIGRATION_FINDINGS_GRADES + _MIGRATION_SHARE_LINKS + _MIGRATION_SAVED_TEMPLATES
-    statements = [s.strip() for s in all_sql.split(";") if s.strip()]
+    # Ensure each migration block ends with ';' so concatenation doesn't merge
+    # the last statement of one block with the first of the next.
+    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES]
+    all_sql = "\n".join(p.rstrip().rstrip(";") + ";\n" for p in parts)
+    statements = _split_sql_statements(all_sql)
     with get_conn() as conn:
         with conn.cursor() as cur:
             for stmt in statements:
