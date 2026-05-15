@@ -11,7 +11,6 @@
  * When clicked, calls onSelectTactician so StreamingCardList can filter by slot.
  */
 
-import React, { useState } from 'react'
 import type { TacticianState, PhaseState } from '@/types/research'
 
 interface TacticianSwimLanesProps {
@@ -22,119 +21,10 @@ interface TacticianSwimLanesProps {
   onSelectTactician?: (slotIdx: number | null) => void
 }
 
-function LockIcon() {
-  return (
-    <svg
-      width="10" height="10" viewBox="0 0 16 16" fill="none"
-      aria-hidden="true"
-      className="opacity-40 flex-shrink-0"
-    >
-      <rect x="3" y="7" width="10" height="8" rx="2" fill="currentColor" />
-      <path d="M5 7V5a3 3 0 016 0v2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
-    </svg>
-  )
-}
-
-function TacticianColumn({
-  slotIdx,
-  state,
-  isComplete,
-  isSelected,
-  onClick,
-}: {
-  slotIdx: number
-  state: TacticianState
-  isComplete: boolean
-  isSelected: boolean
-  onClick: () => void
-}) {
-  const [forbidExpanded, setForbidExpanded] = useState(false)
-
-  const hasForbidden = state.forbidden_candidates.length > 0
-  const hasCandidates = state.candidate_names.length > 0
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'flex flex-col gap-1.5 p-2.5 rounded-lg border text-left transition-all cursor-pointer flex-shrink-0 min-w-[160px] max-w-[220px] w-full',
-        isSelected
-          ? 'border-violet-500 bg-violet-950/30 ring-1 ring-violet-500/50'
-          : isComplete
-            ? 'border-slate-700 bg-slate-800/30'
-            : 'border-slate-700/60 bg-slate-800/20 hover:border-slate-600',
-      ].join(' ')}
-      aria-pressed={isSelected}
-      aria-label={`Tactician slot ${slotIdx}${state.tactic_id ? `, tactic ${state.tactic_id}` : ''}`}
-    >
-      {/* Header */}
-      <div className="flex items-center gap-1.5 justify-between">
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-bold text-slate-400">Slot {slotIdx}</span>
-          {state.tactic_id && (
-            <span className="text-[10px] text-slate-500 truncate max-w-[100px]" title={state.tactic_id}>
-              · {state.tactic_id.replace(/_/g, ' ')}
-            </span>
-          )}
-        </div>
-        <LockIcon />
-      </div>
-
-      {/* Forbidden candidates (collapsed by default) */}
-      {hasForbidden && (
-        <div>
-          <button
-            type="button"
-            className="text-[9px] text-rose-400/70 hover:text-rose-400 transition-colors"
-            onClick={(e) => { e.stopPropagation(); setForbidExpanded(v => !v) }}
-          >
-            {forbidExpanded ? '▾' : '▸'} {state.forbidden_candidates.length} forbidden
-          </button>
-          {forbidExpanded && (
-            <ul className="mt-0.5 space-y-0.5">
-              {state.forbidden_candidates.map((name, i) => (
-                <li key={i} className="text-[9px] text-rose-300/70 pl-1 truncate">✗ {name}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {/* Live candidate names */}
-      {hasCandidates ? (
-        <div className="space-y-0.5">
-          {state.candidate_names.map((name, i) => (
-            <div key={i} className="text-[10px] text-emerald-300 truncate font-medium" title={name}>
-              {name}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="text-[10px] text-slate-600 italic">
-          {isComplete ? 'no candidates' : 'searching...'}
-        </div>
-      )}
-
-      {/* Stats footer */}
-      <div className="flex items-center gap-2 mt-auto pt-1 border-t border-slate-700/40">
-        {state.findings_count > 0 && (
-          <span className="text-[9px] text-slate-500">{state.findings_count} finding{state.findings_count !== 1 ? 's' : ''}</span>
-        )}
-        {!isComplete && (
-          <span className="ml-auto w-1 h-1 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
-        )}
-      </div>
-    </button>
-  )
-}
-
 export function TacticianSwimLanes({
   phaseId,
   tacticians,
   phaseStatus,
-  selectedSlotIdx,
-  onSelectTactician,
 }: TacticianSwimLanesProps) {
   const slots = Object.entries(tacticians).map(([k, v]) => ({ slotIdx: parseInt(k, 10), state: v }))
   slots.sort((a, b) => a.slotIdx - b.slotIdx)
@@ -166,33 +56,47 @@ export function TacticianSwimLanes({
     )
   }
 
+  // Compact subtitle row instead of full swim-lane columns. The columns were
+  // exposing internal Heuer-tradecraft mechanics (Slot 0/1/2 isolation) that
+  // users don't care about — they want findings, not slot-tracking. We
+  // surface only: phase name, parallel count, total candidates so far, and
+  // a tiny pulse while the phase is still running.
+  const totalFindings = slots.reduce((n, s) => n + (s.state.findings_count ?? 0), 0)
+  const totalCandidates = slots.reduce((n, s) => n + (s.state.candidate_names?.length ?? 0), 0)
+  const totalForbidden = slots.reduce((n, s) => n + (s.state.forbidden_candidates?.length ?? 0), 0)
+
   return (
-    <div className="flex flex-col gap-1.5 px-3 pb-2">
-      <div className="flex items-center gap-1 mb-1">
-        <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-          {phaseId.replace(/_/g, ' ')}
-        </span>
-        <span className="text-[10px] text-slate-600">— {slots.length} parallel tactician{slots.length !== 1 ? 's' : ''}</span>
-        <span className="ml-1 text-[9px] text-slate-600 opacity-60" title="Tacticians cannot see each other's findings">
-          (isolated)
-        </span>
-      </div>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {slots.map(({ slotIdx, state }) => (
-          <TacticianColumn
-            key={slotIdx}
-            slotIdx={slotIdx}
-            state={state}
-            isComplete={isComplete}
-            isSelected={selectedSlotIdx === slotIdx}
-            onClick={() => onSelectTactician?.(selectedSlotIdx === slotIdx ? null : slotIdx)}
-          />
-        ))}
-      </div>
+    <div className="px-3 py-2 flex items-center gap-2 text-[11px] text-muted-foreground border-b border-border/40">
+      <span className="font-semibold text-foreground/80 uppercase tracking-wide text-[10px]">
+        {phaseId.replace(/_/g, ' ')}
+      </span>
+      <span>·</span>
+      <span>
+        searching {slots.length} hypothes{slots.length !== 1 ? 'es' : 'is'} in parallel
+      </span>
+      {totalCandidates > 0 && (
+        <>
+          <span>·</span>
+          <span className="text-emerald-400/90">{totalCandidates} candidate{totalCandidates !== 1 ? 's' : ''}</span>
+        </>
+      )}
+      {totalFindings > 0 && (
+        <>
+          <span>·</span>
+          <span>{totalFindings} finding{totalFindings !== 1 ? 's' : ''}</span>
+        </>
+      )}
+      {totalForbidden > 0 && (
+        <>
+          <span>·</span>
+          <span className="text-rose-400/70">{totalForbidden} forbidden</span>
+        </>
+      )}
+      {!isComplete && (
+        <span className="ml-auto w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse flex-shrink-0" />
+      )}
       {isComplete && (
-        <div className="text-[10px] text-slate-600 italic text-center pt-1">
-          Phase complete
-        </div>
+        <span className="ml-auto text-emerald-500/80 text-[10px]">✓</span>
       )}
     </div>
   )

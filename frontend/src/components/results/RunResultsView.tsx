@@ -3,7 +3,6 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { StreamingCardList } from './StreamingCardList'
 import { FlowMiniPreview } from './FlowMiniPreview'
 import { PhaseDAGView } from './PhaseDAGView'
-import { InvestigationDAG } from './InvestigationDAG'
 import { ShareDialog } from './ShareDialog'
 import { useLayoutStore } from '@/stores/layoutStore'
 import { useRunStreamStore } from '@/stores/runStreamStore'
@@ -130,14 +129,7 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
         maxSize={60}
         className="overflow-hidden"
       >
-        {/* v2 runs: show the InvestigationDAG (data is already in the
-            runStreamStore: phases + tacticians + findings). Legacy runs:
-            show the WebSocket-driven ResearchFlow as before. */}
-        {isV2Run ? (
-          <InvestigationDAG runId={runId} />
-        ) : (
-          <FlowMiniPreview runId={runId} />
-        )}
+        <FlowMiniPreview runId={runId} />
       </Panel>
     </PanelGroup>
   )

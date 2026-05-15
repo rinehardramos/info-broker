@@ -407,9 +407,18 @@ async def scoped_brain_runner(
                                         block.get("text", "") if isinstance(block, dict) else str(block)
                                         for block in tool_result_data
                                     ]
-                                    preview = "\n".join(parts)[:2000]
+                                    preview = "\n".join(p for p in parts if p)[:2000]
+                                    # Fallback: when joined text is empty (MCP
+                                    # tool returned structured blocks with no
+                                    # .text fields), dump the whole content so
+                                    # the card body is never silently blank.
+                                    if not preview.strip():
+                                        try:
+                                            preview = json.dumps(tool_result_data, default=str)[:2000]
+                                        except Exception:
+                                            preview = str(tool_result_data)[:2000]
                                 elif isinstance(tool_result_data, (dict, list)):
-                                    preview = json.dumps(tool_result_data)[:2000]
+                                    preview = json.dumps(tool_result_data, default=str)[:2000]
                                 else:
                                     preview = str(tool_result_data)[:2000] if tool_result_data else ""
                                 await event_emit({
