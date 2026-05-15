@@ -338,6 +338,9 @@ async def execute_tactician(
         resolved_source_class = _technique_to_source_class(
             task_calls[0].get("technique_id", "") if task_calls else ""
         )
+        # Tactic semantics: disconfirm_search produces refutation findings;
+        # the strategist's red_team gate counts these.
+        is_disconfirm_tactic = tactic.id == "disconfirm_search"
         for sf in structured_findings:
             name = sf.get("candidate") or sf.get("name") or ""
             if not name:
@@ -350,6 +353,7 @@ async def execute_tactician(
                 "evidence_snippet": (sf.get("evidence_snippet") or "")[:1500],
                 "confidence": float(sf.get("confidence", 0.6)),
                 "date": sf.get("date"),
+                "is_disconfirm": bool(sf.get("is_disconfirm", is_disconfirm_tactic)),
             })
             candidate_names_seen.add(name)
         # We still record the task_calls as specialist_calls for accounting

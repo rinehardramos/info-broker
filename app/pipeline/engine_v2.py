@@ -383,6 +383,51 @@ async def run_engine_v2(
         except Exception:
             pass
 
+    # Backfill ranked_candidates + ach_matrix when the strategist exited via an
+    # early-return path (ask_user, terminated) that bypassed enrichment. The
+    # broaden phase's distinct_candidate_names are the surviving hypotheses;
+    # ACH scoring works from the aggregated findings regardless of which exit
+    # path was taken.
+    if not result.ranked_candidates and result.phases:
+        try:
+            from app.pipeline.strategist import _enrich_ranked_candidates
+            from app.pipeline.ach import ACHSignal
+            broaden = next((p for p in result.phases if p.phase_id == "broaden"), None)
+            raw_ranked: list[dict] = []
+            if broaden and broaden.distinct_candidate_names:
+                raw_ranked = [
+                    {"name": n, "confidence": 0.5}
+                    for n in broaden.distinct_candidate_names
+                ]
+            if raw_ranked:
+                ach_signals_dicts = getattr(strategy, "ach_signals", []) or []
+                ach_signals = None
+                if ach_signals_dicts:
+                    ach_signals = [
+                        ACHSignal(
+                            id=s["id"], label=s["label"],
+                            weight=float(s["weight"]),
+                            penalty_on_mismatch=float(s["penalty_on_mismatch"]),
+                        )
+                        for s in ach_signals_dicts
+                    ]
+                ranked, ach = _enrich_ranked_candidates(
+                    raw_ranked=raw_ranked,
+                    all_phase_outputs=result.phases,
+                    strategy_id=strategy.id,
+                    ach_signals=ach_signals,
+                )
+                if ranked:
+                    result.ranked_candidates = ranked
+                    if ach is not None:
+                        result.ach_matrix = ach
+                    log.info(
+                        "engine_v2: backfilled %d ranked_candidates + ACH matrix from broaden phase",
+                        len(ranked),
+                    )
+        except Exception as exc:
+            log.warning("engine_v2: ranked_candidates backfill failed (non-fatal): %s", exc)
+
     # ------------------------------------------------------------------
     # 9. Release unused hold
     # ------------------------------------------------------------------

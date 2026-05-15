@@ -797,6 +797,21 @@ class Strategist:
         last = completed_phases[-1] if completed_phases else None
         raw_ranked = last.ranked_candidates if last else []
 
+        # If rank_verify is a pure-analysis tactic (no tool calls, no
+        # produces), it won't populate ranked_candidates directly. Fall
+        # back to deriving the candidate list from the BROADEN phase's
+        # distinct_candidate_names (those are the hypotheses that entered
+        # red_team). _enrich_ranked_candidates then computes ACH scores
+        # from the aggregated_findings across all phases.
+        if not raw_ranked:
+            for p in completed_phases:
+                if p.phase_id == "broaden" and p.distinct_candidate_names:
+                    raw_ranked = [
+                        {"name": name, "confidence": 0.5}
+                        for name in p.distinct_candidate_names
+                    ]
+                    break
+
         # Resolve ach_signals from strategy catalog entry (additive field, default empty)
         ach_signals_dicts = getattr(self._strategy, "ach_signals", []) or []
         ach_signals: list[ACHSignal] | None = None
