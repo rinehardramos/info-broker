@@ -252,27 +252,17 @@ export function NodeResultDetailModal({ card, open, onClose, runId }: NodeResult
           </div>
         </DialogHeader>
         <DialogBody className="pt-4">
-          <Tabs defaultValue="formatted">
+          <Tabs defaultValue="results">
             <TabsList className="mb-4">
-              <TabsTrigger value="formatted">Formatted</TabsTrigger>
-              <TabsTrigger value="input">Input</TabsTrigger>
-              {isIS && <TabsTrigger value="branch">Branch</TabsTrigger>}
+              <TabsTrigger value="results">Results</TabsTrigger>
               <TabsTrigger value="sources">Sources</TabsTrigger>
               {isIS && <TabsTrigger value="hypothesis">Hypothesis</TabsTrigger>}
-              <TabsTrigger value="timing">Timing</TabsTrigger>
-              <TabsTrigger value="raw">Raw Output</TabsTrigger>
+              {isIS && <TabsTrigger value="branch">Branch</TabsTrigger>}
+              <TabsTrigger value="details">Details</TabsTrigger>
             </TabsList>
-            <TabsContent value="formatted">
+            <TabsContent value="results">
               <FormattedTab card={card} />
             </TabsContent>
-            <TabsContent value="input">
-              <InputTab card={card} />
-            </TabsContent>
-            {isIS && (
-              <TabsContent value="branch">
-                <BranchTab card={card} />
-              </TabsContent>
-            )}
             <TabsContent value="sources">
               <SourcesTab card={card} runId={runId} />
             </TabsContent>
@@ -281,11 +271,37 @@ export function NodeResultDetailModal({ card, open, onClose, runId }: NodeResult
                 <HypothesisTab card={card} />
               </TabsContent>
             )}
-            <TabsContent value="timing">
-              <TimingTab card={card} />
-            </TabsContent>
-            <TabsContent value="raw">
-              <RawTab card={card} />
+            {isIS && (
+              <TabsContent value="branch">
+                <BranchTab card={card} />
+              </TabsContent>
+            )}
+            <TabsContent value="details">
+              {/* Compact technical details — query params, timing, raw payload
+                  for power users. Each section is collapsed by default to keep
+                  the human-reading default lean. */}
+              <div className="space-y-4">
+                <section>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Query parameters
+                  </h4>
+                  <InputTab card={card} />
+                </section>
+                <section>
+                  <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Timing
+                  </h4>
+                  <TimingTab card={card} />
+                </section>
+                <details>
+                  <summary className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground cursor-pointer select-none hover:text-foreground/80">
+                    Raw payload ▸
+                  </summary>
+                  <div className="mt-2">
+                    <RawTab card={card} />
+                  </div>
+                </details>
+              </div>
             </TabsContent>
           </Tabs>
         </DialogBody>
