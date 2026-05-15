@@ -61,7 +61,7 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
       <div className="flex flex-col h-full">
         <DebugBadge runId={runId} />
         {isV2Run && (
-          <div className="border-b border-slate-800 flex-shrink-0" style={{ height: 160 }}>
+          <div className="border-b border-slate-800 flex-shrink-0">
             <PhaseDAGView runId={runId} onSelectTactician={setTacticianFilter} />
           </div>
         )}
@@ -107,9 +107,11 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
             </button>
           </div>
           <ShareDialog runId={runId} open={shareOpen} onClose={() => setShareOpen(false)} />
-          {/* v2 engine: show PhaseDAGView above the card list */}
+          {/* v2 engine: show PhaseDAGView above the card list. Auto-height
+              now that the swim lanes collapsed to a single subtitle row —
+              the previous fixed 200px was leaving ~120px of dead space. */}
           {isV2Run && (
-            <div className="border-b border-slate-800 flex-shrink-0" style={{ height: 200 }}>
+            <div className="border-b border-slate-800 flex-shrink-0">
               <PhaseDAGView runId={runId} onSelectTactician={setTacticianFilter} />
             </div>
           )}

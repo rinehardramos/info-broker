@@ -106,7 +106,7 @@ export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGV
   }, [activePhase])
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-col">
       {/* Toolbar */}
       <div className="flex items-center justify-between px-3 py-1 border-b border-slate-800 bg-slate-900/30 flex-shrink-0">
         <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
@@ -137,36 +137,34 @@ export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGV
       </div>
 
       {viewMode === 'compact' ? (
-        <div className="flex-1 overflow-hidden">
+        <div style={{ height: 200 }} className="overflow-hidden">
           <ResearchFlow runId={runId} compact />
         </div>
       ) : viewMode === 'dag' ? (
-        <div className="flex-1 overflow-hidden">
+        <div style={{ height: 200 }} className="overflow-hidden">
           <InvestigationDAG runId={runId} onSelectTactician={handleDAGSelectTactician} />
         </div>
       ) : (
-        /* Live view */
-        <div className="flex flex-col flex-1 overflow-hidden">
+        /* Live view — pills + compact subtitle, no scroll needed */
+        <div className="flex flex-col">
           <PhaseProgress
             phases={phases}
             activePhase={activePhase}
             phaseOrder={derivedOrder}
           />
-          <div className="flex-1 overflow-y-auto">
-            {displayPhaseId != null ? (
-              <TacticianSwimLanes
-                phaseId={displayPhaseId}
-                tacticians={tacticians[displayPhaseId] ?? {}}
-                phaseStatus={phases[displayPhaseId]?.status ?? 'pending'}
-                selectedSlotIdx={selectedTactician?.phaseId === displayPhaseId ? selectedTactician.slotIdx : null}
-                onSelectTactician={handleSelectTactician}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full text-[11px] text-slate-600 italic px-4 text-center">
-                Run started — waiting for first phase...
-              </div>
-            )}
-          </div>
+          {displayPhaseId != null ? (
+            <TacticianSwimLanes
+              phaseId={displayPhaseId}
+              tacticians={tacticians[displayPhaseId] ?? {}}
+              phaseStatus={phases[displayPhaseId]?.status ?? 'pending'}
+              selectedSlotIdx={selectedTactician?.phaseId === displayPhaseId ? selectedTactician.slotIdx : null}
+              onSelectTactician={handleSelectTactician}
+            />
+          ) : (
+            <div className="text-[11px] text-slate-600 italic px-4 py-2 text-center">
+              Run started — waiting for first phase...
+            </div>
+          )}
         </div>
       )}
     </div>
