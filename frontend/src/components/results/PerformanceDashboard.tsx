@@ -10,6 +10,18 @@ import {
   RunHistoryItem,
 } from '../../api/v3'
 
+
+// Coerce any value to a finite number then format. Backends sometimes return
+// numeric columns as strings (psycopg2 NUMERIC, etc.) which break .toFixed().
+function fmtNum(v: unknown, digits: number): string {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(digits) : '—'
+}
+function fmtPct(v: unknown, digits: number): string {
+  const n = Number(v)
+  return Number.isFinite(n) ? `${(n * 100).toFixed(digits)}%` : '—'
+}
+
 const SOURCE_COLORS: Record<string, string> = {
   A: '#22c55e', B: '#4ade80', C: '#facc15', D: '#fb923c', E: '#f87171', F: '#6b7280',
 }
@@ -187,7 +199,7 @@ function TechniqueTable({ rows }: { rows: TechniquePerf[] }) {
                 {t.errors}
               </td>
               <td style={{ padding: '5px 10px', color: t.error_rate > 0.3 ? '#f87171' : 'var(--muted)' }}>
-                {(t.error_rate * 100).toFixed(0)}%
+                {fmtPct(t.error_rate, 0)}
               </td>
             </tr>
           ))}
@@ -228,7 +240,7 @@ function TacticTable({ rows }: { rows: TacticPerf[] }) {
               <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{t.avg_numeric}</td>
               <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{t.runs}</td>
               <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>
-                {(t.avg_yield * 100).toFixed(1)}%
+                {fmtPct(t.avg_yield, 1)}
               </td>
             </tr>
           ))}
@@ -264,20 +276,20 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
       <h2 style={sectionHeadStyle}>Run Summary — last {data.period_days} days</h2>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-        <StatCard label="Total Runs" value={data.runs.total} />
+        <StatCard label="Total Runs" value={data.runs.total ?? 0} />
         <StatCard
           label="Success Rate"
-          value={`${(data.runs.success_rate * 100).toFixed(1)}%`}
-          sub={`${data.runs.succeeded} succeeded`}
+          value={fmtPct(data.runs.success_rate, 1)}
+          sub={`${data.runs.succeeded ?? 0} succeeded`}
         />
-        <StatCard label="Failed" value={data.runs.failed} />
-        <StatCard label="Budget Exhausted" value={data.runs.budget_exhausted} />
+        <StatCard label="Failed" value={data.runs.failed ?? 0} />
+        <StatCard label="Budget Exhausted" value={data.runs.budget_exhausted ?? 0} />
       </div>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-        <StatCard label="Avg Latency" value={`${data.latency.avg_seconds.toFixed(1)}s`} />
-        <StatCard label="P50 Latency" value={`${data.latency.p50_seconds.toFixed(1)}s`} />
-        <StatCard label="P95 Latency" value={`${data.latency.p95_seconds.toFixed(1)}s`} />
+        <StatCard label="Avg Latency" value={`${fmtNum(data.latency.avg_seconds, 1)}s`} />
+        <StatCard label="P50 Latency" value={`${fmtNum(data.latency.p50_seconds, 1)}s`} />
+        <StatCard label="P95 Latency" value={`${fmtNum(data.latency.p95_seconds, 1)}s`} />
       </div>
 
       {data.steps.length > 0 && (
@@ -305,7 +317,7 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
                       <td style={{ padding: '5px 10px', color: rate >= 80 ? '#4ade80' : rate >= 50 ? '#fbbf24' : '#f87171' }}>
                         {rate.toFixed(0)}%
                       </td>
-                      <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.avg_items.toFixed(1)}</td>
+                      <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_items, 1)}</td>
                     </tr>
                   )
                 })}
@@ -334,7 +346,7 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
                   <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
                     <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{s.strategy}</td>
                     <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
-                    <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.avg_score.toFixed(2)}</td>
+                    <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_score, 2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -379,7 +391,7 @@ function RunHistorySection({ runs }: { runs: RunHistoryItem[] }) {
                     <StatusBadge status={r.status} />
                   </td>
                   <td style={{ padding: '5px 10px', color: 'var(--subtext)', whiteSpace: 'nowrap' }}>
-                    {r.duration_seconds != null ? `${r.duration_seconds.toFixed(1)}s` : '—'}
+                    {r.duration_seconds != null ? `${fmtNum(r.duration_seconds, 1)}s` : "—"}
                   </td>
                   <td style={{ padding: '5px 10px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     {new Date(r.started_at).toLocaleString()}
@@ -475,7 +487,7 @@ export default function PerformanceDashboard() {
                   <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel2)' }}>
                     <td style={{ padding: '6px 10px', color: 'var(--text)', fontFamily: 'monospace', fontSize: 11 }}>{s.strategy}</td>
                     <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
-                    <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{s.avg_score.toFixed(2)}</td>
+                    <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_score, 2)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -41,20 +41,26 @@ const buttonVariants = cva(
   }
 )
 
-function Button({
+// Wrap with forwardRef so Radix primitives (DropdownMenuTrigger,
+// DialogTrigger, Tooltip, etc.) can pass a ref through asChild. Without
+// this, React logs a dev-mode warning:
+//   "Function components cannot be given refs ...
+//    Check the render method of `Primitive.button.SlotClone`."
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentProps<"button"> &
+    VariantProps<typeof buttonVariants> & { asChild?: boolean }
+>(function Button({
   className,
   variant = "default",
   size = "default",
   asChild = false,
   ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
-  }) {
+}, ref) {
   const Comp = asChild ? Slot.Root : "button"
-
   return (
     <Comp
+      ref={ref}
       data-slot="button"
       data-variant={variant}
       data-size={size}
@@ -62,6 +68,6 @@ function Button({
       {...props}
     />
   )
-}
+})
 
 export { Button, buttonVariants }

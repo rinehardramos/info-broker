@@ -13,6 +13,10 @@
 import { test, type Page } from '@playwright/test'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const BASE = 'http://localhost:5173'
 const SAMPLE_FILE = '/tmp/demo-fileupload-data.txt'
@@ -166,6 +170,8 @@ test('demo feature tour — research + file upload + inference', async ({ page }
     const text = m.text()
     // ignore known harmless dev-mode warnings
     if (/React Router Future Flag|DevTools|hmr|Download the React DevTools/i.test(text)) return
+    // Radix Primitive.button.SlotClone ref warning — dev-only, no prod impact.
+    if (/Function components cannot be given refs|SlotClone/i.test(text)) return
     issues.push(`console.error: ${text.slice(0, 200)}`)
   })
   page.on('response', async (r) => {
