@@ -134,6 +134,16 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
   })
   const [goingDeeper, setGoingDeeper] = useState(false)
 
+  // v2 replay: if the runStreamStore has phases populated for this run (e.g.
+  // from a useReplay rehydrate), short-circuit straight to RunResultsView
+  // regardless of the legacy pipeline_runs.trigger_type/status — past v2
+  // runs need their cards + phase progress visible.
+  const v2Run = useRunStreamStore.getState().runsById[runId]
+  const isV2 = v2Run && Object.keys(v2Run.phases ?? {}).length > 0
+  if (isV2) {
+    return <RunResultsView runId={runId} />
+  }
+
   if (isLoading) {
     return <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>Loading…</p>
   }

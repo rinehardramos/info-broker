@@ -55,12 +55,13 @@ export default function AgentChat() {
     void import('@/hooks/useReplay').then(mod => {
       void mod.replayRunIntoStore(replayRunId).then((ok) => {
         if (ok) {
-          void import('@/stores/sessionStore').then(({ useSessionStore }) => {
-            const s = useSessionStore.getState()
-            s.setActiveJobId(replayRunId)
-            // setCol1Content triggers ResultsPanel auto-switch to this run tab
-            s.setCol1Content({ type: 'pipeline_run', runId: replayRunId })
-          })
+          // Use the statically-imported useSessionStore (top of file) to avoid
+          // a dynamic-import race window that could fire after the user has
+          // navigated away.
+          const s = useSessionStore.getState()
+          s.setActiveJobId(replayRunId)
+          // setCol1Content triggers ResultsPanel auto-switch to this run tab
+          s.setCol1Content({ type: 'pipeline_run', runId: replayRunId })
         }
       })
     })

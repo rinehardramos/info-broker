@@ -5,6 +5,7 @@ import { listAllPipelineRuns, type PipelineRunSummary } from '../../api/pipeline
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
+import { replayRunIntoStore } from '../../hooks/useReplay'
 import JobItem from './JobItem'
 import PipelineRunItem from './PipelineRunItem'
 
