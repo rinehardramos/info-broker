@@ -90,10 +90,15 @@ function normalize(obj: unknown): NormalizedFinding[] | null {
 }
 
 /** Render a single finding as a structured card row. */
-function FindingRow({ finding, compact = false }: { finding: NormalizedFinding; compact?: boolean }) {
+function FindingRow({ finding, compact = false, clickable = false }: { finding: NormalizedFinding; compact?: boolean; clickable?: boolean }) {
   const confPct = finding.confidence != null ? Math.round(finding.confidence * 100) : null
   return (
-    <div className="rounded-md border border-border/60 bg-card/40 p-2.5 space-y-1.5">
+    <div
+      className={
+        'rounded-md border border-border/60 bg-card/40 p-2.5 space-y-1.5 ' +
+        (clickable ? 'cursor-pointer hover:bg-card/70 hover:border-violet-700/50 transition-colors' : '')
+      }
+    >
       {/* Title row */}
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
@@ -159,7 +164,10 @@ interface FindingViewProps {
 }
 
 /** Returns null when data doesn't match a known finding shape. */
-export function tryRenderFindings(data: unknown, options: { limit?: number; compact?: boolean } = {}) {
+export function tryRenderFindings(
+  data: unknown,
+  options: { limit?: number; compact?: boolean; clickable?: boolean } = {},
+) {
   let parsed: unknown = data
   if (typeof data === 'string') {
     try {
@@ -178,7 +186,7 @@ export function tryRenderFindings(data: unknown, options: { limit?: number; comp
   return (
     <div className="space-y-1.5">
       {visible.map((f, i) => (
-        <FindingRow key={i} finding={f} compact={options.compact} />
+        <FindingRow key={i} finding={f} compact={options.compact} clickable={options.clickable} />
       ))}
       {hiddenCount > 0 && (
         <div className="text-[10px] text-muted-foreground italic text-center pt-1">

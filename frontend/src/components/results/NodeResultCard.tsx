@@ -52,8 +52,10 @@ const NodeResultCard = React.memo(
 
     // Try to render as a structured finding (candidate, snippet, confidence,
     // source link). Falls back to formatted text when shape doesn't match.
+    // clickable=true so finding rows show pointer cursor + hover state; the
+    // click still bubbles up to the card's outer onClick which opens the modal.
     const structuredBody = isTerminal
-      ? tryRenderFindings(card.output ?? card.preview, { limit: 3, compact: false })
+      ? tryRenderFindings(card.output ?? card.preview, { limit: 3, compact: false, clickable: true })
       : null
     const formatted = isTerminal && !structuredBody ? formatToolResult(card.preview) : null
     const displayBody = formatted?.pretty ?? card.preview
@@ -180,7 +182,9 @@ const NodeResultCard = React.memo(
   (prev, next) =>
     prev.card.nodeId === next.card.nodeId &&
     prev.card.status === next.card.status &&
-    prev.card.preview.length === next.card.preview.length,
+    prev.card.preview.length === next.card.preview.length &&
+    prev.card.output === next.card.output &&
+    prev.onClick === next.onClick,
 )
 
 export { NodeResultCard }
