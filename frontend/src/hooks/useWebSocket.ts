@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { useRunStreamStore, type NodeCardStatus, type BrainSuggestion } from '../stores/runStreamStore'
+import type { RankedCandidate } from '../types/research'
 
 export type WsEvent = {
   type: string
@@ -62,6 +63,10 @@ export type WsEvent = {
   after_node_id?: string
   // pipeline.node.injection_failed
   reason?: string
+  // is.run_complete
+  ranked_candidates?: unknown[]
+  ru_consumed?: number
+  ru_released?: number
 }
 
 type Handler = (event: WsEvent) => void
@@ -213,6 +218,20 @@ function connect(token: string) {
               if (!event.run_id || !event.suggestion) break
               stream.addSuggestion(event.run_id, event.suggestion as BrainSuggestion)
               chat.appendBrainSuggestionAsMessage(event.suggestion as BrainSuggestion)
+              break
+            }
+
+            case 'is.run_complete': {
+              const rid = event.run_id ?? event.job_id ?? ''
+              if (!rid) break
+              // Mark the run as succeeded in the store
+              stream.setRunStatus(rid, 'is', 'succeeded')
+              // Populate ranked_candidates so CandidateComparison can render.
+              // The backend sends raw dicts; the UI handles missing fields gracefully
+              // (signal_scores defaults to {} when absent in MVP).
+              if (Array.isArray(event.ranked_candidates)) {
+                stream.setRankedCandidates(rid, event.ranked_candidates as RankedCandidate[])
+              }
               break
             }
 

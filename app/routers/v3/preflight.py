@@ -16,11 +16,28 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from pathlib import Path
+
 from app.routers.v3.auth import get_current_user
 from app.routers.v3.db import fetch_one
-from app.pipeline.catalogs.budget import BudgetEnvelope, CAPABILITY_LEVELS, HYPOTHESIS_COUNT_LEVELS
+from app.pipeline.catalogs.budget import (
+    BudgetEnvelope,
+    CAPABILITY_LEVELS,
+    HYPOTHESIS_COUNT_LEVELS,
+    SPEED_LEVELS,
+    RESOURCE_LEVELS,
+    DEPTH_LEVELS,
+)
+from app.pipeline.catalogs.loader import load_catalog
 from app.pipeline.estimator import estimate_run
 from app.pipeline import budget as wallet
+
+# ---------------------------------------------------------------------------
+# Mode catalog — loaded once at import time
+# ---------------------------------------------------------------------------
+
+_MODES_DIR = Path(__file__).resolve().parent.parent.parent / "pipeline" / "catalogs" / "registries" / "modes"
+_MODE_CATALOG = load_catalog("mode", _MODES_DIR)
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +101,8 @@ class DialsIn(BaseModel):
     capability: Optional[str] = "general"
     hypothesis_count: Optional[str] = "competing"
     depth: Optional[str] = "search"
+    speed: Optional[str] = "normal"
+    resource: Optional[str] = "medium"
 
 
 class PreflightIn(BaseModel):
@@ -91,6 +110,53 @@ class PreflightIn(BaseModel):
     mode: Optional[str] = None
     dials: Optional[DialsIn] = None
     strategy: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Mode catalog response models
+# ---------------------------------------------------------------------------
+
+class ModeDialDefaultsOut(BaseModel):
+    speed: str
+    capability: str
+    resource: str
+    depth: str
+    hypothesis_count: str
+
+
+class ModeOut(BaseModel):
+    id: str
+    label: str
+    description: str
+    dial_defaults: ModeDialDefaultsOut
+
+
+_MODE_META: dict[str, dict[str, str]] = {
+    "quick_lookup": {
+        "label": "Quick Lookup",
+        "description": "Speed-first single-answer retrieval. Best for factual one-off questions.",
+    },
+    "leads_generation": {
+        "label": "Leads Generation",
+        "description": "Fast contact and lead extraction across multiple targets in parallel.",
+    },
+    "data_retrieval": {
+        "label": "Data Retrieval",
+        "description": "Structured-source data fetching (databases, TMDB, registries).",
+    },
+    "market_analysis": {
+        "label": "Market Analysis",
+        "description": "Comparative trend analysis with deep research across competing hypotheses.",
+    },
+    "investigation": {
+        "label": "Investigation",
+        "description": "Deep OSINT investigation with adversarial hypotheses and disconfirmation. Optimized against tunneling.",
+    },
+    "academic_research": {
+        "label": "Academic Research",
+        "description": "Exhaustive primary-source and citation-chain research. Maximum depth.",
+    },
+}
 
 
 class EnvelopeOut(BaseModel):
@@ -172,6 +238,31 @@ def _get_wallet_snapshot(user_id: str) -> dict:
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
+@router.get("/modes", response_model=list[ModeOut])
+def list_modes(_user: dict = Depends(get_current_user)):
+    """Return all 6 optimization modes with their id, label, description, and dial defaults."""
+    result: list[ModeOut] = []
+    for mode_id, mode_entry in _MODE_CATALOG.items():
+        meta = _MODE_META.get(mode_id, {"label": mode_id, "description": ""})
+        defaults = mode_entry.dial_defaults
+        result.append(
+            ModeOut(
+                id=mode_id,
+                label=meta["label"],
+                description=meta["description"],
+                dial_defaults=ModeDialDefaultsOut(
+                    speed=defaults.get("speed", "normal"),
+                    capability=defaults.get("capability", "general"),
+                    resource=defaults.get("resource", "medium"),
+                    depth=defaults.get("depth", "search"),
+                    hypothesis_count=defaults.get("hypothesis_count", "competing"),
+                ),
+            )
+        )
+    return result
+
+
 @router.post("", response_model=PreflightOut)
 def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
     """Classify query, suggest strategy + mode, compute RU estimate, snapshot wallet."""
@@ -181,11 +272,27 @@ def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
     strategy_id = body.strategy or _classify_query(body.query)
     suggested_mode = body.mode or _suggest_mode(strategy_id)
 
-    # Build envelope from dials (apply defaults)
+    # Resolve mode dial defaults — mode sets the baseline; explicit dials override per-dial
+    mode_entry = _MODE_CATALOG.get(suggested_mode)
+    mode_defaults = mode_entry.dial_defaults if mode_entry else {}
+
+    # Build envelope from dials — explicit dials win over mode defaults, mode defaults win over
+    # hardcoded fallbacks (normal/general/medium/search/competing)
     dials = body.dials or DialsIn()
-    cap = dials.capability if dials.capability in CAPABILITY_LEVELS else "general"
-    depth = dials.depth if dials.depth in ("shallow", "search", "deep", "abyss") else "search"
-    hyp = dials.hypothesis_count if dials.hypothesis_count in HYPOTHESIS_COUNT_LEVELS else "competing"
+
+    def _resolve(dial_val: Optional[str], mode_key: str, fallback: str, domain: tuple) -> str:
+        if dial_val and dial_val in domain:
+            return dial_val
+        md = mode_defaults.get(mode_key)
+        if md and md in domain:
+            return md
+        return fallback
+
+    cap = _resolve(dials.capability, "capability", "general", CAPABILITY_LEVELS)
+    depth = _resolve(dials.depth, "depth", "search", DEPTH_LEVELS)
+    hyp = _resolve(dials.hypothesis_count, "hypothesis_count", "competing", HYPOTHESIS_COUNT_LEVELS)
+    speed = _resolve(dials.speed, "speed", "normal", SPEED_LEVELS)
+    resource = _resolve(dials.resource, "resource", "medium", RESOURCE_LEVELS)
 
     warnings: list[str] = []
 
@@ -203,8 +310,8 @@ def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
         capability=cap,
         hypothesis_count=hyp,
         depth=depth,
-        speed="normal",
-        resource="medium",
+        speed=speed,
+        resource=resource,
         mode=suggested_mode,
     )
 
@@ -256,6 +363,8 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
     hyp = body.envelope.hypothesis_count or "competing"
     cap = body.envelope.capability or "general"
     depth = body.envelope.depth or "search"
+    speed = body.envelope.speed or "normal"
+    resource = body.envelope.resource or "medium"
 
     floor = _STRATEGY_HYPOTHESIS_FLOOR.get(body.strategy_id)
     if floor and not _hypothesis_meets_floor(hyp, floor):
@@ -265,9 +374,9 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
         envelope = BudgetEnvelope(
             capability=cap if cap in CAPABILITY_LEVELS else "general",
             hypothesis_count=hyp,
-            depth=depth if depth in ("shallow", "search", "deep", "abyss") else "search",
-            speed="normal",
-            resource="medium",
+            depth=depth if depth in DEPTH_LEVELS else "search",
+            speed=speed if speed in SPEED_LEVELS else "normal",
+            resource=resource if resource in RESOURCE_LEVELS else "medium",
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -310,11 +419,11 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
             from app.routers.v3.stream import push_event
 
             _envelope = BudgetEnvelope(
-                capability=cap if cap in ("light", "general", "high") else "general",
+                capability=cap if cap in CAPABILITY_LEVELS else "general",
                 hypothesis_count=hyp,
-                depth=depth if depth in ("shallow", "search", "deep", "abyss") else "search",
-                speed="normal",
-                resource="medium",
+                depth=depth if depth in DEPTH_LEVELS else "search",
+                speed=speed if speed in SPEED_LEVELS else "normal",
+                resource=resource if resource in RESOURCE_LEVELS else "medium",
             )
 
             async def _emit_event(payload: dict) -> None:

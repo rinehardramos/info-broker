@@ -2,6 +2,8 @@ import React from 'react'
 import { cn } from '@/lib/utils'
 import { formatToolResult } from '@/lib/toolResultFormatter'
 import type { NodeCard } from '@/stores/runStreamStore'
+import { SourceClassBadge } from './SourceClassBadge'
+import type { SourceClass } from '@/types/research'
 
 interface NodeResultCardProps {
   card: NodeCard
@@ -107,11 +109,18 @@ const NodeResultCard = React.memo(
 
         {card.sources && card.sources.length > 0 && (
           <div className="flex gap-1.5 mt-2 flex-wrap">
-            {card.sources.map((s, i) => (
-              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {s.label ?? s.url ?? 'source'}
-              </span>
-            ))}
+            {card.sources.map((s, i) => {
+              // Sources may optionally carry a source_class when emitted by IS engine v2.
+              const extendedSource = s as typeof s & { source_class?: SourceClass }
+              return (
+                <span key={i} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                  {extendedSource.source_class && (
+                    <SourceClassBadge sourceClass={extendedSource.source_class} compact />
+                  )}
+                  {s.label ?? s.url ?? 'source'}
+                </span>
+              )
+            })}
           </div>
         )}
 

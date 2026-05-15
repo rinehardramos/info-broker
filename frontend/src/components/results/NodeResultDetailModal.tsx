@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatToolResult } from '@/lib/toolResultFormatter'
 import type { NodeCard } from '@/stores/runStreamStore'
 import { GradingRow } from './GradingRow'
+import { HypothesisTab } from './HypothesisTab'
 
 interface NodeResultDetailModalProps {
   card: NodeCard | null
@@ -243,6 +244,7 @@ export function NodeResultDetailModal({ card, open, onClose, runId }: NodeResult
               <TabsTrigger value="input">Input</TabsTrigger>
               {isIS && <TabsTrigger value="branch">Branch</TabsTrigger>}
               <TabsTrigger value="sources">Sources</TabsTrigger>
+              {isIS && <TabsTrigger value="hypothesis">Hypothesis</TabsTrigger>}
               <TabsTrigger value="timing">Timing</TabsTrigger>
               <TabsTrigger value="raw">Raw Output</TabsTrigger>
             </TabsList>
@@ -260,6 +262,11 @@ export function NodeResultDetailModal({ card, open, onClose, runId }: NodeResult
             <TabsContent value="sources">
               <SourcesTab card={card} runId={runId} />
             </TabsContent>
+            {isIS && (
+              <TabsContent value="hypothesis">
+                <HypothesisTab card={card} />
+              </TabsContent>
+            )}
             <TabsContent value="timing">
               <TimingTab card={card} />
             </TabsContent>

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { api } from '../api/client'
 
 // ---------------------------------------------------------------------------
@@ -9,6 +9,8 @@ export interface DialsIn {
   capability: 'light' | 'general' | 'high'
   hypothesis_count: 'single' | 'paired' | 'competing' | 'adversarial' | 'swarm'
   depth: 'shallow' | 'search' | 'deep' | 'abyss'
+  speed: 'slow' | 'normal' | 'fast' | 'very_fast' | 'extreme'
+  resource: 'tiny' | 'light' | 'medium' | 'heavy' | 'unlimited'
 }
 
 export interface PreflightIn {
@@ -66,13 +68,63 @@ export interface PreflightConfirmResult {
 }
 
 // ---------------------------------------------------------------------------
+// Mode catalog types
+// ---------------------------------------------------------------------------
+
+export interface ModeDialDefaults {
+  speed: string
+  capability: string
+  resource: string
+  depth: string
+  hypothesis_count: string
+}
+
+export interface ModeEntry {
+  id: string
+  label: string
+  description: string
+  dial_defaults: ModeDialDefaults
+}
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
+
+const DEBOUNCE_MS = 300
 
 export function usePreflight() {
   const [estimate, setEstimate] = useState<PreflightResult | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [modes, setModes] = useState<ModeEntry[]>([])
+  const [modesLoading, setModesLoading] = useState(false)
+
+  // Ref used to cancel in-flight debounced calls
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ---------------------------------------------------------------------------
+  // Fetch mode catalog (once on mount)
+  // ---------------------------------------------------------------------------
+
+  const fetchModes = useCallback(async () => {
+    setModesLoading(true)
+    try {
+      const { data } = await api.get<ModeEntry[]>('/v3/preflight/modes')
+      setModes(data)
+    } catch {
+      // Non-fatal: modes list stays empty; PreflightPanel falls back to inline mode labels
+    } finally {
+      setModesLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchModes()
+  }, [fetchModes])
+
+  // ---------------------------------------------------------------------------
+  // Preflight estimate — immediate (used for initial load)
+  // ---------------------------------------------------------------------------
 
   const preflight = useCallback(async (input: PreflightIn): Promise<PreflightResult | null> => {
     setIsLoading(true)
@@ -90,6 +142,23 @@ export function usePreflight() {
       setIsLoading(false)
     }
   }, [])
+
+  // ---------------------------------------------------------------------------
+  // Debounced preflight — used when dials change to avoid hammering the API
+  // ---------------------------------------------------------------------------
+
+  const preflightDebounced = useCallback((input: PreflightIn): void => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current)
+    }
+    debounceTimer.current = setTimeout(() => {
+      preflight(input)
+    }, DEBOUNCE_MS)
+  }, [preflight])
+
+  // ---------------------------------------------------------------------------
+  // Confirm — place wallet hold
+  // ---------------------------------------------------------------------------
 
   const confirm = useCallback(async (input: PreflightConfirmIn): Promise<PreflightConfirmResult | null> => {
     setIsLoading(true)
@@ -113,5 +182,14 @@ export function usePreflight() {
     }
   }, [])
 
-  return { preflight, confirm, estimate, isLoading, error }
+  return {
+    preflight,
+    preflightDebounced,
+    confirm,
+    estimate,
+    isLoading,
+    error,
+    modes,
+    modesLoading,
+  }
 }

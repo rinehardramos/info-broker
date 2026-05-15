@@ -3,6 +3,7 @@ import { useRunStreamStore } from '@/stores/runStreamStore'
 import { NodeResultCard } from '../results/NodeResultCard'
 import { NodeResultDetailModal } from '../results/NodeResultDetailModal'
 import { BrainSuggestionBanner } from '../results/BrainSuggestionBanner'
+import { CandidateComparison } from '../results/CandidateComparison'
 import { brainApi } from '@/api/brain'
 import { useChatStore } from '@/stores/chatStore'
 import type { NodeCard, BrainSuggestion } from '@/stores/runStreamStore'
@@ -29,7 +30,7 @@ export function StreamingCardList({ runId }: StreamingCardListProps) {
     )
   }
 
-  const { cardOrder, cards, suggestions, dismissedSuggestionIds } = run
+  const { cardOrder, cards, suggestions, dismissedSuggestionIds, rankedCandidates = [] } = run
   const visibleSuggestions = suggestions.filter((s) => !dismissedSuggestionIds.has(s.id))
 
   const olderCount = Math.max(0, cardOrder.length - COLLAPSE_THRESHOLD)
@@ -64,6 +65,12 @@ export function StreamingCardList({ runId }: StreamingCardListProps) {
 
   return (
     <div className="flex flex-col gap-2.5 p-4 overflow-y-auto h-full">
+      {/* Candidate comparison is injected above the card list when the IS engine
+          run finishes with 2+ distinct candidates. Renders nothing otherwise. */}
+      {rankedCandidates.length >= 2 && (
+        <CandidateComparison candidates={rankedCandidates} />
+      )}
+
       {visibleSuggestions.map((sug) => (
         <BrainSuggestionBanner
           key={sug.id}

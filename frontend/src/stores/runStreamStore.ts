@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { RankedCandidate } from '@/types/research'
 
 export type NodeCardStatus = 'pending' | 'running' | 'streaming' | 'succeeded' | 'failed' | 'canceled'
 
@@ -51,6 +52,8 @@ export interface RunStream {
   suggestions: BrainSuggestion[]
   dismissedSuggestionIds: Set<string>
   hydratedFromServer: boolean
+  /** Populated from is.run_complete event; empty array until run finishes. */
+  rankedCandidates: RankedCandidate[]
 }
 
 interface RunStreamState {
@@ -63,6 +66,7 @@ interface RunStreamState {
   dismissSuggestion: (runId: string, id: string) => void
   hydrateFromServer: (runId: string, serverRun: Partial<RunStream>) => void
   clearRun: (runId: string) => void
+  setRankedCandidates: (runId: string, candidates: RankedCandidate[]) => void
 }
 
 const CANCELABLE_STATUSES: NodeCardStatus[] = ['running', 'streaming', 'pending']
@@ -86,6 +90,7 @@ function ensureRun(
       suggestions: [],
       dismissedSuggestionIds: new Set(),
       hydratedFromServer: false,
+      rankedCandidates: [],
     }
   } else {
     runsById[runId] = { ...runsById[runId] } // copy so mutations below don't touch old state
@@ -216,6 +221,15 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
     set((state) => {
       const { [runId]: _, ...rest } = state.runsById
       return { runsById: rest }
+    })
+  },
+
+  setRankedCandidates(runId, candidates) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      run.rankedCandidates = candidates
+      return { runsById }
     })
   },
 }))

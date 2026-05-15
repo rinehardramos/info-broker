@@ -47,6 +47,25 @@ _DEPTH_MULT: dict[str, float] = {
     "abyss": 2.5,
 }
 
+# Speed multiplier: faster = more concurrent calls + retry budget = more RU
+# §5.2.2: bumping slow→extreme can ~1.5-2x RU at fixed other dials
+_SPEED_MULT: dict[str, float] = {
+    "slow": 0.9,
+    "normal": 1.0,
+    "fast": 1.15,
+    "very_fast": 1.4,
+    "extreme": 1.8,
+}
+
+# Resource multiplier: governs tactician fan-out and tactic cost_class pruning
+_RESOURCE_MULT: dict[str, float] = {
+    "tiny": 0.5,
+    "light": 0.7,
+    "medium": 1.0,
+    "heavy": 1.4,
+    "unlimited": 2.0,
+}
+
 # Hypothesis count integer mapping (est_branches)
 _HYPOTHESIS_INT: dict[str, int] = {
     "single": 1,
@@ -80,25 +99,27 @@ class EstimateResult:
 def estimate_run(strategy_id: str, envelope: BudgetEnvelope) -> EstimateResult:
     """Return an EstimateResult for the given strategy + envelope.
 
-    Formula:
-        estimated_ru = base × cap_mult × hyp_mult × depth_mult
+    Formula (§5.2, §5.3):
+        estimated_ru = base × speed_mult × cap_mult × resource_mult × depth_mult × hyp_mult
         estimated_ru_p90 = estimated_ru × 1.4
         est_branches = hypothesis_count integer
-        est_tool_calls = base_tool_calls(strategy) × hyp_mult × 0.5
+        est_tool_calls = base_tool_calls(strategy) × hyp_mult × resource_mult × 0.5
     """
     base_ru = _STRATEGY_BASE_RU.get(strategy_id, 12)
     base_tools = _STRATEGY_BASE_TOOL_CALLS.get(strategy_id, 10)
 
+    speed_mult = _SPEED_MULT.get(envelope.speed, 1.0)
     cap_mult = _CAPABILITY_MULT.get(envelope.capability, 1.0)
+    resource_mult = _RESOURCE_MULT.get(envelope.resource, 1.0)
     hyp_mult = _HYPOTHESIS_MULT.get(envelope.hypothesis_count, 2.2)
     depth_mult = _DEPTH_MULT.get(envelope.depth, 1.0)
 
-    raw_ru = base_ru * cap_mult * hyp_mult * depth_mult
+    raw_ru = base_ru * speed_mult * cap_mult * resource_mult * depth_mult * hyp_mult
     estimated_ru = max(1, round(raw_ru))
     estimated_ru_p90 = max(estimated_ru + 1, round(raw_ru * 1.4))
 
     est_branches = _HYPOTHESIS_INT.get(envelope.hypothesis_count, 3)
-    est_tool_calls = max(1, round(base_tools * hyp_mult * 0.5))
+    est_tool_calls = max(1, round(base_tools * hyp_mult * resource_mult * 0.5))
     est_wall_time_s = max(30, round(estimated_ru * _WALL_TIME_PER_RU_S))
 
     return EstimateResult(
