@@ -50,12 +50,17 @@ function DialogContent({
         className={cn(
           'fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
           'w-full max-w-2xl max-h-[85vh] overflow-y-auto',
-          'bg-background border border-border rounded-xl shadow-2xl',
+          // Use the app-wide custom panel color so the modal matches the dark
+          // theme regardless of whether the .dark class is on <html>. Tailwind's
+          // bg-background resolves to white in navy mode because --background
+          // is light at :root scope (.dark only overrides it under .dark).
+          'border border-[var(--border)] rounded-xl shadow-2xl',
           'data-[state=open]:animate-in data-[state=closed]:animate-out',
           'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
           'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
           className,
         )}
+        style={{ background: 'var(--panel)', color: 'var(--text)' }}
         {...props}
       >
         {children}
