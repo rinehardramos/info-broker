@@ -1,7 +1,8 @@
 import React from 'react'
 import { cn } from '@/lib/utils'
 import { formatToolResult } from '@/lib/toolResultFormatter'
-import { tryRenderFindings } from './FindingView'
+import { FindingView } from './FindingView'
+import { parseAndNormalize } from '@/lib/findings'
 import type { NodeCard } from '@/stores/runStreamStore'
 import { SourceClassBadge } from './SourceClassBadge'
 import type { SourceClass } from '@/types/research'
@@ -50,14 +51,11 @@ const NodeResultCard = React.memo(
     // can jump to the source without opening the modal.
     const firstSourceUrl = card.sources?.find((s) => s.url)?.url
 
-    // Try to render as a structured finding (candidate, snippet, confidence,
-    // source link). Falls back to formatted text when shape doesn't match.
-    // clickable=true so finding rows show pointer cursor + hover state; the
-    // click still bubbles up to the card's outer onClick which opens the modal.
-    const structuredBody = isTerminal
-      ? tryRenderFindings(card.output ?? card.preview, { limit: 3, compact: false, clickable: true })
-      : null
-    const formatted = isTerminal && !structuredBody ? formatToolResult(card.preview) : null
+    // Detect if the card's output is a recognizable finding shape.
+    // If yes, render via <FindingView>. If no, fall back to formatted text.
+    const findingsInData = isTerminal ? parseAndNormalize(card.output ?? card.preview) : null
+    const hasStructuredFindings = !!findingsInData && findingsInData.length > 0
+    const formatted = isTerminal && !hasStructuredFindings ? formatToolResult(card.preview) : null
     const displayBody = formatted?.pretty ?? card.preview
 
     return (
@@ -88,8 +86,8 @@ const NodeResultCard = React.memo(
 
         {/* Body — render findings as human-readable cards (FindingView) when
             the shape matches; fall back to pretty text only when it doesn't. */}
-        {isTerminal && structuredBody ? (
-          structuredBody
+        {isTerminal && hasStructuredFindings ? (
+          <FindingView data={card.output ?? card.preview} limit={3} clickable />
         ) : (
           <p
             className={cn(

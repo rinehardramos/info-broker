@@ -8,7 +8,8 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatToolResult } from '@/lib/toolResultFormatter'
-import { tryRenderFindings } from './FindingView'
+import { FindingView } from './FindingView'
+import { parseAndNormalize } from '@/lib/findings'
 import type { NodeCard } from '@/stores/runStreamStore'
 import { GradingRow } from './GradingRow'
 import { HypothesisTab } from './HypothesisTab'
@@ -76,9 +77,13 @@ function FormattedTab({ card }: { card: NodeCard }) {
   // Prefer the structured-finding rendering when the data matches that shape
   // (candidate / snippet / confidence / source_url / source_class). Falls back
   // to formatted text only when the shape isn't a finding.
-  const findingsView = tryRenderFindings(card.output ?? card.preview, { compact: false })
-  if (findingsView) {
-    return <div className="max-h-[60vh] overflow-auto pr-1">{findingsView}</div>
+  const findings = parseAndNormalize(card.output ?? card.preview)
+  if (findings && findings.length > 0) {
+    return (
+      <div className="max-h-[60vh] overflow-auto pr-1">
+        <FindingView data={card.output ?? card.preview} />
+      </div>
+    )
   }
 
   const raw =
