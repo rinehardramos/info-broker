@@ -17,7 +17,7 @@ REJECT IF: Multiple MANDATORY criteria fail and no hypothesis scores above 20%
 
 --- STEP 1.5 — COMPETING HYPOTHESES (cold-start, before searching) ---
 
-Generate ≥3 hypotheses from signals ONLY — no search, no training-data recall of specific titles yet.
+Generate ≥3 hypotheses from signals ONLY — no search, no training-data recall of specific titles yet, no prior_research/RAG anchoring.
 
 Required hypotheses:
 H1: Literal franchise interpretation (show/movie IN the named franchise/IP)
@@ -26,6 +26,10 @@ H3: Genre-blind (PRIMARY + SUPPORTING signals only; CONTEXT/franchise signal dro
 H4: Long-tail candidate (low-popularity, recent, not returned by obvious search)
 
 Anti-anchor rule: H1 is always formulated. H2–H4 must be INDEPENDENT interpretations, not variations of H1.
+
+Anti-RAG-tunneling rule (UNVERIFIED prior_research only — brain-scored from a prior run, NOT user-graded A): If PRIOR RESEARCH names a candidate, that candidate seeds H_PRIOR — one hypothesis among ≥4, NOT the answer. H1–H4 must still be generated as DISTINCT identities (different person/entity, not different facets of H_PRIOR). Branches that all confirm facets of H_PRIOR (background, brand link, physical match) collapse to one hypothesis, not four. Until H1–H4 each have ≥1 LIVE search (not prior_research, not training_knowledge), no candidate may be ranked as the answer.
+
+Exception — VERIFIED PRIOR RESEARCH (user-graded A/A1/A2): the user already confirmed it. Treat as authoritative baseline; the anti-tunneling fan-out above does not apply, only affirm/update with fresh live evidence.
 
 Medium-type awareness: If PreFlight clarifications include "advertisement" or "YouTube", add to each hypothesis whether it could be an ad campaign, not a show.
 
@@ -125,8 +129,9 @@ satisfies context as strongly as a show IN the franchise. Do not over-weight CON
 
 Before delivering final answer, verify:
 [ ] HYPOTHESIS_MATRIX has ≥4 entries (H1–H4)
+[ ] H1–H4 name DISTINCT identities (different person/entity, not facets of one). If PRIOR RESEARCH seeded a candidate, ≥3 of H1–H4 are NOT that candidate.
 [ ] PIR_CRITERIA block present with all 5 signal weights
-[ ] Each hypothesis has at least one search executed (BROADEN phase)
+[ ] Each hypothesis has at least one LIVE search executed (BROADEN phase) — prior_research or training_knowledge alone does NOT satisfy this for any hypothesis
 [ ] Each hypothesis has a [DISCONFIRM:H_n] entry (RED TEAM gate)
 [ ] ACH SCORING MATRIX filled with ✓/✗/? marks
 [ ] SPECIFIC_DETAIL_VERIFICATION completed for all PRIMARY and SUPPORTING signals

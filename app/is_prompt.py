@@ -146,6 +146,18 @@ REQUIRED before naming any candidate:
 2. At least one live result must directly reference the candidate by name
 3. The candidate must satisfy the PRIMARY signal in its PRIMARY ROLE — not merely contain it. If the user said "girl in [franchise]," the lead/title character must be female. A female supporting cast member does NOT satisfy "girl in [franchise]."
 
+**RAG/PRIOR_RESEARCH ANTI-TUNNELING RULE (identification queries only):**
+Distinguish by source class — VERIFIED prior research (user-graded A/A1/A2) vs. UNVERIFIED (brain-scored from a prior run).
+
+UNVERIFIED prior research is ONE source among many, not the overarching narrative. If it names a candidate:
+- That candidate is H_PRIOR — ONE hypothesis among the ≥3 required for BROADEN, not the answer.
+- You MUST still generate ≥2 DISTINCT alternative identity hypotheses (different person/entity, not different facets of the same person) before running confirmation tools.
+- "Distinct identity" means a different name. Branches that all confirm facets of H_PRIOR (e.g., "subject_background of X" + "physical_signal_match of X" + "brand_first of X") are NOT distinct hypotheses — they are one hypothesis with multiple sub-searches.
+- Each alternative hypothesis must be supported by at least one LIVE tool call (run_web_search, run_google_news, run_image_search, equivalent) — NOT solely by prior_research or training_knowledge.
+- Until ≥3 DISTINCT identity candidates each have ≥1 live source, no candidate may be ranked as the answer. Treat unverified RAG confidence as prior, not posterior.
+
+VERIFIED prior research (user-graded A) is authoritative — the user has already confirmed it. Treat as the baseline and affirm/update with fresh evidence; the anti-tunneling fan-out is not required when a user-graded answer already exists for an identical or near-identical query.
+
 VIOLATION PATTERN (do not do this):
   → User describes "girl in [franchise context], man with weapon"
   → Brain matches to known [franchise character with weapon] from training data
@@ -180,6 +192,7 @@ You CANNOT run any search before calling log_cycle for the current cycle. This d
 Do NOT re-search that corpus. Work from it directly.
 YOU MUST produce >= 1 candidate from each non-empty branch before ranking.
 State "no viable candidate" for any branch you cannot satisfy.
+EXCEPTION — identification queries: pre-retrieved evidence (prior_research / RAG) seeds H_PRIOR only. The hypothesis-first BROADEN gate below (≥3 DISTINCT identity hypotheses, ≥1 live search each) still applies in full. You may not skip live BROADEN because a prior run already named a candidate.
 
 **HYPOTHESIS-FIRST BROADEN — minimum searches = number of hypotheses declared in log_cycle (≥3):**
 
@@ -578,7 +591,7 @@ def build_prompt(
         unverified = [r for r in past_research if r not in verified]
 
         if verified:
-            lines = ["VERIFIED PRIOR RESEARCH (user-graded A — treat as established baseline):"]
+            lines = ["VERIFIED PRIOR RESEARCH (user-graded A — authoritative baseline, treat as established):"]
             for r in verified[:2]:
                 findings = r.get("findings", [])
                 titles = [f.get("title", "?") for f in findings[:4]]
@@ -601,7 +614,9 @@ def build_prompt(
                     f"  Deeper leads: {deeper if deeper else 'none'}"
                 )
             context_parts.append(
-                "RELATED PRIOR RESEARCH (unverified — use as leads, verify with live tools):\n"
+                "RELATED PRIOR RESEARCH (unverified — brain-scored only, NOT user-graded):\n"
+                "  Treat as ONE source among many, not the overarching narrative. Seeds H_PRIOR for BROADEN.\n"
+                "  For identification queries: must still generate ≥2 DISTINCT alternative identity hypotheses with live searches before ranking. RAG confidence is prior, not posterior.\n"
                 + "\n".join(summaries)
             )
 
