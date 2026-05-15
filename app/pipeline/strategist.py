@@ -603,7 +603,7 @@ class Strategist:
                     raw_outputs: list[dict] = await asyncio.gather(*tactician_tasks)
                 except Exception as exc:
                     # Subprocess/runtime error counts as a consumed attempt.
-                    log.error(
+                    log.exception(
                         "strategist: phase '%s' attempt %d raised: %s",
                         phase.id, replan_attempts, exc,
                     )

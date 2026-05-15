@@ -46,6 +46,26 @@ export default function AgentChat() {
   useEffect(() => {
     if (searchParams.get('q')) setSearchParams({}, { replace: true })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Replay support: ?replay=<run_id> seeds runStreamStore from research_trails
+  // so past runs render their cards / candidate comparison / ACH matrix / source
+  // class badges without needing a fresh execution.
+  useEffect(() => {
+    const replayRunId = searchParams.get('replay')
+    if (!replayRunId) return
+    void import('@/hooks/useReplay').then(mod => {
+      void mod.replayRunIntoStore(replayRunId).then((ok) => {
+        if (ok) {
+          void import('@/stores/sessionStore').then(({ useSessionStore }) => {
+            useSessionStore.getState().setActiveJobId(replayRunId)
+          })
+        }
+      })
+    })
+    const next = new URLSearchParams(searchParams)
+    next.delete('replay')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())
   const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()

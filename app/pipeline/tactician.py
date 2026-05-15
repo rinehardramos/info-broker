@@ -308,8 +308,15 @@ async def execute_tactician(
     # 2. Build scoped prompt
     prompt = _build_tactic_prompt(unit_of_work, tactic, techniques_catalog, model)
 
-    # 3. Run subprocess (injected — real or fake)
-    task_calls: list[dict[str, Any]] = tactic_runner_fn(prompt, model)
+    # 3. Run subprocess (injected — real or fake).
+    # If the runner returns a coroutine (real Claude Code subprocess), await it.
+    # Sync fakes used in tests return list[dict] directly.
+    import inspect
+    _maybe = tactic_runner_fn(prompt, model)
+    if inspect.iscoroutine(_maybe):
+        task_calls: list[dict[str, Any]] = await _maybe
+    else:
+        task_calls = _maybe
 
     # 4. Process task calls: call specialist, accumulate findings
     findings: list[dict[str, Any]] = []

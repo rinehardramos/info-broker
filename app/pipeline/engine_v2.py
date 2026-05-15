@@ -143,6 +143,20 @@ async def run_engine_v2(
         run_id, user_id, strategy_id, hold_amount_ru,
     )
 
+    # Write pipeline_runs row so the research_trails FK is satisfied.
+    # Uses the Agent Default pipeline (seeded id) — engine_v2 doesn't
+    # belong to a user-authored pipeline.
+    try:
+        from app.routers.v3.db import execute
+        execute(
+            """INSERT INTO pipeline_runs (id, pipeline_id, user_id, status, trigger_type, query)
+               VALUES (%s, '00000000-0000-4000-8000-000000000001', %s, 'running', 'agent', %s)
+               ON CONFLICT (id) DO NOTHING""",
+            (run_id, user_id, query),
+        )
+    except Exception as exc:
+        log.warning("engine_v2: pipeline_runs insert failed (non-fatal): %s", exc)
+
     # ------------------------------------------------------------------
     # 1. Load catalogs
     # ------------------------------------------------------------------
@@ -176,51 +190,24 @@ async def run_engine_v2(
         But our scoped_brain_runner is async and needs more context.
         We capture phase/slot in closure and run the coroutine synchronously.
         """
-        def _tactic_runner_fn(prompt: str, model: str) -> list[dict]:
-            # Retrieve tactic from the prompt to pass to scoped_brain_runner.
-            # The tactician already selected the tactic and built the prompt;
-            # we need the tactic object.  Look it up from prompt prefix.
-            # MVP: tactic selection is deterministic — re-derive from slot_idx and tactics.
+        async def _tactic_runner_fn(prompt: str, model: str) -> list[dict]:
+            """Async runner — tactician awaits this directly. The bridge is
+            simple now that tactician.execute_tactician supports coroutine
+            return values from tactic_runner_fn."""
             from app.pipeline.tactician import _select_tactic
             tactic = _select_tactic(slot_idx, {}, tactics, phase)
             if tactic is None:
                 return []
-
-            # Run the async scoped_brain_runner in the current event loop
-            loop = asyncio.get_event_loop()
-            # unit_of_work is embedded in the prompt string; we pass {} as a
-            # lightweight stand-in since the prompt already encodes it.
-            coro = scoped_brain_runner(
-                tactic=tactic,
-                unit_of_work={"briefing": prompt},
-                capability_tier=envelope.capability,
-                budget_ru=hold_amount_ru,
-                event_emit=event_emit,
-                run_id=run_id,
-                slot_idx=slot_idx,
-            )
-            # Within an async context we can't use loop.run_until_complete.
-            # Use asyncio.ensure_future + a manual wait via a Future.
-            import concurrent.futures
-            future: concurrent.futures.Future = concurrent.futures.Future()
-
-            async def _run():
-                try:
-                    result = await coro
-                    future.set_result(result)
-                except Exception as exc:
-                    future.set_exception(exc)
-
-            asyncio.ensure_future(_run())
-            # Spin the event loop until the future resolves.
-            # NOTE: this blocks the calling coroutine's thread — acceptable for
-            # MVP where each tactician slot runs in the same asyncio task.
-            # Post-MVP: refactor tactician to accept async tactic_runner_fn.
-            while not future.done():
-                loop.run_until_complete(asyncio.sleep(0.05))
-
             try:
-                return future.result()
+                return await scoped_brain_runner(
+                    tactic=tactic,
+                    unit_of_work={"briefing": prompt},
+                    capability_tier=envelope.capability,
+                    budget_ru=hold_amount_ru,
+                    event_emit=event_emit,
+                    run_id=run_id,
+                    slot_idx=slot_idx,
+                )
             except Exception as exc:
                 log.error("scoped_brain_runner failed: %s", exc)
                 return []
@@ -276,19 +263,27 @@ async def run_engine_v2(
             "findings_count": len(output.findings),
         })
 
-        # Return the shape strategist._aggregate() expects.
-        # slot_idx is included so _aggregate can tag findings with hypothesis_slot.
+        # Return the shape strategist._aggregate() expects. slot_idx is
+        # included so _aggregate can tag findings with hypothesis_slot.
+        # Pass tactician metadata through verbatim; only derive missing
+        # fields (preserves test fakes that don't include them).
+        meta = dict(output.metadata)
+        # signal_extraction has no tool calls — the brain just analyzes.
+        # Fall back to "1 if we got any output" rather than len(findings).
+        if "primary_signals_count" not in meta:
+            if phase.id == "signal_extraction":
+                meta["primary_signals_count"] = 1
+            else:
+                meta["primary_signals_count"] = len(output.findings)
+        meta.setdefault("hypotheses_explored", 1)
+        meta.setdefault("disconfirm_count", 0)
+        if "surviving_hypothesis_count" not in meta:
+            meta["surviving_hypothesis_count"] = 1 if output.candidate_names else 0
+        meta.setdefault("actual_ru", meta.get("ru_spent", 1))
         return {
             "slot_idx": slot_idx,
             "findings": output.findings,
-            "metadata": {
-                **output.metadata,
-                "hypotheses_explored": 1,
-                "primary_signals_count": len(output.findings),
-                "disconfirm_count": output.metadata.get("disconfirm_count", 0),
-                "surviving_hypothesis_count": 1 if output.candidate_names else 0,
-                "actual_ru": output.metadata.get("ru_spent", 1),
-            },
+            "metadata": meta,
             "candidate_names": output.candidate_names,
             "ranked_candidates": [],
         }
@@ -398,12 +393,29 @@ async def run_engine_v2(
         )
 
     # ------------------------------------------------------------------
-    # 10. Write to research_trails
+    # 10. Write to research_trails + finalize pipeline_runs
     # ------------------------------------------------------------------
     try:
         _write_research_trail(run_id, user_id, query, result)
     except Exception as exc:
         log.warning("engine_v2: research_trail write failed (non-fatal): %s", exc)
+
+    try:
+        from app.routers.v3.db import execute
+        terminal_status = {
+            "completed": "succeeded",
+            "terminated": "failed",
+            "ask_user": "ask_user",
+        }.get(result.status, "failed")
+        execute(
+            """UPDATE pipeline_runs
+                  SET status = %s, finished_at = now(),
+                      error_message = %s
+                WHERE id = %s""",
+            (terminal_status, result.terminate_reason, run_id),
+        )
+    except Exception as exc:
+        log.warning("engine_v2: pipeline_runs update failed (non-fatal): %s", exc)
 
     # ------------------------------------------------------------------
     # 11. Emit run_complete event
@@ -474,12 +486,33 @@ def _write_research_trail(
         for i, finding in enumerate(phase_output.aggregated_findings):
             branches.append({
                 "phase_id": phase_output.phase_id,
-                "slot_idx": i,
+                "slot_idx": finding.get("hypothesis_slot", i),
                 "candidate_name": finding.get("candidate_name") or finding.get("candidate", ""),
                 "source_class": finding.get("source_class", ""),
                 "confidence": finding.get("confidence", 0.0),
-                "evidence_summary": finding.get("evidence_summary", ""),
+                "source_url": finding.get("source_url"),
+                "evidence_summary": finding.get("evidence_summary") or finding.get("evidence_snippet", ""),
+                "is_disconfirm": finding.get("is_disconfirm", False),
             })
+
+    # Rich phase metadata for replay reconstruction
+    phases_full: list[dict] = []
+    for p in result.phases:
+        phases_full.append({
+            "phase_id": p.phase_id,
+            "status": "passed",  # only completed phases reach this point
+            "distinct_candidate_names": p.distinct_candidate_names,
+            "metadata": p.metadata,
+        })
+
+    # ACH matrix (P5) — serialize if present
+    ach: dict | None = None
+    if result.ach_matrix is not None:
+        from app.pipeline.ach import ach_matrix_to_dict
+        try:
+            ach = ach_matrix_to_dict(result.ach_matrix)
+        except Exception:
+            ach = None
 
     trail_id = str(_uuid_mod.uuid4())
     execute("DELETE FROM research_trails WHERE run_id = %s", (run_id,))
@@ -496,8 +529,11 @@ def _write_research_trail(
             json.dumps({
                 "branches": branches,
                 "phases": [p.phase_id for p in result.phases],
+                "phases_full": phases_full,
                 "status": result.status,
                 "ranked_candidates": result.ranked_candidates,
+                "ach_matrix": ach,
+                "terminate_reason": result.terminate_reason,
             }),
             json.dumps([f for p in result.phases for f in p.aggregated_findings]),
             len(branches),

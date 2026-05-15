@@ -10,6 +10,7 @@
  */
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import IconRail from '@/components/layout/IconRail'
 import { StatusBadge } from '@/components/runs/StatusBadge'
 import { RunCostBreakdown } from '@/components/wallet/RunCostBreakdown'
@@ -35,6 +36,7 @@ function durationLabel(row: RunRow): string {
 }
 
 export default function Runs() {
+  const navigate = useNavigate()
   const { data: runs } = useQuery({
     queryKey: ['all-runs'],
     queryFn: listRuns,
@@ -172,7 +174,22 @@ export default function Runs() {
                       <td style={{ padding: '8px 10px', color: 'var(--muted)', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
                         {durationLabel(row)}
                       </td>
-                      <td style={{ padding: '8px 10px' }}>
+                      <td style={{ padding: '8px 10px', display: 'flex', gap: 6 }}>
+                        <button
+                          onClick={() => navigate(`/research?replay=${row.id}`)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 4,
+                            border: '1px solid #a78bfa',
+                            background: 'transparent',
+                            color: '#a78bfa',
+                            fontSize: 11,
+                            cursor: 'pointer',
+                          }}
+                          title="Open this run in the research view"
+                        >
+                          View
+                        </button>
                         <button
                           onClick={() => setSelectedRunId(isSelected ? null : row.id)}
                           style={{
