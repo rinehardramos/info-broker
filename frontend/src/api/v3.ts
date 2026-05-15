@@ -501,6 +501,85 @@ export const listRuns = (): Promise<RunRow[]> =>
     }) as RunRow)
   )
 
+// ---------------------------------------------------------------------------
+// Wallet API (UI-P4 + Enhancement 3.4)
+// ---------------------------------------------------------------------------
+
+export interface WalletSnapshot {
+  balance_ru: number
+  held_ru: number
+  available_ru: number
+  floor_ru: number
+  spent_ru_lifetime: number
+  created_at: string
+  version: number
+}
+
+export interface WalletTransaction {
+  id: string
+  operation: string
+  amount_ru: number
+  balance_before: number
+  balance_after: number
+  held_before: number
+  held_after: number
+  run_id: string | null
+  metadata: string | null
+  created_at: string
+}
+
+export interface WalletTransactionsOut {
+  transactions: WalletTransaction[]
+  total: number
+}
+
+export interface WalletForecast {
+  last_30d_consumed: number
+  last_7d_consumed: number
+  rolling_daily_avg: number
+  month_end_projection: number
+  days_until_floor_ru: number | null
+}
+
+export interface PhaseBreakdown {
+  phase_id: string
+  ru_consumed: number
+  n_tacticians: number
+}
+
+export interface TechniqueBreakdown {
+  technique_id: string
+  calls: number
+  ru_estimate: number
+}
+
+export interface RunCostBreakdown {
+  run_id: string
+  total_ru: number
+  status: string
+  started_at: string | null
+  completed_at: string | null
+  by_phase: PhaseBreakdown[]
+  by_technique: TechniqueBreakdown[]
+  wallet_operations: Record<string, unknown>[]
+  by_technique_note: string
+}
+
+export const getWallet = (): Promise<WalletSnapshot> =>
+  api.get<WalletSnapshot>('/v3/wallet').then(r => r.data)
+
+export const getWalletTransactions = (limit = 50, offset = 0): Promise<WalletTransactionsOut> =>
+  api.get<WalletTransactionsOut>(`/v3/wallet/transactions?limit=${limit}&offset=${offset}`).then(r => r.data)
+
+export const putWalletFloor = (floor_ru: number): Promise<WalletSnapshot> =>
+  api.put<WalletSnapshot>('/v3/wallet/floor', { floor_ru }).then(r => r.data)
+
+export const getWalletForecast = (): Promise<WalletForecast> =>
+  api.get<WalletForecast>('/v3/wallet/forecast').then(r => r.data)
+
+export const getRunCostBreakdown = (runId: string): Promise<RunCostBreakdown> =>
+  api.get<RunCostBreakdown>(`/v3/runs/${runId}/cost_breakdown`).then(r => r.data)
+
 // GET /v3/metrics/summary — maps backend shape to RunMetrics
 export const getRunMetrics = (): Promise<RunMetrics> =>
   api.get('/v3/metrics/summary').then(r => {

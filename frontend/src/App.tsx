@@ -22,6 +22,9 @@ const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
 const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
 const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
+const Wallet = lazy(() => import('./pages/Wallet'))
+const Runs = lazy(() => import('./pages/Runs'))
+const SharedRunPage = lazy(() => import('./pages/SharedRunPage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -54,6 +57,8 @@ export default function App() {
             <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
             <Route path="/monitors" element={<AuthGuard><Monitors /></AuthGuard>} />
             <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
+            <Route path="/runs" element={<AuthGuard><Runs /></AuthGuard>} />
+            <Route path="/wallet" element={<AuthGuard><Wallet /></AuthGuard>} />
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
             <Route path="/plugins" element={<AuthGuard><PluginsPage /></AuthGuard>} />
             <Route path="/plugins/node/:nodeType" element={<AuthGuard><NodePluginPage /></AuthGuard>} />
@@ -65,6 +70,8 @@ export default function App() {
             <Route path="/admin/users" element={<AuthGuard><AdminUsersPage /></AuthGuard>} />
             <Route path="/knowledge" element={<AuthGuard><KnowledgeGraphPage /></AuthGuard>} />
             <Route path="/performance" element={<AuthGuard><PerformanceDashboardPage /></AuthGuard>} />
+            {/* Public share route — NO auth guard */}
+            <Route path="/share/:token" element={<SharedRunPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

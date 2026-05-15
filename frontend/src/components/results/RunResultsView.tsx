@@ -3,6 +3,7 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { StreamingCardList } from './StreamingCardList'
 import { FlowMiniPreview } from './FlowMiniPreview'
 import { PhaseDAGView } from './PhaseDAGView'
+import { ShareDialog } from './ShareDialog'
 import { useLayoutStore } from '@/stores/layoutStore'
 import { useRunStreamStore } from '@/stores/runStreamStore'
 
@@ -40,6 +41,7 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
 
   // Tactician filter propagated down to StreamingCardList
   const [tacticianFilter, setTacticianFilter] = useState<{ phaseId: string; slotIdx: number } | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
 
   const handleLayout = useCallback(
     (sizes: number[]) => {
@@ -92,7 +94,18 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
         className="overflow-hidden"
       >
         <div className="flex flex-col h-full">
-          <DebugBadge runId={runId} />
+          {/* Header row: DebugBadge + Share button */}
+          <div className="relative flex-shrink-0">
+            <DebugBadge runId={runId} />
+            <button
+              onClick={() => setShareOpen(true)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-border bg-card/60 hover:bg-card px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+              title="Share this run (read-only link)"
+            >
+              Share
+            </button>
+          </div>
+          <ShareDialog runId={runId} open={shareOpen} onClose={() => setShareOpen(false)} />
           {/* v2 engine: show PhaseDAGView above the card list */}
           {isV2Run && (
             <div className="border-b border-slate-800 flex-shrink-0" style={{ height: 200 }}>

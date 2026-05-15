@@ -758,10 +758,24 @@ CREATE INDEX IF NOT EXISTS findings_grades_finding_idx ON findings_grades(findin
 """
 
 
+_MIGRATION_SHARE_LINKS = """
+CREATE TABLE IF NOT EXISTS run_share_links (
+    token       TEXT        PRIMARY KEY,
+    run_id      UUID        NOT NULL REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    created_by  UUID        NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    revoked_at  TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_share_links_run_id     ON run_share_links (run_id);
+CREATE INDEX IF NOT EXISTS idx_share_links_expires_at ON run_share_links (expires_at)
+"""
+
+
 def run_migrations() -> None:
     # psycopg2 execute() only runs the first statement in a multi-statement
     # string. Split on ";" and run each non-empty statement individually.
-    all_sql = _MIGRATION + _SEED + _MIGRATION_WALLET_V2 + _MIGRATION_FINDINGS_GRADES
+    all_sql = _MIGRATION + _SEED + _MIGRATION_WALLET_V2 + _MIGRATION_FINDINGS_GRADES + _MIGRATION_SHARE_LINKS
     statements = [s.strip() for s in all_sql.split(";") if s.strip()]
     with get_conn() as conn:
         with conn.cursor() as cur:
