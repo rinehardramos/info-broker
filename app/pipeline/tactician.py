@@ -324,6 +324,41 @@ async def execute_tactician(
     specialist_calls = 0
     ru_spent = 0
 
+    # Fast path 0: brain emitted a structured findings JSON block (attached
+    # to task_calls[0].structured_findings by scoped_brain). Use those real
+    # entity-named findings directly — they're more useful than the
+    # query-as-candidate fallback derived from inline_result.
+    structured_findings: list[dict[str, Any]] = []
+    for tc in task_calls:
+        sf = tc.get("structured_findings")
+        if sf:
+            structured_findings = sf
+            break
+    if structured_findings:
+        resolved_source_class = _technique_to_source_class(
+            task_calls[0].get("technique_id", "") if task_calls else ""
+        )
+        for sf in structured_findings:
+            name = sf.get("candidate") or sf.get("name") or ""
+            if not name:
+                continue
+            findings.append({
+                "candidate": name,
+                "candidate_name": name,
+                "source_class": sf.get("source_class") or resolved_source_class or "live_search",
+                "source_url": sf.get("source_url"),
+                "evidence_snippet": (sf.get("evidence_snippet") or "")[:1500],
+                "confidence": float(sf.get("confidence", 0.6)),
+                "date": sf.get("date"),
+            })
+            candidate_names_seen.add(name)
+        # We still record the task_calls as specialist_calls for accounting
+        specialist_calls = len([tc for tc in task_calls if tc.get("technique_id") != "_structured_only"])
+        ru_spent = specialist_calls  # 1 RU per tool call
+
+        # Skip the per-task_call loop — structured findings replace it
+        task_calls = []
+
     for task_call in task_calls:
         # Budget gate
         task_ru = task_call.get("budget_ru", 1)

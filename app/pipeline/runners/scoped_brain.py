@@ -150,9 +150,21 @@ def _build_scoped_prompt(
         lines += [
             "",
             "### After all tool calls complete:",
-            "Emit a final text response summarizing what each tool returned, in",
-            "the form of findings with: candidate, source_class, source_url,",
-            "evidence_snippet, confidence.",
+            "Emit a single fenced JSON code block (```json ... ```) containing",
+            "an array of findings extracted from the tool results. Each finding:",
+            "  {",
+            '    "candidate":      "the entity/answer name (e.g. React, Wonyoung,',
+            '                       Acme Corp). NOT the query string.",',
+            '    "source_class":   "live_search",',
+            '    "source_url":     "url from the tool result if present",',
+            '    "evidence_snippet": "1-2 sentence quote from the result",',
+            '    "confidence":     0.0..1.0',
+            "  }",
+            "",
+            "Emit ONE finding per distinct candidate identified across all the",
+            "tool results. If a tool returned no relevant data, omit it. The",
+            "JSON block is the structured output of this tactic — only emit it",
+            "after all tool calls are complete.",
         ]
     return "\n".join(lines)
 
@@ -160,6 +172,57 @@ def _build_scoped_prompt(
 # ---------------------------------------------------------------------------
 # Stream-JSON parser (extract tool_use blocks as TaskSpec-compatible dicts)
 # ---------------------------------------------------------------------------
+
+def _parse_structured_findings(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract the brain's structured findings JSON block from assistant text.
+
+    The prompt asks the brain to emit a ```json [...] ``` fenced block at the
+    end of its response after all tool calls. We parse and return that list.
+    Returns an empty list when no parseable block is found.
+    """
+    import re
+    full_text = ""
+    for event in events:
+        if event.get("type") != "assistant":
+            continue
+        for block in event.get("message", {}).get("content", []) or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                full_text += block.get("text", "") + "\n"
+
+    if not full_text:
+        return []
+
+    # Match ```json ... ``` or generic ``` ... ``` blocks containing a JSON array
+    patterns = [
+        r"```json\s*(\[[\s\S]*?\])\s*```",
+        r"```\s*(\[[\s\S]*?\])\s*```",
+    ]
+    for pat in patterns:
+        for match in re.finditer(pat, full_text):
+            try:
+                parsed = json.loads(match.group(1))
+                if isinstance(parsed, list):
+                    out = []
+                    for item in parsed:
+                        if isinstance(item, dict) and item.get("candidate"):
+                            out.append(item)
+                    if out:
+                        return out
+            except json.JSONDecodeError:
+                continue
+
+    # Fallback: try to find a bare JSON array in the text
+    arr_match = re.search(r"\[\s*\{[\s\S]*?\}\s*\]", full_text)
+    if arr_match:
+        try:
+            parsed = json.loads(arr_match.group(0))
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict) and item.get("candidate")]
+        except json.JSONDecodeError:
+            pass
+
+    return []
+
 
 def _parse_task_calls_from_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Extract tool_use blocks from stream-json events.
@@ -439,6 +502,31 @@ async def scoped_brain_runner(
             tactic.id, slot_idx, dict(event_types), tool_use_count, api_src,
             first_text, result_text,
         )
+    # Harvest the brain's structured-findings JSON block (post-tool-call output).
+    # When present, attach to the first task_call so the tactician can prefer
+    # these real entity-named findings over the query-as-candidate fallback.
+    structured = _parse_structured_findings(all_events)
+    if structured:
+        log.info(
+            "scoped_brain: tactic=%s slot=%d parsed %d structured findings from final JSON block",
+            tactic.id, slot_idx, len(structured),
+        )
+        if task_calls:
+            task_calls[0]["structured_findings"] = structured
+        else:
+            # No tool calls but findings present (rare; brain bypassed tools).
+            # Synthesize a placeholder task_call to carry the findings.
+            task_calls.append({
+                "technique_id": "_structured_only",
+                "params_template": {},
+                "expect_schema": {},
+                "fail_modes": [],
+                "budget_ru": 0,
+                "_tool_use_id": "",
+                "inline_result": "",
+                "structured_findings": structured,
+            })
+
     log.info(
         "scoped_brain: tactic=%s slot=%d produced %d task_calls",
         tactic.id, slot_idx, len(task_calls),
