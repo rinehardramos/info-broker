@@ -56,7 +56,10 @@ export default function AgentChat() {
       void mod.replayRunIntoStore(replayRunId).then((ok) => {
         if (ok) {
           void import('@/stores/sessionStore').then(({ useSessionStore }) => {
-            useSessionStore.getState().setActiveJobId(replayRunId)
+            const s = useSessionStore.getState()
+            s.setActiveJobId(replayRunId)
+            // setCol1Content triggers ResultsPanel auto-switch to this run tab
+            s.setCol1Content({ type: 'pipeline_run', runId: replayRunId })
           })
         }
       })
