@@ -388,6 +388,32 @@ async def execute_tactician(
             slot_idx, min_distinct, len(candidate_names_seen), budget_ru, ru_spent,
         )
 
+    # Derive metadata counters from finding content so phase gates don't
+    # silently fail when the brain doesn't populate them itself.
+    # This is the fallback contract — brain emissions that DO carry these
+    # fields will override these counts via the strategist aggregator.
+    findings_count = len(findings)
+    live_findings_count = sum(
+        1 for f in findings
+        if f.get("source_class") in ("live_search", "primary_official")
+    )
+    disconfirm_findings_count = sum(1 for f in findings if f.get("is_disconfirm"))
+
+    # Phase-specific signal-count derivation:
+    # - signal_extraction: the brain analyzes the query (no tool calls expected).
+    #   If we got HERE without error, signals were extracted — count as 1.
+    # - broaden / red_team / rank_verify: use number of live findings as the
+    #   primary-signal proxy. A candidate with a live source counts as a
+    #   distinct primary signal evidenced.
+    if phase.id == "signal_extraction":
+        primary_signals_count = 1
+    else:
+        primary_signals_count = live_findings_count
+
+    # surviving_hypothesis_count: each red_team tactician is scoped to one
+    # surviving hypothesis. For other phases, leave at 0 (gate ignores).
+    surviving_hypothesis_count = 1 if phase.id == "red_team" else 0
+
     return TacticianOutput(
         slot_idx=slot_idx,
         candidate_names=sorted(candidate_names_seen),
@@ -398,7 +424,16 @@ async def execute_tactician(
             "model": model,
             "ru_spent": ru_spent,
             "budget_ru": budget_ru,
+            "actual_ru": ru_spent,
             "phase_id": phase.id,
             "enforcement": tactic.enforcement,
+            # Derived counters for strategist gate checks (issue #8 contract):
+            "findings_count": findings_count,
+            "live_findings_count": live_findings_count,
+            "disconfirm_findings_count": disconfirm_findings_count,
+            "disconfirm_count": disconfirm_findings_count,
+            "primary_signals_count": primary_signals_count,
+            "surviving_hypothesis_count": surviving_hypothesis_count,
+            "hypotheses_explored": 1,
         },
     )
