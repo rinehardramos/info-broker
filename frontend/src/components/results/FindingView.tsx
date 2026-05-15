@@ -20,13 +20,21 @@ function hostOf(url: string): string {
 }
 
 /** Strip a leading "N days ago - " / "N hours ago — " etc. from a snippet,
- *  since we already render the date as its own pill. Tools commonly prepend
- *  this, which reads as awkward concatenation in the UI. */
+ *  since we already render the date as its own pill. Also patch obvious
+ *  missing-space patterns that older BeautifulSoup get_text(strip=True)
+ *  calls produced (closing punctuation jammed against the next word). */
 function cleanSnippet(snippet: string): string {
   return snippet
     .replace(/^\s*\d+\s*(seconds?|minutes?|hours?|days?|weeks?|months?|years?)\s+ago\s*[-–—:]?\s*/i, '')
-    .replace(/^\s*&nbsp;\s*&nbsp;\s*/g, '')
     .replace(/&nbsp;/g, ' ')
+    // closing bracket/paren directly followed by a letter → insert space
+    .replace(/([)\]])([A-Za-z])/g, '$1 $2')
+    // letter directly followed by an opening paren → insert space
+    .replace(/([a-z])\(/g, '$1 (')
+    // digit directly followed by an uppercase letter (e.g. "2019OpenAI")
+    .replace(/(\d)([A-Z])/g, '$1 $2')
+    // run-on whitespace
+    .replace(/\s{2,}/g, ' ')
     .trim()
 }
 

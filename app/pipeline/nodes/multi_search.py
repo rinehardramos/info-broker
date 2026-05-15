@@ -224,8 +224,8 @@ def _search_baidu(query: str, max_results: int) -> list[dict]:
             snippet_el = card.select_one(".c-abstract, .c-gap-top-small, .content-right")
             link_el = card.select_one("a[href]")
 
-            title = title_el.get_text(strip=True) if title_el else ""
-            snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+            title = title_el.get_text(" ", strip=True) if title_el else ""
+            snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
             href = link_el.get("href", "") if link_el else ""
 
             if not title or len(title) < 3:
@@ -243,9 +243,9 @@ def _search_baidu(query: str, max_results: int) -> list[dict]:
             # Fallback: h3 links
             for h3 in soup.select("h3")[:max_results]:
                 link = h3.select_one("a[href]")
-                if link and len(link.get_text(strip=True)) > 5:
+                if link and len(link.get_text(" ", strip=True)) > 5:
                     results.append({
-                        "title": link.get_text(strip=True)[:200],
+                        "title": link.get_text(" ", strip=True)[:200],
                         "url": link.get("href", ""),
                         "snippet": "",
                         "engine": "baidu",
@@ -298,8 +298,8 @@ def _search_yandex(query: str, max_results: int) -> list[dict]:
             )
             link_el = item.select_one("a.organic__url, a[class*='link'], a[href^='http']")
 
-            title = title_el.get_text(strip=True) if title_el else ""
-            snippet = snippet_el.get_text(strip=True) if snippet_el else ""
+            title = title_el.get_text(" ", strip=True) if title_el else ""
+            snippet = snippet_el.get_text(" ", strip=True) if snippet_el else ""
             href = link_el.get("href", "") if link_el else ""
 
             if not title or len(title) < 5:
@@ -319,11 +319,11 @@ def _search_yandex(query: str, max_results: int) -> list[dict]:
             # Fallback: h2 headings with links
             for h2 in soup.select("h2")[:max_results * 2]:
                 link = h2.select_one("a[href]")
-                if link and len(link.get_text(strip=True)) > 5:
+                if link and len(link.get_text(" ", strip=True)) > 5:
                     href = link.get("href", "")
                     if "yandex" not in href:
                         results.append({
-                            "title": link.get_text(strip=True)[:200],
+                            "title": link.get_text(" ", strip=True)[:200],
                             "url": href, "snippet": "",
                             "engine": "yandex", "language": "ru",
                         })
@@ -495,9 +495,9 @@ def _search_yahoo(query: str, max_results: int) -> list[dict]:
             if not h3:
                 continue
             results.append({
-                "title": h3.get_text(strip=True)[:200],
+                "title": h3.get_text(" ", strip=True)[:200],
                 "url": h3.get("href", ""),
-                "snippet": snippet_el.get_text(strip=True)[:400] if snippet_el else "",
+                "snippet": snippet_el.get_text(" ", strip=True)[:400] if snippet_el else "",
                 "engine": "yahoo",
             })
 
@@ -547,9 +547,9 @@ def _search_google_direct(query: str, max_results: int) -> list[dict]:
             if "google.com" in href:
                 continue
             results.append({
-                "title": h3.get_text(strip=True)[:200],
+                "title": h3.get_text(" ", strip=True)[:200],
                 "url": href,
-                "snippet": snippet_el.get_text(strip=True)[:400] if snippet_el else "",
+                "snippet": snippet_el.get_text(" ", strip=True)[:400] if snippet_el else "",
                 "engine": "google",
             })
             if len(results) >= max_results:
@@ -606,11 +606,11 @@ def _search_bing(query: str, api_key: str | None, max_results: int) -> list[dict
         for item in soup.select("li.b_algo, div.b_algo")[:max_results]:
             h2a = item.select_one("h2 a")
             p = item.select_one(".b_caption p, p")
-            if h2a and len(h2a.get_text(strip=True)) > 5:
+            if h2a and len(h2a.get_text(" ", strip=True)) > 5:
                 results.append({
-                    "title": h2a.get_text(strip=True)[:200],
+                    "title": h2a.get_text(" ", strip=True)[:200],
                     "url": h2a.get("href", ""),
-                    "snippet": p.get_text(strip=True)[:400] if p else "",
+                    "snippet": p.get_text(" ", strip=True)[:400] if p else "",
                     "engine": "bing",
                 })
 
