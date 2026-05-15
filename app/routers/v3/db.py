@@ -483,7 +483,7 @@ ALTER TABLE pipeline_runs
 CREATE TABLE IF NOT EXISTS user_budget_wallets (
     user_id              UUID PRIMARY KEY REFERENCES ui_users(id) ON DELETE CASCADE,
     org_id               UUID,
-    balance_units        NUMERIC(18, 4) NOT NULL DEFAULT 1000.0,
+    balance_units        NUMERIC(18, 4) NOT NULL DEFAULT 10000.0,
     reserved_units       NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
     spent_units_lifetime NUMERIC(18, 4) NOT NULL DEFAULT 0.0,
     plan_name            VARCHAR(64) DEFAULT 'free',

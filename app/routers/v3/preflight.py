@@ -231,7 +231,7 @@ def _get_wallet_snapshot(user_id: str) -> dict:
     except Exception:
         pass
     # Auto-provision default: wallet will be created on first hold()
-    return {"balance_ru": 1000, "held_ru": 0, "available_ru": 1000}
+    return {"balance_ru": 10000, "held_ru": 0, "available_ru": 10000}
 
 
 # ---------------------------------------------------------------------------

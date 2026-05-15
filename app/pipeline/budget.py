@@ -110,10 +110,10 @@ class ConsumeResult:
 # ---------------------------------------------------------------------------
 
 def _ensure_wallet(cur, user_id: str, org_id: str = "") -> None:
-    """Auto-provision a wallet row with a 1000 RU starter balance."""
+    """Auto-provision a wallet row with a 10000 RU starter balance."""
     cur.execute(
         """INSERT INTO user_budget_wallets (user_id, org_id, balance_ru, held_ru, spent_ru_lifetime)
-           VALUES (%s, %s, 1000, 0, 0)
+           VALUES (%s, %s, 10000, 0, 0)
            ON CONFLICT (user_id) DO NOTHING""",
         (user_id, org_id or None),
     )

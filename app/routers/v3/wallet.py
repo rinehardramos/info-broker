@@ -113,7 +113,7 @@ def _auto_provision(user_id: str) -> None:
                 cur.execute(
                     """INSERT INTO user_budget_wallets
                                (user_id, balance_ru, held_ru, spent_ru_lifetime)
-                           VALUES (%s, 1000, 0, 0)
+                           VALUES (%s, 10000, 0, 0)
                            ON CONFLICT (user_id) DO NOTHING""",
                     (user_id,),
                 )
