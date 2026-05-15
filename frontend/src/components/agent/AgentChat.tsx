@@ -38,8 +38,8 @@ export default function AgentChat() {
   const [input, setInput]       = useState(() => searchParams.get('q') ?? '')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
-  // engine=v2 preflight state — only active when ?engine=v2 is in the URL
-  const engineV2 = searchParams.get('engine') === 'v2'
+  // All queries go through preflight + three-tier brain. Legacy path removed
+  // since we're pre-production and want every run to surface the new flow.
   const [preflightQuery, setPreflightQuery] = useState<string | null>(null)
 
   // Clear ?q= from URL after pre-filling input so back-navigation doesn't re-fill
@@ -223,8 +223,9 @@ export default function AgentChat() {
     const text = input.trim()
     if (!text || sending) return
 
-    // engine=v2: show PreflightPanel before starting run (legacy path unchanged when absent)
-    if (engineV2 && !preflightQuery) {
+    // Every query goes through preflight first. Set the query and return —
+    // PreflightPanel handles mode/dial selection and confirm-to-run.
+    if (!preflightQuery) {
       setPreflightQuery(text)
       setInput('')
       return
@@ -346,8 +347,8 @@ export default function AgentChat() {
     }
   }
 
-  // engine=v2: render preflight panel overlay before the run starts
-  if (engineV2 && preflightQuery) {
+  // Preflight panel — always shown after query submission, before the run starts
+  if (preflightQuery) {
     return (
       <div className="flex flex-col h-full" style={{ padding: 16 }}>
         <PreflightPanel

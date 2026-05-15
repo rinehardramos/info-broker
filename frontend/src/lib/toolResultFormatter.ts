@@ -87,6 +87,24 @@ function tryParseNdjson(raw: string): unknown[] | null {
   return parsed
 }
 
+/** Detect arrays of {type: "tool_reference", tool_name: "..."} which are
+ * planning signals from the brain (tools it's considering), not findings.
+ * These should render as a compact summary, not a JSON dump. */
+function summarizeToolReferences(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const items = value as Array<Record<string, unknown>>
+  if (!items.every((i) => i && typeof i === 'object' && i.type === 'tool_reference' && typeof i.tool_name === 'string')) {
+    return null
+  }
+  const names = items.map((i) => {
+    const t = i.tool_name as string
+    // Strip MCP prefix (mcp__server__tool → tool)
+    const stripped = t.replace(/^mcp__[^_]+(?:-[^_]+)*__/, '')
+    return stripped.replace(/^run_/, '')
+  })
+  return `Considered ${names.length} tool${names.length === 1 ? '' : 's'}: ${names.join(', ')}`
+}
+
 export function formatToolResult(raw: string | null | undefined): FormattedToolResult {
   const text = (raw ?? '').toString()
   if (!text.trim()) {
@@ -98,6 +116,10 @@ export function formatToolResult(raw: string | null | undefined): FormattedToolR
   const ndjson = tryParseNdjson(text)
   if (ndjson) {
     const unwrapped = ndjson.map((v) => unwrapNestedJson(v))
+    const toolRefSummary = summarizeToolReferences(unwrapped)
+    if (toolRefSummary !== null) {
+      return { pretty: toolRefSummary, count: unwrapped.length, isStructured: false }
+    }
     return {
       pretty: unwrapped.map((v) => JSON.stringify(v, null, 2)).join('\n'),
       count: unwrapped.length,
@@ -110,6 +132,12 @@ export function formatToolResult(raw: string | null | undefined): FormattedToolR
   if (typeof parsed === 'string') {
     // Couldn't parse — return as-is
     return { pretty: text, count: null, isStructured: false }
+  }
+
+  // Special-case tool_reference arrays (planning signals, not findings)
+  const toolRefSummary = summarizeToolReferences(parsed)
+  if (toolRefSummary !== null) {
+    return { pretty: toolRefSummary, count: Array.isArray(parsed) ? parsed.length : null, isStructured: false }
   }
 
   let pretty: string
