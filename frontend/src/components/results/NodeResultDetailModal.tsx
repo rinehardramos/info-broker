@@ -9,11 +9,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatToolResult } from '@/lib/toolResultFormatter'
 import type { NodeCard } from '@/stores/runStreamStore'
+import { GradingRow } from './GradingRow'
 
 interface NodeResultDetailModalProps {
   card: NodeCard | null
   open: boolean
   onClose: () => void
+  /** Pass the active runId so GradingRow can associate grades to this run. */
+  runId?: string
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -154,21 +157,27 @@ function TimingTab({ card }: { card: NodeCard }) {
   )
 }
 
-function SourcesTab({ card }: { card: NodeCard }) {
-  if (!card.sources?.length) {
-    return <p className="text-sm text-muted-foreground italic">No sources recorded.</p>
-  }
+function SourcesTab({ card, runId }: { card: NodeCard; runId?: string }) {
   return (
-    <ul className="space-y-2">
-      {card.sources.map((s, i) => (
-        <li key={i} className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground flex-1 truncate">
-            {s.label ?? s.url ?? 'Unknown source'}
-          </span>
-          {s.url && <CopyButton text={s.url} />}
-        </li>
-      ))}
-    </ul>
+    <div>
+      {card.sources?.length ? (
+        <ul className="space-y-2">
+          {card.sources.map((s, i) => (
+            <li key={i} className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground flex-1 truncate">
+                {s.label ?? s.url ?? 'Unknown source'}
+              </span>
+              {s.url && <CopyButton text={s.url} />}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted-foreground italic">No sources recorded.</p>
+      )}
+      {runId && (
+        <GradingRow findingId={card.nodeId} runId={runId} />
+      )}
+    </div>
   )
 }
 
@@ -191,7 +200,7 @@ function BranchTab({ card }: { card: NodeCard }) {
   )
 }
 
-export function NodeResultDetailModal({ card, open, onClose }: NodeResultDetailModalProps) {
+export function NodeResultDetailModal({ card, open, onClose, runId }: NodeResultDetailModalProps) {
   if (!card) return null
   const isIS = card.confidence !== undefined || !!card.pir
 
@@ -249,7 +258,7 @@ export function NodeResultDetailModal({ card, open, onClose }: NodeResultDetailM
               </TabsContent>
             )}
             <TabsContent value="sources">
-              <SourcesTab card={card} />
+              <SourcesTab card={card} runId={runId} />
             </TabsContent>
             <TabsContent value="timing">
               <TimingTab card={card} />

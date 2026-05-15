@@ -999,7 +999,21 @@ async def _run_is_research(
 async def send_message(
     body: AgentMessageIn,
     user: dict = Depends(require_analyst_user),
+    engine: str = "v1",
 ):
+    # engine=v2 guard: short-circuit the legacy run path and redirect to preflight.
+    # The frontend sends ?engine=v2 after the user confirms via PreflightPanel.
+    # All engine_v2 runs are started via POST /v3/preflight/confirm?start_run=true.
+    # This guard prevents accidental dual-launch if the legacy endpoint is also hit.
+    if engine == "v2":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "use_preflight",
+                "message": "engine=v2 runs must be started via POST /v3/preflight/confirm with start_run=true",
+            },
+        )
+
     from app.pipeline.workflow import NodeSpec, EdgeSpec
     from app.pipeline.runner import launch_pipeline_run
 

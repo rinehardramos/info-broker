@@ -13,6 +13,7 @@ import { useRunStreamStore } from '@/stores/runStreamStore'
 import { brainApi } from '@/api/brain'
 import { cn } from '@/lib/utils'
 import { BrainSuggestionBanner } from '@/components/results/BrainSuggestionBanner'
+import { PreflightPanel } from '@/components/preflight'
 
 let _msgCounter = 0
 
@@ -37,6 +38,9 @@ export default function AgentChat() {
   const [input, setInput]       = useState(() => searchParams.get('q') ?? '')
   const [sending, setSending]   = useState(false)
   const [useIntelligentSearch, setUseIntelligentSearch] = useState(true)
+  // engine=v2 preflight state — only active when ?engine=v2 is in the URL
+  const engineV2 = searchParams.get('engine') === 'v2'
+  const [preflightQuery, setPreflightQuery] = useState<string | null>(null)
 
   // Clear ?q= from URL after pre-filling input so back-navigation doesn't re-fill
   useEffect(() => {
@@ -219,6 +223,13 @@ export default function AgentChat() {
     const text = input.trim()
     if (!text || sending) return
 
+    // engine=v2: show PreflightPanel before starting run (legacy path unchanged when absent)
+    if (engineV2 && !preflightQuery) {
+      setPreflightQuery(text)
+      setInput('')
+      return
+    }
+
     // Change 2: route to node injection when the currently focused run is active
     const activeJobId = useSessionStore.getState().activeJobId
     const activeRunId = activeJobId && useRunStreamStore.getState().runsById[activeJobId]?.status === 'running'
@@ -333,6 +344,28 @@ export default function AgentChat() {
       e.preventDefault()
       handleSend()
     }
+  }
+
+  // engine=v2: render preflight panel overlay before the run starts
+  if (engineV2 && preflightQuery) {
+    return (
+      <div className="flex flex-col h-full" style={{ padding: 16 }}>
+        <PreflightPanel
+          query={preflightQuery}
+          onCancel={() => {
+            setPreflightQuery(null)
+            setInput(preflightQuery)
+          }}
+          onConfirmed={(_runId, _holdId) => {
+            // Hold placed — proceed with the normal send path (legacy)
+            setPreflightQuery(null)
+            setInput(preflightQuery)
+            // Kick off the actual run via the normal flow
+            setTimeout(() => handleSend(), 0)
+          }}
+        />
+      </div>
+    )
   }
 
   return (

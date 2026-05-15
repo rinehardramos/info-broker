@@ -1,0 +1,356 @@
+"""Tactician runtime — scoped per-hypothesis subprocess (MVP-M7).
+
+One tactician is spawned per parallel hypothesis slot per divergent phase.
+It picks a tactic from the catalog, delegates task execution to specialists,
+and returns a structured TacticianOutput for the strategist to aggregate.
+
+Visibility invariant (§7.2 of docs/intelligence/three-tier-brain-architecture.md):
+  - The tactician sees ONLY its own unit_of_work.
+  - It does NOT see peer tacticians' data, other phases, or the full original query.
+  - The function signature has no peer-state parameter — this is the structural guarantee.
+  TODO(§7.2): When wiring into strategist in M6/M9, assert that the caller never
+  injects cross-tactician data here. Add an integration test in M9 that verifies
+  distinct candidate sets across sibling tacticians.
+
+Subprocess invocation (§10.2 M7):
+  For MVP the real Claude Code subprocess pattern (from app/is_brain.py) is
+  injected as `tactic_runner_fn`. Tests inject a synchronous fake that returns
+  a predetermined list of tool-call dicts. Production wiring (M9) will plug in
+  the real async runner.
+
+Model selection (§5.2.1):
+  - capability_tier="light"   → claude-haiku-4-5-20251001
+  - capability_tier="general" → claude-sonnet-4-6
+  - capability_tier="high"    → claude-sonnet-4-6  (Opus is reserved for strategist)
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Callable
+
+from app.pipeline.catalogs.schemas import PhaseSpec, Tactic, Technique, TaskSpec
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Model assignment per capability tier (§5.2.1)
+# ---------------------------------------------------------------------------
+
+_CAPABILITY_MODEL_MAP: dict[str, str] = {
+    "light": "claude-haiku-4-5-20251001",
+    "general": "claude-sonnet-4-6",
+    "high": "claude-sonnet-4-6",  # Opus is reserved for strategist per §5.2.1
+}
+
+
+# ---------------------------------------------------------------------------
+# Output type
+# ---------------------------------------------------------------------------
+
+@dataclass
+class TacticianOutput:
+    """Aggregated output for one hypothesis slot.
+
+    Attributes:
+        slot_idx:          Index of this hypothesis slot (0-based).
+        candidate_names:   Deduped distinct identities produced by this slot.
+        findings:          List of finding dicts with keys:
+                           candidate, source_class, source_url, evidence_snippet, confidence.
+        tactic_used:       id of the tactic that was selected.
+        specialist_calls:  Total specialist invocations made.
+        metadata:          Arbitrary strategist-level metadata (flags, warnings, etc.).
+    """
+
+    slot_idx: int
+    candidate_names: list[str] = field(default_factory=list)
+    findings: list[dict[str, Any]] = field(default_factory=list)
+    tactic_used: str = ""
+    specialist_calls: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Tactic selection (deterministic, MVP — no LLM call)
+# ---------------------------------------------------------------------------
+
+def _select_tactic(
+    slot_idx: int,
+    unit_of_work: dict[str, Any],
+    tactics_catalog: dict[str, Tactic],
+    phase: PhaseSpec,
+) -> Tactic | None:
+    """Deterministically pick a tactic for this slot.
+
+    Rules:
+    - Filter tactics_catalog to entries whose phase_compatibility includes phase.id.
+    - slot_idx == 0 AND unit_of_work has a non-empty 'prior_research_summary'
+      → prefer 'prior_research_seed' if present in filtered set.
+    - slot_idx >= 1 (or slot 0 without prior_research_summary)
+      → prefer 'hypothesis_first_search' if present in filtered set.
+    - Fall back to the first compatible tactic if the preferred id is absent.
+    - Returns None if no compatible tactic exists.
+
+    Note: MVP uses deterministic selection. Full design may add LLM tactic
+    selection driven by tactic_bias weights from OptimizationMode (§4.4).
+    """
+    compatible = {
+        tid: t for tid, t in tactics_catalog.items()
+        if phase.id in t.phase_compatibility
+    }
+    if not compatible:
+        return None
+
+    has_prior = bool(unit_of_work.get("prior_research_summary"))
+    preferred_id = (
+        "prior_research_seed"
+        if (slot_idx == 0 and has_prior)
+        else "hypothesis_first_search"
+    )
+
+    if preferred_id in compatible:
+        return compatible[preferred_id]
+    # Fallback: first compatible entry in insertion order
+    return next(iter(compatible.values()))
+
+
+# ---------------------------------------------------------------------------
+# Prompt builder (subprocess input)
+# ---------------------------------------------------------------------------
+
+def _build_tactic_prompt(
+    unit_of_work: dict[str, Any],
+    tactic: Tactic,
+    techniques_catalog: dict[str, Technique],
+    model: str,
+) -> str:
+    """Build the scoped prompt for the tactic subprocess.
+
+    The prompt includes ONLY:
+    - unit_of_work fields (briefing, objective, scope_in, scope_out,
+      prior_findings_slice, forbidden_candidates)
+    - tactic.produces templates (so the brain knows what TaskSpecs to emit)
+    - technique catalog entries for tactic.required_techniques
+
+    It does NOT include:
+    - Peer tacticians' data
+    - Other phases
+    - The full original query (only the objective slice)
+
+    TODO(§7.2): This prompt boundary is the information-isolation enforcement
+    layer. Any addition here must be reviewed against §7.2 visibility rules.
+    """
+    lines: list[str] = [
+        "# Tactician Unit of Work",
+        "",
+        f"Objective: {unit_of_work.get('objective', '')}",
+        f"Briefing: {unit_of_work.get('briefing', '')}",
+        f"Scope in: {unit_of_work.get('scope_in', '')}",
+        f"Scope out: {unit_of_work.get('scope_out', '')}",
+        "",
+    ]
+
+    prior_slice = unit_of_work.get("prior_findings_slice")
+    if prior_slice:
+        lines += ["## Prior findings (filtered — no raw tool output)", str(prior_slice), ""]
+
+    forbidden = unit_of_work.get("forbidden_candidates", [])
+    if forbidden:
+        lines += [
+            "## Forbidden candidates (DO NOT name these as primary hypothesis)",
+            ", ".join(str(c) for c in forbidden),
+            "",
+        ]
+
+    lines += [
+        "# Tactic",
+        f"tactic_id: {tactic.id}",
+        "",
+        "## TaskSpec templates (emit one per technique below)",
+    ]
+    for prod in tactic.produces:
+        lines.append(f"  - technique_id: {prod.technique_id}, params_template: {prod.params_template}")
+
+    lines += ["", "# Required techniques"]
+    for tid in tactic.required_techniques:
+        tech = techniques_catalog.get(tid)
+        if tech:
+            lines.append(f"  {tid}: tool={tech.tool_name}, input_schema={tech.input_schema}")
+        else:
+            lines.append(f"  {tid}: (not found in techniques_catalog)")
+
+    lines += [
+        "",
+        f"# Model: {model}",
+        "Emit tool calls matching the technique ids above. Return findings with fields:",
+        "  candidate, source_class, source_url, evidence_snippet, confidence",
+    ]
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Candidate name extraction
+# ---------------------------------------------------------------------------
+
+def _extract_candidate_name(finding: dict[str, Any]) -> str | None:
+    """Pull the entity/subject/candidate field from a finding dict."""
+    for key in ("candidate", "entity", "subject"):
+        val = finding.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+async def execute_tactician(
+    phase: PhaseSpec,
+    unit_of_work: dict[str, Any],
+    slot_idx: int,
+    tactics_catalog: dict[str, Tactic],
+    techniques_catalog: dict[str, Technique],
+    specialist_fn: Callable,
+    mcp_invoke_fn: Callable,
+    capability_tier: str,
+    budget_ru: int,
+    tactic_runner_fn: Callable,
+) -> TacticianOutput:
+    """Execute one tactician scoped to a single hypothesis slot.
+
+    Args:
+        phase:              The PhaseSpec this tactician operates in.
+        unit_of_work:       Scoped context for this slot (objective, briefing,
+                            scope_in, scope_out, prior_findings_slice,
+                            forbidden_candidates, prior_research_summary).
+        slot_idx:           0-based index of this hypothesis slot.
+        tactics_catalog:    Full tactic catalog; filtered internally by phase.id.
+        techniques_catalog: Full technique catalog; filtered by tactic.required_techniques.
+        specialist_fn:      Injected specialist executor. Signature:
+                            (task_spec, technique, mcp_invoke_fn) -> Finding | SpecialistError
+        mcp_invoke_fn:      Passed through to specialist_fn unchanged.
+        capability_tier:    "light" | "general" | "high" — drives model selection.
+        budget_ru:          RU ceiling for this tactician's specialist calls.
+        tactic_runner_fn:   Injected subprocess simulator. Signature:
+                            (prompt: str, model: str) -> list[dict]
+                            Each dict is a task_call: {technique_id, params_template,
+                            expect_schema, fail_modes, budget_ru}.
+                            In production (M9) this wraps app/is_brain.py subprocess.
+
+    Returns:
+        TacticianOutput with aggregated findings and candidate names.
+
+    Visibility invariant (§7.2):
+        This function accepts no peer-slot data. The caller (strategist) MUST NOT
+        pass sibling tactician state here. The structural guarantee is in the
+        signature: there is no peer_findings / peer_outputs parameter.
+
+    TODO(§7.2): M9 integration — wire tactic_runner_fn to the real Claude Code
+    subprocess pattern in app/is_brain.py. The prompt built here replaces
+    build_prompt(); stream-json parsing and tool_result forwarding follow the
+    same asyncio.create_subprocess_exec pattern as run_research().
+    """
+    model = _CAPABILITY_MODEL_MAP.get(capability_tier, _CAPABILITY_MODEL_MAP["general"])
+
+    # 1. Select tactic
+    tactic = _select_tactic(slot_idx, unit_of_work, tactics_catalog, phase)
+    if tactic is None:
+        log.warning(
+            "tactician slot=%d: no compatible tactic for phase=%s — returning empty output",
+            slot_idx, phase.id,
+        )
+        return TacticianOutput(
+            slot_idx=slot_idx,
+            tactic_used="",
+            metadata={"no_tactic_for_phase": True, "phase_id": phase.id},
+        )
+
+    # 2. Build scoped prompt
+    prompt = _build_tactic_prompt(unit_of_work, tactic, techniques_catalog, model)
+
+    # 3. Run subprocess (injected — real or fake)
+    task_calls: list[dict[str, Any]] = tactic_runner_fn(prompt, model)
+
+    # 4. Process task calls: call specialist, accumulate findings
+    findings: list[dict[str, Any]] = []
+    candidate_names_seen: set[str] = set()
+    specialist_calls = 0
+    ru_spent = 0
+
+    for task_call in task_calls:
+        # Budget gate
+        task_ru = task_call.get("budget_ru", 1)
+        if ru_spent + task_ru > budget_ru:
+            log.info(
+                "tactician slot=%d: budget exhausted (spent=%d ceiling=%d), stopping",
+                slot_idx, ru_spent, budget_ru,
+            )
+            break
+
+        technique_id = task_call.get("technique_id", "")
+        technique = techniques_catalog.get(technique_id)
+        if technique is None:
+            log.warning(
+                "tactician slot=%d: unknown technique_id=%r in task_call — skipping",
+                slot_idx, technique_id,
+            )
+            continue
+
+        task_spec = TaskSpec(
+            technique_id=technique_id,
+            params_template=task_call.get("params_template", {}),
+            expect_schema=task_call.get("expect_schema", {}),
+            fail_modes=task_call.get("fail_modes", []),
+            budget_ru=task_ru,
+        )
+
+        result = specialist_fn(task_spec, technique, mcp_invoke_fn)
+        specialist_calls += 1
+        ru_spent += task_ru
+
+        # specialist_fn returns Finding or SpecialistError
+        from app.pipeline.specialist import Finding
+
+        if isinstance(result, Finding):
+            # Annotate with source_class from technique catalog
+            raw = result.raw_output
+            finding_entry: dict[str, Any] = {
+                "candidate": raw.get("candidate") or raw.get("entity") or raw.get("subject") or "",
+                "source_class": technique_id,
+                "source_url": raw.get("url") or raw.get("source_url"),
+                "evidence_snippet": raw.get("snippet") or raw.get("evidence_snippet") or "",
+                "confidence": raw.get("confidence", 0.0),
+            }
+            findings.append(finding_entry)
+            name = _extract_candidate_name(finding_entry)
+            if name:
+                candidate_names_seen.add(name)
+        else:
+            log.debug(
+                "tactician slot=%d: specialist returned error kind=%r for technique=%r",
+                slot_idx, result.kind, technique_id,
+            )
+
+    # 5. Check enforcement floor (min_distinct_outputs)
+    min_distinct = tactic.enforcement.get("min_distinct_outputs")
+    if min_distinct and len(candidate_names_seen) < min_distinct:
+        log.info(
+            "tactician slot=%d: min_distinct_outputs floor=%d not met (got %d) — budget=%d spent=%d",
+            slot_idx, min_distinct, len(candidate_names_seen), budget_ru, ru_spent,
+        )
+
+    return TacticianOutput(
+        slot_idx=slot_idx,
+        candidate_names=sorted(candidate_names_seen),
+        findings=findings,
+        tactic_used=tactic.id,
+        specialist_calls=specialist_calls,
+        metadata={
+            "model": model,
+            "ru_spent": ru_spent,
+            "budget_ru": budget_ru,
+            "phase_id": phase.id,
+            "enforcement": tactic.enforcement,
+        },
+    )

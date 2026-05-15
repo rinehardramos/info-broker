@@ -104,6 +104,7 @@ export function StreamingCardList({ runId }: StreamingCardListProps) {
         card={selectedCard}
         open={!!selectedCard}
         onClose={() => setSelectedCard(null)}
+        runId={runId}
       />
     </div>
   )

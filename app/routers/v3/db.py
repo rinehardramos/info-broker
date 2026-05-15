@@ -655,11 +655,114 @@ INSERT INTO core_settings (key, value, is_secret) VALUES ('llm.general_model', '
 # Default credentials: admin / admin
 # Change the password via the DB after first login.
 
+# ---------------------------------------------------------------------------
+# Migration: Wallet v2 (MVP-M1)
+# Renames Phase-1 columns to RU-denominated names, adds concurrency/auto-topup
+# fields, CHECK constraints, and the wallet_operations audit table.
+# Safe to re-run: all ALTER TABLE use IF EXISTS / IF NOT EXISTS guards;
+# CREATE TABLE uses IF NOT EXISTS; CHECK constraints use DO $$ BLOCK.
+# ---------------------------------------------------------------------------
+_MIGRATION_WALLET_V2 = """
+-- Step 1: rename Phase-1 columns (idempotent via anonymous DO block)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_budget_wallets' AND column_name = 'balance_units'
+    ) THEN
+        ALTER TABLE user_budget_wallets RENAME COLUMN balance_units TO balance_ru;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_budget_wallets' AND column_name = 'reserved_units'
+    ) THEN
+        ALTER TABLE user_budget_wallets RENAME COLUMN reserved_units TO held_ru;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'user_budget_wallets' AND column_name = 'spent_units_lifetime'
+    ) THEN
+        ALTER TABLE user_budget_wallets RENAME COLUMN spent_units_lifetime TO spent_ru_lifetime;
+    END IF;
+END;
+$$;
+
+-- Step 2: add new columns (all IF NOT EXISTS)
+ALTER TABLE user_budget_wallets
+    ADD COLUMN IF NOT EXISTS floor_ru               INT          NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS version                INT          NOT NULL DEFAULT 1,
+    ADD COLUMN IF NOT EXISTS auto_topup_enabled     BOOL         NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS auto_topup_trigger_ru  INT,
+    ADD COLUMN IF NOT EXISTS auto_topup_amount_ru   INT,
+    ADD COLUMN IF NOT EXISTS auto_topup_payment_id  TEXT,
+    ADD COLUMN IF NOT EXISTS auto_topup_monthly_cap INT,
+    ADD COLUMN IF NOT EXISTS auto_topup_consumed_mtd INT         NOT NULL DEFAULT 0;
+
+-- Step 3: CHECK constraints (idempotent via DO block)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_wallet_held_ru_nonneg'
+          AND conrelid = 'user_budget_wallets'::regclass
+    ) THEN
+        ALTER TABLE user_budget_wallets
+            ADD CONSTRAINT ck_wallet_held_ru_nonneg CHECK (held_ru >= 0);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_wallet_balance_ge_held'
+          AND conrelid = 'user_budget_wallets'::regclass
+    ) THEN
+        ALTER TABLE user_budget_wallets
+            ADD CONSTRAINT ck_wallet_balance_ge_held CHECK (balance_ru >= held_ru);
+    END IF;
+END;
+$$;
+
+-- Step 4: wallet_operations audit table
+CREATE TABLE IF NOT EXISTS wallet_operations (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID        NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    run_id          UUID,
+    idempotency_key TEXT        NOT NULL,
+    op              VARCHAR(32) NOT NULL,
+    delta_ru        INT         NOT NULL,
+    balance_after   INT         NOT NULL,
+    held_after      INT         NOT NULL,
+    reason          TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_ops_user_run
+    ON wallet_operations (user_id, run_id, created_at DESC)
+"""
+
+
+_MIGRATION_FINDINGS_GRADES = """
+CREATE TABLE IF NOT EXISTS findings_grades (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  finding_id  text NOT NULL,
+  run_id      uuid NOT NULL,
+  user_id     uuid NOT NULL,
+  grade       char(1) NOT NULL CHECK (grade IN ('A','B','C','D')),
+  note        text,
+  graded_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (user_id, finding_id)
+);
+CREATE INDEX IF NOT EXISTS findings_grades_run_idx ON findings_grades(run_id);
+CREATE INDEX IF NOT EXISTS findings_grades_finding_idx ON findings_grades(finding_id)
+"""
+
 
 def run_migrations() -> None:
     # psycopg2 execute() only runs the first statement in a multi-statement
     # string. Split on ";" and run each non-empty statement individually.
-    statements = [s.strip() for s in (_MIGRATION + _SEED).split(";") if s.strip()]
+    all_sql = _MIGRATION + _SEED + _MIGRATION_WALLET_V2 + _MIGRATION_FINDINGS_GRADES
+    statements = [s.strip() for s in all_sql.split(";") if s.strip()]
     with get_conn() as conn:
         with conn.cursor() as cur:
             for stmt in statements:
