@@ -28,6 +28,7 @@ export type WsEvent = {
   preview?: string
   query_preview?: string
   spec?: Record<string, unknown>
+  output?: unknown  // is.tool_result full structured payload (for modal)
   // is.cycle event fields
   pir?: string
   hypotheses?: string[]
@@ -222,6 +223,9 @@ function connect(token: string) {
                 status: 'succeeded',
                 finishedAt: Date.now(),
                 preview: resultText,
+                // Full structured payload for the modal — the card body
+                // shows the truncated preview; the modal renders this.
+                ...(event.output !== undefined ? { output: event.output as Record<string, unknown> } : {}),
               })
               break
             }

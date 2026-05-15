@@ -402,31 +402,59 @@ async def scoped_brain_runner(
                                 })
                             elif content.get("type") == "tool_result":
                                 tool_result_data = content.get("content", "")
+                                # Build both a SHORT preview (for the card body)
+                                # and a FULL output (for the modal). The modal
+                                # gets to render the entire structured result;
+                                # the card just shows a one-glance summary.
+                                full_output: Any = tool_result_data
                                 if isinstance(tool_result_data, list):
                                     parts = [
                                         block.get("text", "") if isinstance(block, dict) else str(block)
                                         for block in tool_result_data
                                     ]
                                     preview = "\n".join(p for p in parts if p)[:2000]
-                                    # Fallback: when joined text is empty (MCP
-                                    # tool returned structured blocks with no
-                                    # .text fields), dump the whole content so
-                                    # the card body is never silently blank.
                                     if not preview.strip():
                                         try:
                                             preview = json.dumps(tool_result_data, default=str)[:2000]
                                         except Exception:
                                             preview = str(tool_result_data)[:2000]
+                                    # Promote a single text block to a plain
+                                    # string for the modal (often the MCP tool
+                                    # returns one [{type:text, text:"..."}]).
+                                    if len(parts) == 1 and parts[0]:
+                                        full_output = parts[0]
+                                    # If the single text block contains a JSON
+                                    # object, expose it as structured data so
+                                    # the modal can render findings rather
+                                    # than a wall of escaped JSON.
+                                    if isinstance(full_output, str) and full_output.strip().startswith(("{", "[")):
+                                        try:
+                                            full_output = json.loads(full_output)
+                                        except Exception:
+                                            pass
                                 elif isinstance(tool_result_data, (dict, list)):
                                     preview = json.dumps(tool_result_data, default=str)[:2000]
                                 else:
                                     preview = str(tool_result_data)[:2000] if tool_result_data else ""
+
+                                # Cap the full output at ~50 KB to keep the
+                                # WS frame reasonable. If it exceeds that,
+                                # drop output (modal will fall back to
+                                # preview); the modal still renders more
+                                # than the line-clamped 4-line card body.
+                                try:
+                                    if len(json.dumps(full_output, default=str)) > 50_000:
+                                        full_output = None
+                                except Exception:
+                                    full_output = None
+
                                 await event_emit({
                                     "type": "is.tool_result",
                                     "run_id": run_id,
                                     "job_id": run_id,
                                     "call_id": content.get("tool_use_id", ""),
                                     "preview": preview,
+                                    "output": full_output,
                                     "slot_idx": slot_idx,
                                     "tool_name": "",
                                     "source_class": "",

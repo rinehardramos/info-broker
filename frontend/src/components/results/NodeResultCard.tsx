@@ -84,18 +84,37 @@ const NodeResultCard = React.memo(
           <span className="ml-auto text-[10px] text-muted-foreground">{elapsedLabel(card)}</span>
         </div>
 
-        {/* Body — render findings as human-readable cards (FindingView) when
-            the shape matches; fall back to pretty text only when it doesn't.
-            Pass onSelect directly so rows open the modal even if event
-            bubbling is interfered with by ancestor handlers. */}
-        {isTerminal && hasStructuredFindings ? (
-          <FindingView data={card.output ?? card.preview} limit={3} clickable onSelect={onClick} />
+        {/* Body — the card shows a COMPACT summary; the modal renders the
+            full FindingView / structured detail when the user clicks. */}
+        {isTerminal && hasStructuredFindings && findingsInData ? (
+          <div className="space-y-0.5">
+            <div className="text-[11px] text-emerald-400/90 font-medium">
+              {findingsInData.length} finding{findingsInData.length !== 1 ? 's' : ''}
+            </div>
+            <ul className="text-xs text-foreground/85 leading-snug">
+              {findingsInData.slice(0, 3).map((f, i) => (
+                <li key={i} className="truncate" title={f.candidate}>
+                  · <span className="font-medium">{f.candidate}</span>
+                  {f.confidence != null && (
+                    <span className="ml-1 text-[10px] text-muted-foreground tabular-nums">
+                      {Math.round(f.confidence * 100)}%
+                    </span>
+                  )}
+                </li>
+              ))}
+              {findingsInData.length > 3 && (
+                <li className="text-[10px] text-muted-foreground italic">
+                  +{findingsInData.length - 3} more — click for details
+                </li>
+              )}
+            </ul>
+          </div>
         ) : (
           <p
             className={cn(
               'text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap',
-              !isTerminal && 'line-clamp-3',
-              isTerminal && 'line-clamp-4',
+              !isTerminal && 'line-clamp-2',
+              isTerminal && 'line-clamp-2',
             )}
           >
             {displayBody || (isPending ? 'Waiting to run…' : '')}
@@ -105,8 +124,8 @@ const NodeResultCard = React.memo(
           </p>
         )}
 
-        {/* Count derived from items/results/findings array, if present */}
-        {isTerminal && formatted?.count != null && (
+        {/* Result count for non-finding shapes (e.g. raw web_search results) */}
+        {isTerminal && !hasStructuredFindings && formatted?.count != null && (
           <div className="mt-1.5 text-[10px] text-emerald-400/80">
             {formatted.count} {formatted.count === 1 ? 'result' : 'results'}
           </div>
