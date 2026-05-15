@@ -76,14 +76,20 @@ def _build_scoped_prompt(
             "",
         ]
 
+    # The user query is the de-facto objective when strategy doesn't define one.
+    query_str = unit_of_work.get("query") or unit_of_work.get("objective", "")
+    objective = unit_of_work.get("objective") or query_str
     lines += [
         "## Unit of Work",
-        f"Objective: {unit_of_work.get('objective', '')}",
+        f"User query: {query_str}",
+        f"Objective: {objective}",
         f"Briefing: {unit_of_work.get('briefing', '')}",
-        f"Scope in: {unit_of_work.get('scope_in', '')}",
-        f"Scope out: {unit_of_work.get('scope_out', '')}",
-        "",
     ]
+    if unit_of_work.get("scope_in"):
+        lines.append(f"Scope in: {unit_of_work['scope_in']}")
+    if unit_of_work.get("scope_out"):
+        lines.append(f"Scope out: {unit_of_work['scope_out']}")
+    lines.append("")
 
     prior_slice = unit_of_work.get("prior_findings_slice")
     if prior_slice:
@@ -101,30 +107,53 @@ def _build_scoped_prompt(
     lines += [
         "## Tactic",
         f"tactic_id: {tactic.id}",
-        "",
-        "## TaskSpec templates — emit ONE tool call per template below",
     ]
-    for prod in tactic.produces:
-        lines.append(f"  - technique_id: {prod.technique_id}, params_template: {prod.params_template}")
 
-    lines += [
-        "",
-        "## Required techniques",
-    ]
-    # Note: techniques_catalog is not passed here (scoped_brain receives Tactic,
-    # not the full catalog).  The tactic.required_techniques list is sufficient
-    # to tell the subprocess WHAT to emit without leaking catalog internals.
-    for tid in tactic.required_techniques:
-        lines.append(f"  {tid}")
+    # Tactics with no `produces` (signal_extraction, rank_verify) are pure
+    # analysis — explicitly tell the brain NOT to call tools.
+    if not tactic.produces:
+        lines += [
+            "",
+            "## EXECUTION MODE: ANALYSIS ONLY — DO NOT CALL ANY TOOLS",
+            "This tactic is pure reasoning. Read the briefing, then emit a final",
+            "text response with your analysis. Do NOT call any MCP tools.",
+        ]
+    else:
+        # Tactics with `produces` MUST emit tool_use blocks. Be explicit about
+        # which MCP-prefixed tool to call and what params to use.
+        lines += [
+            "",
+            "## EXECUTION MODE: TOOL USE REQUIRED",
+            f"You MUST call EXACTLY {len(tactic.produces)} MCP tool(s) for this tactic.",
+            "Do NOT skip tool calls. Do NOT answer from training data alone.",
+            "The user is asking BECAUSE they don't know the answer — answering",
+            "from training is a guaranteed wrong answer.",
+            "",
+            "### Mandatory tool calls (call each one once with the params shown):",
+        ]
+        # Map technique_id → fully-qualified MCP tool name.
+        # The actual search string is the user's query — never the briefing.
+        sample_query = (
+            unit_of_work.get("query")
+            or unit_of_work.get("objective")
+            or ""
+        )
+        for prod in tactic.produces:
+            mcp_tool = f"mcp__info-broker-mcp__run_{prod.technique_id}"
+            lines.append(
+                f"  • {mcp_tool}  —  template params: {prod.params_template}"
+            )
+            lines.append(
+                f"    Substitute {{hypothesis_query}}/{{original_query}}/etc. with: \"{sample_query}\""
+            )
 
-    lines += [
-        "",
-        "## Output format",
-        "Emit tool calls using the MCP tools available to you.",
-        "For each task, call the appropriate tool and return findings with fields:",
-        "  candidate, source_class, source_url, evidence_snippet, confidence",
-        "Emit structured JSON result when done.",
-    ]
+        lines += [
+            "",
+            "### After all tool calls complete:",
+            "Emit a final text response summarizing what each tool returned, in",
+            "the form of findings with: candidate, source_class, source_url,",
+            "evidence_snippet, confidence.",
+        ]
     return "\n".join(lines)
 
 
@@ -147,8 +176,14 @@ def _parse_task_calls_from_events(events: list[dict[str, Any]]) -> list[dict[str
             if content.get("type") != "tool_use":
                 continue
             tool_name = content.get("name", "")
-            # Strip MCP prefix: mcp__info-broker-mcp__web_search → web_search
-            technique_id = tool_name.split("__")[-1] if "__" in tool_name else tool_name
+            # Only count info-broker MCP tools; ignore built-in Claude tools
+            # (ToolSearch/Bash/etc) that occasionally appear in the brain's output.
+            if not tool_name.startswith("mcp__info-broker-mcp__"):
+                continue
+            # Strip MCP prefix AND the run_ prefix used by the MCP server:
+            # mcp__info-broker-mcp__run_web_search → web_search
+            tail = tool_name.split("__")[-1]
+            technique_id = tail[4:] if tail.startswith("run_") else tail
             task_calls.append({
                 "technique_id": technique_id,
                 "params_template": content.get("input", {}),
@@ -318,6 +353,19 @@ async def scoped_brain_runner(
         if not timed_out:
             await proc.wait()
 
+        # Surface stderr + event diversity to logs when nothing emitted.
+        if proc.stderr is not None:
+            try:
+                stderr_bytes = await asyncio.wait_for(proc.stderr.read(), timeout=2)
+                stderr_text = stderr_bytes.decode(errors="replace").strip()
+                if stderr_text:
+                    log.warning(
+                        "scoped_brain: tactic=%s stderr (rc=%s): %s",
+                        tactic.id, proc.returncode, stderr_text[:2000],
+                    )
+            except asyncio.TimeoutError:
+                pass
+
     except FileNotFoundError:
         log.error("scoped_brain: claude binary not found at %s", _CLAUDE_BIN)
         return []
@@ -326,6 +374,46 @@ async def scoped_brain_runner(
         return []
 
     task_calls = _parse_task_calls_from_events(all_events)
+    # Diagnostic: surface event type distribution when no task calls were produced
+    if not task_calls:
+        from collections import Counter
+        event_types = Counter(e.get("type", "?") for e in all_events)
+        tool_use_count = sum(
+            1 for e in all_events
+            if e.get("type") == "assistant"
+            for block in (e.get("message", {}).get("content") or [])
+            if isinstance(block, dict) and block.get("type") == "tool_use"
+        )
+        # Capture what the brain actually said — first assistant text block
+        first_text = ""
+        for e in all_events:
+            if e.get("type") == "assistant":
+                for block in (e.get("message", {}).get("content") or []):
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        first_text = block.get("text", "")[:500]
+                        break
+                if first_text:
+                    break
+        # Capture the result event content too
+        result_text = ""
+        for e in all_events:
+            if e.get("type") == "result":
+                result_text = str(e.get("result", ""))[:300]
+                break
+        # api key source from system event
+        api_src = ""
+        for e in all_events:
+            if e.get("type") == "system":
+                api_src = e.get("apiKeySource", "?")
+                break
+        log.warning(
+            "scoped_brain: tactic=%s slot=%d produced 0 task_calls — "
+            "events=%s tool_use_blocks=%d apiKeySource=%s\n"
+            "  assistant text: %r\n"
+            "  result text: %r",
+            tactic.id, slot_idx, dict(event_types), tool_use_count, api_src,
+            first_text, result_text,
+        )
     log.info(
         "scoped_brain: tactic=%s slot=%d produced %d task_calls",
         tactic.id, slot_idx, len(task_calls),

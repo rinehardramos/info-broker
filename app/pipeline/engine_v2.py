@@ -183,25 +183,26 @@ async def run_engine_v2(
     # ------------------------------------------------------------------
     from app.pipeline.runners.scoped_brain import scoped_brain_runner
 
-    def _make_tactic_runner_fn(phase: PhaseSpec, slot_idx: int):
-        """Return a synchronous wrapper that the tactician expects.
+    def _make_tactic_runner_fn(phase: PhaseSpec, slot_idx: int, unit_of_work: dict):
+        """Return an async runner the tactician awaits.
 
-        tactician.execute_tactician calls: tactic_runner_fn(prompt, model) -> list[dict]
-        But our scoped_brain_runner is async and needs more context.
-        We capture phase/slot in closure and run the coroutine synchronously.
+        The unit_of_work IS passed through to scoped_brain so the subprocess
+        prompt sees the actual query/objective/scope, not just the tactician's
+        pre-formatted briefing.
         """
         async def _tactic_runner_fn(prompt: str, model: str) -> list[dict]:
-            """Async runner — tactician awaits this directly. The bridge is
-            simple now that tactician.execute_tactician supports coroutine
-            return values from tactic_runner_fn."""
             from app.pipeline.tactician import _select_tactic
-            tactic = _select_tactic(slot_idx, {}, tactics, phase)
+            tactic = _select_tactic(slot_idx, unit_of_work, tactics, phase)
             if tactic is None:
                 return []
             try:
+                # Merge: the actual UoW (query/objective/scope/forbidden) + the
+                # tactician's pre-built prompt as a fallback briefing reference.
+                merged_uow = dict(unit_of_work)
+                merged_uow.setdefault("briefing", prompt)
                 return await scoped_brain_runner(
                     tactic=tactic,
-                    unit_of_work={"briefing": prompt},
+                    unit_of_work=merged_uow,
                     capability_tier=envelope.capability,
                     budget_ru=hold_amount_ru,
                     event_emit=event_emit,
@@ -238,7 +239,7 @@ async def run_engine_v2(
             "forbidden_candidates": unit_of_work.get("forbidden_candidates", []),
         })
 
-        tactic_runner_fn = _make_tactic_runner_fn(phase, slot_idx)
+        tactic_runner_fn = _make_tactic_runner_fn(phase, slot_idx, unit_of_work)
 
         output = await execute_tactician(
             phase=phase,
