@@ -59,6 +59,7 @@ function SessionHistoryItem({ session }: { session: AgentSession }) {
 
   return (
     <button
+      data-testid="history-session-item"
       onClick={resume}
       disabled={isResuming}
       title={isResuming ? 'Resuming…' : `Resume: "${session.genesis_query}"`}

@@ -98,6 +98,7 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
           <div className="relative flex-shrink-0">
             <DebugBadge runId={runId} />
             <button
+              data-testid="share-run-button"
               onClick={() => setShareOpen(true)}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-border bg-card/60 hover:bg-card px-2 py-0.5 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-colors"
               title="Share this run (read-only link)"
