@@ -1,7 +1,8 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { StreamingCardList } from './StreamingCardList'
 import { FlowMiniPreview } from './FlowMiniPreview'
+import { PhaseDAGView } from './PhaseDAGView'
 import { useLayoutStore } from '@/stores/layoutStore'
 import { useRunStreamStore } from '@/stores/runStreamStore'
 
@@ -32,6 +33,13 @@ function DebugBadge({ runId }: { runId: string }) {
 
 export function RunResultsView({ runId }: RunResultsViewProps) {
   const { runSplit, setRunSplit } = useLayoutStore()
+  const run = useRunStreamStore(s => s.runsById[runId])
+
+  // v2 run detection: presence of populated phases map marks this as a v2 run
+  const isV2Run = run != null && Object.keys(run.phases ?? {}).length > 0
+
+  // Tactician filter propagated down to StreamingCardList
+  const [tacticianFilter, setTacticianFilter] = useState<{ phaseId: string; slotIdx: number } | null>(null)
 
   const handleLayout = useCallback(
     (sizes: number[]) => {
@@ -50,17 +58,24 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
     return (
       <div className="flex flex-col h-full">
         <DebugBadge runId={runId} />
-        <div className="flex-1 overflow-hidden">
-          <StreamingCardList runId={runId} />
-        </div>
-        <details className="border-t border-border">
-          <summary className="px-4 py-2 text-xs text-muted-foreground cursor-pointer select-none">
-            Flow Diagram ▸
-          </summary>
-          <div className="h-48">
-            <FlowMiniPreview runId={runId} />
+        {isV2Run && (
+          <div className="border-b border-slate-800 flex-shrink-0" style={{ height: 160 }}>
+            <PhaseDAGView runId={runId} onSelectTactician={setTacticianFilter} />
           </div>
-        </details>
+        )}
+        <div className="flex-1 overflow-hidden">
+          <StreamingCardList runId={runId} filterByTactician={tacticianFilter ?? undefined} />
+        </div>
+        {!isV2Run && (
+          <details className="border-t border-border">
+            <summary className="px-4 py-2 text-xs text-muted-foreground cursor-pointer select-none">
+              Flow Diagram ▸
+            </summary>
+            <div className="h-48">
+              <FlowMiniPreview runId={runId} />
+            </div>
+          </details>
+        )}
       </div>
     )
   }
@@ -78,8 +93,14 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
       >
         <div className="flex flex-col h-full">
           <DebugBadge runId={runId} />
+          {/* v2 engine: show PhaseDAGView above the card list */}
+          {isV2Run && (
+            <div className="border-b border-slate-800 flex-shrink-0" style={{ height: 200 }}>
+              <PhaseDAGView runId={runId} onSelectTactician={setTacticianFilter} />
+            </div>
+          )}
           <div className="flex-1 overflow-hidden">
-            <StreamingCardList runId={runId} />
+            <StreamingCardList runId={runId} filterByTactician={tacticianFilter ?? undefined} />
           </div>
         </div>
       </Panel>
@@ -94,6 +115,7 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
         maxSize={60}
         className="overflow-hidden"
       >
+        {/* v2: show legacy ResearchFlow only for non-v2 runs or as compact fallback */}
         <FlowMiniPreview runId={runId} />
       </Panel>
     </PanelGroup>

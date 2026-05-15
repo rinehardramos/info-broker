@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { RankedCandidate } from '@/types/research'
+import type { RankedCandidate, PhaseState, TacticianState } from '@/types/research'
 
 export type NodeCardStatus = 'pending' | 'running' | 'streaming' | 'succeeded' | 'failed' | 'canceled'
 
@@ -54,6 +54,12 @@ export interface RunStream {
   hydratedFromServer: boolean
   /** Populated from is.run_complete event; empty array until run finishes. */
   rankedCandidates: RankedCandidate[]
+  /** v2 engine phase tracking — populated by is.phase_start / is.phase_complete events. */
+  phases: Record<string, PhaseState>
+  /** v2 engine tactician tracking — populated by is.tactician_start / is.tactician_complete events. */
+  tacticians: Record<string, Record<number, TacticianState>>
+  /** The phase_id of the currently running phase, or null. */
+  activePhase: string | null
 }
 
 interface RunStreamState {
@@ -67,6 +73,12 @@ interface RunStreamState {
   hydrateFromServer: (runId: string, serverRun: Partial<RunStream>) => void
   clearRun: (runId: string) => void
   setRankedCandidates: (runId: string, candidates: RankedCandidate[]) => void
+  // v2 phase actions
+  setPhaseStatus: (runId: string, phaseId: string, status: PhaseState['status']) => void
+  setPhaseTacticianCount: (runId: string, phaseId: string, n: number) => void
+  setPhaseComplete: (runId: string, phaseId: string, gateStatus: PhaseState['gate_status'], distinctCandidateNames: string[]) => void
+  addTactician: (runId: string, phaseId: string, state: Omit<TacticianState, 'candidate_names' | 'findings_count' | 'specialist_calls'> & { slot_idx: number }) => void
+  setTacticianResult: (runId: string, phaseId: string, slotIdx: number, result: Pick<TacticianState, 'candidate_names' | 'findings_count'>) => void
 }
 
 const CANCELABLE_STATUSES: NodeCardStatus[] = ['running', 'streaming', 'pending']
@@ -91,6 +103,9 @@ function ensureRun(
       dismissedSuggestionIds: new Set(),
       hydratedFromServer: false,
       rankedCandidates: [],
+      phases: {},
+      tacticians: {},
+      activePhase: null,
     }
   } else {
     runsById[runId] = { ...runsById[runId] } // copy so mutations below don't touch old state
@@ -229,6 +244,82 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
       const runsById = { ...state.runsById }
       const run = ensureRun(runsById, runId, 'is')
       run.rankedCandidates = candidates
+      return { runsById }
+    })
+  },
+
+  setPhaseStatus(runId, phaseId, status) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      const existing = run.phases[phaseId] ?? { status: 'pending', n_tacticians: 0, distinct_candidate_names: [], gate_status: null }
+      run.phases = { ...run.phases, [phaseId]: { ...existing, status } }
+      if (status === 'running') run.activePhase = phaseId
+      return { runsById }
+    })
+  },
+
+  setPhaseTacticianCount(runId, phaseId, n) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      const existing = run.phases[phaseId] ?? { status: 'pending', n_tacticians: 0, distinct_candidate_names: [], gate_status: null }
+      run.phases = { ...run.phases, [phaseId]: { ...existing, n_tacticians: n } }
+      return { runsById }
+    })
+  },
+
+  setPhaseComplete(runId, phaseId, gateStatus, distinctCandidateNames) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      const existing = run.phases[phaseId] ?? { status: 'pending', n_tacticians: 0, distinct_candidate_names: [], gate_status: null }
+      const newStatus: PhaseState['status'] = gateStatus === 'pass' ? 'passed' : gateStatus === 'ask_user' ? 'ask_user' : 'failed'
+      run.phases = {
+        ...run.phases,
+        [phaseId]: { ...existing, status: newStatus, gate_status: gateStatus, distinct_candidate_names: distinctCandidateNames },
+      }
+      if (run.activePhase === phaseId) run.activePhase = null
+      return { runsById }
+    })
+  },
+
+  addTactician(runId, phaseId, { slot_idx, tactic_id, forbidden_candidates }) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      const phaseTacticians = run.tacticians[phaseId] ?? {}
+      run.tacticians = {
+        ...run.tacticians,
+        [phaseId]: {
+          ...phaseTacticians,
+          [slot_idx]: {
+            tactic_id,
+            forbidden_candidates: forbidden_candidates ?? [],
+            candidate_names: [],
+            findings_count: 0,
+            specialist_calls: 0,
+          },
+        },
+      }
+      return { runsById }
+    })
+  },
+
+  setTacticianResult(runId, phaseId, slotIdx, { candidate_names, findings_count }) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      const phaseTacticians = run.tacticians[phaseId] ?? {}
+      const existing = phaseTacticians[slotIdx]
+      if (!existing) return state
+      run.tacticians = {
+        ...run.tacticians,
+        [phaseId]: {
+          ...phaseTacticians,
+          [slotIdx]: { ...existing, candidate_names, findings_count },
+        },
+      }
       return { runsById }
     })
   },

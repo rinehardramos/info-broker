@@ -22,6 +22,7 @@ Design ref: docs/intelligence/three-tier-brain-architecture.md §3, §9, §10.1
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import uuid as _uuid_mod
@@ -70,7 +71,7 @@ def _classify_query_stub(query: str) -> dict[str, Any]:
 async def _emit(event_emit: Callable, payload: dict) -> None:
     """Safely call event_emit; swallow errors so brain output is never lost."""
     try:
-        if asyncio.iscoroutinefunction(event_emit):
+        if inspect.iscoroutinefunction(event_emit):
             await event_emit(payload)
         else:
             event_emit(payload)
@@ -243,8 +244,10 @@ async def run_engine_v2(
             "findings_count": len(output.findings),
         })
 
-        # Return the shape strategist._aggregate() expects
+        # Return the shape strategist._aggregate() expects.
+        # slot_idx is included so _aggregate can tag findings with hypothesis_slot.
         return {
+            "slot_idx": slot_idx,
             "findings": output.findings,
             "metadata": {
                 **output.metadata,
@@ -280,7 +283,28 @@ async def run_engine_v2(
         return await _orig_tactician_fn(phase, unit_of_work, slot_idx)
 
     # ------------------------------------------------------------------
-    # 7. Run the strategist
+    # 7. Phase-complete callback — emits is.phase_complete after gate eval
+    # ------------------------------------------------------------------
+
+    async def _phase_complete_cb(phase: PhaseSpec, phase_output: Any, gate_passed: bool) -> None:
+        if gate_passed:
+            gate_status = "pass"
+        elif phase.gate.on_fail == "ask_user":
+            gate_status = "ask_user"
+        else:
+            gate_status = "fail"
+
+        await _emit(event_emit, {
+            "type": "is.phase_complete",
+            "run_id": run_id,
+            "phase_id": phase.id,
+            "gate_status": gate_status,
+            "distinct_candidate_names": phase_output.distinct_candidate_names,
+            "n_tacticians": phase_output.metadata.get("num_tacticians", 0),
+        })
+
+    # ------------------------------------------------------------------
+    # 8. Run the strategist
     # ------------------------------------------------------------------
     strategist = Strategist(
         strategy=strategy,
@@ -314,6 +338,7 @@ async def run_engine_v2(
             query=query,
             classifier_output=classifier_output,
             tactician_fn=_tracked_tactician_fn,
+            phase_complete_cb=_phase_complete_cb,
         )
 
     except Exception as exc:
@@ -330,7 +355,7 @@ async def run_engine_v2(
             pass
 
     # ------------------------------------------------------------------
-    # 8. Release unused hold
+    # 9. Release unused hold
     # ------------------------------------------------------------------
     remaining_ru = max(0, hold_amount_ru - sum_consumed_ru)
     if remaining_ru > 0:
@@ -340,7 +365,7 @@ async def run_engine_v2(
         )
 
     # ------------------------------------------------------------------
-    # 9. Write to research_trails
+    # 10. Write to research_trails
     # ------------------------------------------------------------------
     try:
         _write_research_trail(run_id, user_id, query, result)
@@ -348,14 +373,28 @@ async def run_engine_v2(
         log.warning("engine_v2: research_trail write failed (non-fatal): %s", exc)
 
     # ------------------------------------------------------------------
-    # 10. Emit run_complete event
+    # 11. Emit run_complete event
     # ------------------------------------------------------------------
+    # Serialize ranked_candidates explicitly to guarantee the enriched shape
+    # (name, confidence, signal_scores, evidence[], slot_idx) is present even
+    # if the RunResult was populated by an older code path.
+    serialized_candidates = []
+    for c in result.ranked_candidates:
+        if isinstance(c, dict):
+            serialized_candidates.append({
+                "name": c.get("name", ""),
+                "confidence": c.get("confidence", 0.0),
+                "signal_scores": c.get("signal_scores", {}),
+                "evidence": c.get("evidence", []),
+                "slot_idx": c.get("slot_idx", 0),
+            })
+
     await _emit(event_emit, {
         "type": "is.run_complete",
         "run_id": run_id,
         "job_id": run_id,
         "status": result.status,
-        "ranked_candidates": result.ranked_candidates,
+        "ranked_candidates": serialized_candidates,
         "ru_consumed": sum_consumed_ru,
         "ru_released": remaining_ru,
     })

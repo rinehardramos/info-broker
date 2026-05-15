@@ -505,7 +505,7 @@ def test_from_prior_phase_policy_uses_surviving_candidates():
 
 
 def test_completed_run_returns_last_phase_ranked_candidates():
-    """RunResult.ranked_candidates is populated from the last phase's output."""
+    """RunResult.ranked_candidates is populated from the last phase's output (enriched shape)."""
     phase = _make_phase("rank_verify")
     strategy = _make_strategy([phase])
 
@@ -526,4 +526,201 @@ def test_completed_run_returns_last_phase_ranked_candidates():
         result = run_sync(strategist.execute("query", {}, fake_tactician))
 
     assert result.status == "completed"
-    assert result.ranked_candidates == [{"name": "Alice", "confidence": 0.8}]
+    assert len(result.ranked_candidates) == 1
+    enriched = result.ranked_candidates[0]
+    # Core identity and confidence preserved
+    assert enriched["name"] == "Alice"
+    assert enriched["confidence"] == 0.8
+    # Enriched fields present with correct types
+    assert "signal_scores" in enriched
+    assert "evidence" in enriched
+    assert isinstance(enriched["evidence"], list)
+    assert "slot_idx" in enriched
+
+
+# ---------------------------------------------------------------------------
+# Enrichment tests (UI-P3 backend)
+# ---------------------------------------------------------------------------
+
+
+def test_signal_scores_heuristic_match_and_unknown():
+    """signal_scores.primary is 'match' when findings have live source + confidence >= 0.6."""
+    from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
+
+    phase_output = PhaseOutput(
+        phase_id="broaden",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.75,
+                "evidence_snippet": "Alice confirmed",
+                "source_url": "https://example.com/alice",
+                "phase_id": "broaden",
+                "hypothesis_slot": 0,
+            },
+            {
+                "candidate_name": "Bob",
+                "source_class": "training_knowledge",
+                "confidence": 0.5,
+                "evidence_snippet": "Bob maybe",
+                "phase_id": "broaden",
+                "hypothesis_slot": 1,
+            },
+        ],
+        distinct_candidate_names=["Alice", "Bob"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    raw_ranked = [
+        {"name": "Alice", "confidence": 0.75},
+        {"name": "Bob", "confidence": 0.5},
+    ]
+    enriched = _enrich_ranked_candidates(raw_ranked, [phase_output], strategy_id="test")
+
+    alice = next(c for c in enriched if c["name"] == "Alice")
+    bob = next(c for c in enriched if c["name"] == "Bob")
+
+    # Alice has live_search + confidence >= 0.6 → primary: "match"
+    assert alice["signal_scores"]["primary"] == "match"
+    # Bob has training_knowledge (not in _PRIMARY_LIVE_CLASSES) → "unknown"
+    assert bob["signal_scores"]["primary"] == "unknown"
+
+
+def test_evidence_collected_from_aggregated_findings():
+    """Each candidate's evidence[] count matches findings for that name."""
+    from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
+
+    phase_output = PhaseOutput(
+        phase_id="broaden",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.8,
+                "evidence_snippet": "Alice ev 1",
+                "phase_id": "broaden",
+            },
+            {
+                "candidate_name": "Alice",
+                "source_class": "primary_official",
+                "confidence": 0.9,
+                "evidence_snippet": "Alice ev 2",
+                "phase_id": "broaden",
+            },
+            {
+                "candidate_name": "Bob",
+                "source_class": "live_search",
+                "confidence": 0.7,
+                "evidence_snippet": "Bob ev 1",
+                "phase_id": "broaden",
+            },
+        ],
+        distinct_candidate_names=["Alice", "Bob"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    raw_ranked = [
+        {"name": "Alice", "confidence": 0.8},
+        {"name": "Bob", "confidence": 0.7},
+    ]
+    enriched = _enrich_ranked_candidates(raw_ranked, [phase_output])
+
+    alice = next(c for c in enriched if c["name"] == "Alice")
+    bob = next(c for c in enriched if c["name"] == "Bob")
+
+    assert len(alice["evidence"]) == 2
+    assert len(bob["evidence"]) == 1
+
+
+def test_disconfirm_findings_flagged_in_evidence():
+    """Findings from red_team or disconfirm phases have is_disconfirm=True in evidence."""
+    from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
+
+    broaden_output = PhaseOutput(
+        phase_id="broaden",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.8,
+                "evidence_snippet": "Supporting evidence",
+                "phase_id": "broaden",
+            },
+        ],
+        distinct_candidate_names=["Alice"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    red_team_output = PhaseOutput(
+        phase_id="red_team",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.7,
+                "evidence_snippet": "Contradicting evidence",
+                "phase_id": "red_team",
+            },
+        ],
+        distinct_candidate_names=["Alice"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    raw_ranked = [{"name": "Alice", "confidence": 0.8}]
+    enriched = _enrich_ranked_candidates(
+        raw_ranked, [broaden_output, red_team_output]
+    )
+
+    alice = enriched[0]
+    assert len(alice["evidence"]) == 2
+
+    # Supporting evidence is first (is_disconfirm=False sorts before True)
+    assert alice["evidence"][0]["is_disconfirm"] is False
+    assert alice["evidence"][0]["snippet"] == "Supporting evidence"
+
+    # Red-team evidence is last, flagged as disconfirm
+    assert alice["evidence"][1]["is_disconfirm"] is True
+    assert alice["evidence"][1]["snippet"] == "Contradicting evidence"
+
+
+def test_slot_idx_lowest_wins_for_consensus_candidate():
+    """When 2 slots both produced the same candidate, slot_idx is the lower one."""
+    from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
+
+    # Two slots both found "Alice" but at different slot positions
+    phase_output = PhaseOutput(
+        phase_id="broaden",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.8,
+                "evidence_snippet": "Alice slot 2",
+                "phase_id": "broaden",
+                "hypothesis_slot": 2,
+            },
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.75,
+                "evidence_snippet": "Alice slot 0",
+                "phase_id": "broaden",
+                "hypothesis_slot": 0,
+            },
+        ],
+        distinct_candidate_names=["Alice"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    raw_ranked = [{"name": "Alice", "confidence": 0.8}]
+    enriched = _enrich_ranked_candidates(raw_ranked, [phase_output])
+
+    alice = enriched[0]
+    # Lowest slot_idx among findings for Alice is 0
+    assert alice["slot_idx"] == 0

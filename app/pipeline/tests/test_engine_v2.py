@@ -241,7 +241,14 @@ def test_engine_v2_runs_all_phases_in_order():
 
 
 def test_engine_v2_emits_expected_events():
-    """phase_start, tactician_start, tactician_complete, run_complete fire in order."""
+    """phase_start, tactician_start, tactician_complete, phase_complete, run_complete fire in order.
+
+    Addendum assertions (UI-P2 PhaseProgress):
+    - One is.phase_complete fires per phase that ran.
+    - Each has gate_status set to a valid value ("pass", "fail", "ask_user").
+    - Ordering: each is.phase_complete for phase N fires AFTER all is.tactician_complete
+      events for phase N and BEFORE run_complete.
+    """
     result, emitted, *_ = asyncio.run(_run_engine_v2_with_fakes())
 
     event_types = [e["type"] for e in emitted]
@@ -249,13 +256,34 @@ def test_engine_v2_emits_expected_events():
     assert "is.phase_start" in event_types
     assert "is.tactician_start" in event_types
     assert "is.tactician_complete" in event_types
+    assert "is.phase_complete" in event_types, "is.phase_complete must be emitted"
     assert "is.run_complete" in event_types
 
     phase_start_idx = next(i for i, t in enumerate(event_types) if t == "is.phase_start")
     tact_start_idx = next(i for i, t in enumerate(event_types) if t == "is.tactician_start")
+    tact_complete_idx = next(i for i, t in enumerate(event_types) if t == "is.tactician_complete")
+    phase_complete_idx = next(i for i, t in enumerate(event_types) if t == "is.phase_complete")
     run_complete_idx = next(i for i, t in enumerate(event_types) if t == "is.run_complete")
 
-    assert phase_start_idx < tact_start_idx < run_complete_idx
+    # Core ordering: phase_start < tactician_start < tactician_complete < phase_complete < run_complete
+    assert phase_start_idx < tact_start_idx < tact_complete_idx < phase_complete_idx < run_complete_idx
+
+    # is.phase_complete shape and gate_status validity
+    valid_gate_statuses = {"pass", "fail", "ask_user"}
+    phase_complete_events = [e for e in emitted if e["type"] == "is.phase_complete"]
+    # Single-phase run → exactly one is.phase_complete
+    assert len(phase_complete_events) == 1
+    pc = phase_complete_events[0]
+    assert "run_id" in pc
+    assert "phase_id" in pc
+    assert "gate_status" in pc
+    assert "distinct_candidate_names" in pc
+    assert "n_tacticians" in pc
+    assert pc["gate_status"] in valid_gate_statuses, (
+        f"gate_status {pc['gate_status']!r} not in {valid_gate_statuses}"
+    )
+    # Passing run → gate_status must be "pass"
+    assert pc["gate_status"] == "pass"
 
     run_complete = next(e for e in emitted if e["type"] == "is.run_complete")
     assert "status" in run_complete
@@ -489,3 +517,153 @@ def test_engine_v2_gate_fail_terminates_run():
     assert result.terminate_reason is not None
     # Gate fail is structural, not a system error -- refund must NOT fire
     mock_refund.assert_not_called()
+
+
+def test_89_regression_run_complete_has_enriched_ranked_candidates():
+    """is.run_complete payload includes enriched ranked_candidates with signal_scores,
+    evidence[], and slot_idx matching the RankedCandidate frontend type shape.
+
+    Extends test_89_regression_simulation_with_canned_data to assert the UI-P3
+    enriched payload shape on the run_complete event.
+
+    The tactician_fn wrapper in engine_v2 always returns ranked_candidates=[] to
+    strategist._aggregate; the enrichment is exercised via a custom tactician_fn
+    that bypasses the engine_v2 wrapper by patching strategist.execute directly.
+    """
+    from app.pipeline.strategist import Strategist, RunResult, PhaseOutput
+    from app.pipeline.catalogs.budget import BudgetEnvelope
+    from app.pipeline.catalogs.schemas import GateSpec, CheckSpec, PhaseSpec, Strategy
+
+    phase = _make_phase(
+        "broaden",
+        hypothesis_count_policy="fixed:2",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
+    )
+    strategy = _make_strategy([phase])
+    envelope = _make_envelope()
+
+    canned_findings = [
+        {
+            "candidate_name": "Candidate A",
+            "source_class": "live_search",
+            "source_url": "https://example.com/candidate-a",
+            "evidence_snippet": "Evidence for Candidate A",
+            "confidence": 0.82,
+            "phase_id": "broaden",
+            "hypothesis_slot": 0,
+        },
+        {
+            "candidate_name": "Candidate B",
+            "source_class": "primary_official",
+            "source_url": "https://example.com/candidate-b",
+            "evidence_snippet": "Evidence for Candidate B",
+            "confidence": 0.71,
+            "phase_id": "broaden",
+            "hypothesis_slot": 1,
+        },
+    ]
+
+    async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None):
+        """Return a RunResult as if the strategist ran 2 slots and produced 2 candidates."""
+        phase_out = PhaseOutput(
+            phase_id="broaden",
+            aggregated_findings=canned_findings,
+            distinct_candidate_names=["Candidate A", "Candidate B"],
+            metadata={"primary_signals_count": 2, "actual_ru": 4, "num_tacticians": 2,
+                      "hypotheses_explored": 2, "disconfirm_count": 0,
+                      "surviving_hypothesis_count": 2},
+            ranked_candidates=[
+                {"name": "Candidate A", "confidence": 0.82},
+                {"name": "Candidate B", "confidence": 0.71},
+            ],
+        )
+        from app.pipeline.strategist import _enrich_ranked_candidates
+        enriched = _enrich_ranked_candidates(
+            phase_out.ranked_candidates,
+            [phase_out],
+            strategy_id="media_identification",
+        )
+        return RunResult(
+            run_id="test-run-id",
+            status="completed",
+            phases=[phase_out],
+            ranked_candidates=enriched,
+        )
+
+    emitted: list[dict] = []
+
+    async def _event_emit(payload: dict) -> None:
+        emitted.append(payload)
+
+    with (
+        patch("app.pipeline.engine_v2._load_all_catalogs", return_value=(
+            {"media_identification": strategy},
+            {"hypothesis_first_search": _make_tactic([phase.id])},
+            {"web_search": _make_technique()},
+        )),
+        patch("app.pipeline.engine_v2._classify_query_stub",
+              return_value={"task_type": "celebrity_identification"}),
+        patch.object(Strategist, "execute", side_effect=_fake_strategist_execute),
+        patch("app.pipeline.engine_v2.wallet.consume"),
+        patch("app.pipeline.engine_v2.wallet.release"),
+        patch("app.pipeline.engine_v2.wallet.refund"),
+        patch("app.pipeline.engine_v2._write_research_trail"),
+        patch("app.pipeline.strategist.wallet.consume"),
+    ):
+        from unittest.mock import patch as _patch
+        from app.pipeline.engine_v2 import run_engine_v2
+
+        result = asyncio.run(run_engine_v2(
+            user_id="test-user",
+            run_id="test-run-id",
+            hold_id="test-hold-id",
+            hold_amount_ru=50,
+            query="test query",
+            envelope=envelope,
+            strategy_id="media_identification",
+            event_emit=_event_emit,
+        ))
+
+    run_complete = next(e for e in emitted if e["type"] == "is.run_complete")
+    assert run_complete["status"] == "completed"
+
+    candidates = run_complete["ranked_candidates"]
+    assert isinstance(candidates, list)
+    assert len(candidates) == 2, (
+        f"Expected 2 enriched candidates, got {len(candidates)}: {candidates}"
+    )
+
+    for c in candidates:
+        assert "name" in c, "RankedCandidate must have 'name'"
+        assert "confidence" in c, "RankedCandidate must have 'confidence'"
+        assert "signal_scores" in c, "RankedCandidate must have 'signal_scores'"
+        assert isinstance(c["signal_scores"], dict), "signal_scores must be a dict"
+        assert "evidence" in c, "RankedCandidate must have 'evidence'"
+        assert isinstance(c["evidence"], list), "evidence must be a list"
+        assert "slot_idx" in c, "RankedCandidate must have 'slot_idx'"
+        assert isinstance(c["slot_idx"], int), "slot_idx must be an int"
+
+        # signal_scores values are one of the allowed literals
+        valid_scores = {"match", "mismatch", "unknown", None}
+        for score_key in ("primary", "supporting", "medium", "recency"):
+            val = c["signal_scores"].get(score_key)
+            assert val in valid_scores, (
+                f"signal_scores.{score_key}={val!r} not in {valid_scores}"
+            )
+
+        # evidence entries have required fields
+        for ev in c["evidence"]:
+            assert "source_class" in ev
+            assert "snippet" in ev
+            assert "is_disconfirm" in ev
+            assert isinstance(ev["is_disconfirm"], bool)
+
+    # Candidate A has live_search + confidence 0.82 >= 0.6 → primary: match
+    cand_a = next(c for c in candidates if c["name"] == "Candidate A")
+    assert cand_a["signal_scores"]["primary"] == "match"
+    assert cand_a["slot_idx"] == 0  # hypothesis_slot was 0
+
+    # Candidate B has primary_official + confidence 0.71 >= 0.6 → primary: match
+    cand_b = next(c for c in candidates if c["name"] == "Candidate B")
+    assert cand_b["signal_scores"]["primary"] == "match"
+    assert cand_b["slot_idx"] == 1  # hypothesis_slot was 1

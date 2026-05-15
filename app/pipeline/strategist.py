@@ -9,8 +9,10 @@ Design ref: docs/intelligence/three-tier-brain-architecture.md §3, §7.1, §8, 
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
 from app.pipeline.catalogs.budget import BudgetEnvelope
@@ -77,12 +79,16 @@ _FINDING_WHITELIST = frozenset(
     [
         "candidate_name",
         "source_class",
+        "source_url",
+        "evidence_snippet",
         "confidence",
         "evidence_summary",
         "hypothesis_slot",
         "technique_id",
         "signals_matched",
         "disconfirm_logged",
+        "date",
+        "phase_id",
     ]
 )
 
@@ -225,6 +231,173 @@ def _run_gate(
 
 
 # ---------------------------------------------------------------------------
+# Ranked candidate enrichment (UI-P3 backend)
+# ---------------------------------------------------------------------------
+
+# Source classes that count as "live" for the primary signal heuristic
+_PRIMARY_LIVE_CLASSES = frozenset({"live_search", "primary_official"})
+
+# Phases whose findings count as disconfirm evidence
+_DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})
+
+# Years within which a finding's date field is considered "recent"
+_RECENCY_YEARS = 2
+
+
+def _enrich_ranked_candidates(
+    raw_ranked: list[dict],
+    all_phase_outputs: list["PhaseOutput"],
+    strategy_id: str = "",
+) -> list[dict]:
+    """Enrich raw ranked_candidates with signal_scores, evidence[], and slot_idx.
+
+    This is the MVP heuristic implementation. Full ACH-matrix scoring is
+    deferred to post-MVP P5.
+    # TODO(P5): replace heuristic signal_scores with full ACH confidence matrix.
+
+    Args:
+        raw_ranked:        List of raw candidate dicts from the last phase output.
+                           Each must have at least {"name": str, "confidence": float}.
+        all_phase_outputs: All PhaseOutput objects for this run, in execution order.
+        strategy_id:       Strategy id (e.g. "media_identification") for medium check.
+
+    Returns:
+        List of enriched dicts matching the RankedCandidate frontend type shape.
+    """
+    # Flatten all findings across all phases into one list, tagged with phase_id.
+    all_findings: list[dict[str, Any]] = []
+    for phase_output in all_phase_outputs:
+        for finding in phase_output.aggregated_findings:
+            tagged = dict(finding)
+            # Prefer the stored phase_id field; fall back to the PhaseOutput id.
+            if "phase_id" not in tagged:
+                tagged["phase_id"] = phase_output.phase_id
+            all_findings.append(tagged)
+
+    # Build a name → lowest slot_idx map from hypothesis_slot field.
+    name_to_slot: dict[str, int] = {}
+    for finding in all_findings:
+        name = finding.get("candidate_name", "")
+        if not name:
+            continue
+        slot = finding.get("hypothesis_slot")
+        if slot is None:
+            continue
+        try:
+            slot_int = int(slot)
+        except (TypeError, ValueError):
+            continue
+        if name not in name_to_slot or slot_int < name_to_slot[name]:
+            name_to_slot[name] = slot_int
+
+    now_year = datetime.now(tz=timezone.utc).year
+
+    enriched: list[dict] = []
+    for idx, raw in enumerate(raw_ranked):
+        name = raw.get("name", "")
+        confidence = raw.get("confidence", 0.0)
+
+        # Collect findings for this candidate.
+        candidate_findings = [
+            f for f in all_findings if f.get("candidate_name", "") == name
+        ]
+
+        # --- signal_scores (heuristic MVP) ---
+        # primary: "match" if any finding has live source_class + confidence >= 0.6,
+        #          "mismatch" if any red_team phase finding actively contradicts,
+        #          else "unknown".
+        has_primary_match = any(
+            f.get("source_class", "") in _PRIMARY_LIVE_CLASSES
+            and float(f.get("confidence", 0.0)) >= 0.6
+            for f in candidate_findings
+        )
+        has_disconfirm_contradiction = any(
+            f.get("phase_id", "") in _DISCONFIRM_PHASES
+            and float(f.get("confidence", 0.0)) >= 0.6
+            for f in candidate_findings
+        )
+        if has_primary_match and not has_disconfirm_contradiction:
+            primary_score = "match"
+        elif has_disconfirm_contradiction:
+            primary_score = "mismatch"
+        else:
+            primary_score = "unknown"
+
+        # supporting: same logic but looking at supporting-signal tagged findings.
+        supporting_findings = [
+            f for f in candidate_findings if f.get("signals_matched")
+        ]
+        has_supporting_match = any(
+            f.get("source_class", "") in _PRIMARY_LIVE_CLASSES
+            and float(f.get("confidence", 0.0)) >= 0.6
+            for f in supporting_findings
+        )
+        supporting_score: str = "match" if has_supporting_match else "unknown"
+
+        # medium: "match" only if strategy is media_identification AND broaden
+        # phase confirmed a medium finding with live source.
+        medium_score = "unknown"
+        if "media_identification" in strategy_id:
+            broaden_live = any(
+                f.get("phase_id", "") in ("broaden",)
+                and f.get("source_class", "") in _PRIMARY_LIVE_CLASSES
+                for f in candidate_findings
+            )
+            if broaden_live:
+                medium_score = "match"
+
+        # recency: "match" if any finding has a date within _RECENCY_YEARS.
+        recency_score = "unknown"
+        for f in candidate_findings:
+            date_val = f.get("date")
+            if date_val:
+                try:
+                    year = int(str(date_val)[:4])
+                    if now_year - year <= _RECENCY_YEARS:
+                        recency_score = "match"
+                        break
+                except (TypeError, ValueError):
+                    pass
+
+        # --- evidence[] ---
+        evidence: list[dict] = []
+        for f in candidate_findings:
+            snippet = f.get("evidence_snippet") or f.get("evidence_summary") or ""
+            source_class = f.get("source_class", "training_knowledge")
+            source_url = f.get("source_url")
+            is_disconfirm = f.get("phase_id", "") in _DISCONFIRM_PHASES
+            entry: dict[str, Any] = {
+                "source_class": source_class,
+                "snippet": snippet,
+                "is_disconfirm": is_disconfirm,
+            }
+            if source_url:
+                entry["source_url"] = source_url
+            evidence.append(entry)
+
+        # Sort: supporting evidence first, then disconfirm.
+        evidence.sort(key=lambda e: (1 if e["is_disconfirm"] else 0))
+
+        # --- slot_idx ---
+        slot_idx = name_to_slot.get(name, idx)
+
+        enriched.append({
+            "name": name,
+            "confidence": confidence,
+            "signal_scores": {
+                "primary": primary_score,
+                "supporting": supporting_score,
+                "medium": medium_score,
+                "recency": recency_score,
+            },
+            "evidence": evidence,
+            "slot_idx": slot_idx,
+        })
+
+    return enriched
+
+
+# ---------------------------------------------------------------------------
 # Strategist
 # ---------------------------------------------------------------------------
 
@@ -263,6 +436,7 @@ class Strategist:
         query: str,
         classifier_output: dict,
         tactician_fn: Callable,
+        phase_complete_cb: Callable | None = None,
     ) -> RunResult:
         """Run the phase DAG and return a RunResult.
 
@@ -273,6 +447,11 @@ class Strategist:
                                ``(phase, unit_of_work, slot_idx) -> dict``.
                                Injected for testability; M7's runtime is plugged
                                in at wiring time.  Tests use a fake implementation.
+            phase_complete_cb: Optional async callable invoked after each phase's
+                               gate has been evaluated, with signature
+                               ``(phase, phase_output, gate_passed) -> None``.
+                               Fires AFTER the gate check and wallet.consume but
+                               BEFORE the next phase begins (or early return).
         """
         phases_in_order = _topo_sort(self._strategy.phases)
         completed_phases: list[PhaseOutput] = []
@@ -311,6 +490,17 @@ class Strategist:
             completed_phases.append(phase_output)
             phase_outputs_by_id[phase.id] = phase_output
 
+            # Notify the engine layer that this phase has completed its gate check.
+            # Fires AFTER gate eval, BEFORE next phase or early return.
+            if phase_complete_cb is not None:
+                try:
+                    if inspect.iscoroutinefunction(phase_complete_cb):
+                        await phase_complete_cb(phase, phase_output, gate_passed)
+                    else:
+                        phase_complete_cb(phase, phase_output, gate_passed)
+                except Exception as exc:  # pragma: no cover
+                    log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+
             if not gate_passed:
                 on_fail = phase.gate.on_fail
 
@@ -345,9 +535,14 @@ class Strategist:
                     terminate_reason="replan_required_but_not_implemented",
                 )
 
-        # All phases completed — ranked_candidates come from last phase
+        # All phases completed — ranked_candidates come from last phase, enriched.
         last = completed_phases[-1] if completed_phases else None
-        ranked = last.ranked_candidates if last else []
+        raw_ranked = last.ranked_candidates if last else []
+        ranked = _enrich_ranked_candidates(
+            raw_ranked=raw_ranked,
+            all_phase_outputs=completed_phases,
+            strategy_id=self._strategy.id,
+        )
 
         return RunResult(
             run_id=self._run_id,
@@ -438,14 +633,24 @@ class Strategist:
         }
         ranked_candidates: list[dict] = []
 
-        for output in raw_outputs:
+        for slot_pos, output in enumerate(raw_outputs):
             if not isinstance(output, dict):
                 continue
+
+            # slot_idx from the tactician output; fall back to enumeration index.
+            slot_idx: int = output.get("slot_idx", slot_pos)
 
             # Aggregate findings (whitelist enforced per finding)
             for finding in output.get("findings", []):
                 if isinstance(finding, dict):
-                    clean = _strip_finding(finding)
+                    # Inject hypothesis_slot and phase_id before stripping so they
+                    # survive the whitelist (both are whitelisted).
+                    annotated = dict(finding)
+                    if "hypothesis_slot" not in annotated:
+                        annotated["hypothesis_slot"] = slot_idx
+                    if "phase_id" not in annotated:
+                        annotated["phase_id"] = phase_id
+                    clean = _strip_finding(annotated)
                     aggregated.append(clean)
                     candidate = finding.get("candidate_name")
                     if candidate and candidate not in distinct_names:

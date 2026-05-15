@@ -1,3 +1,21 @@
+export type PhaseStatus = 'pending' | 'running' | 'passed' | 'failed' | 'ask_user' | 'skipped'
+export type GateStatus = 'pass' | 'fail' | 'ask_user'
+
+export interface PhaseState {
+  status: PhaseStatus
+  n_tacticians: number
+  distinct_candidate_names: string[]
+  gate_status: GateStatus | null
+}
+
+export interface TacticianState {
+  tactic_id: string
+  forbidden_candidates: string[]
+  candidate_names: string[]
+  findings_count: number
+  specialist_calls: number
+}
+
 export type SourceClass =
   | 'live_search'
   | 'prior_research'

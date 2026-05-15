@@ -12,9 +12,14 @@ const COLLAPSE_THRESHOLD = 30
 
 interface StreamingCardListProps {
   runId: string
+  /**
+   * When set, only cards whose `phaseId` and `slotIdx` match are shown.
+   * Cards that lack this metadata (legacy IS runs) are always shown.
+   */
+  filterByTactician?: { phaseId: string; slotIdx: number }
 }
 
-export function StreamingCardList({ runId }: StreamingCardListProps) {
+export function StreamingCardList({ runId, filterByTactician }: StreamingCardListProps) {
   const run = useRunStreamStore((s) => s.runsById[runId])
   const dismissSuggestion = useRunStreamStore((s) => s.dismissSuggestion)
   const appendMsg = useChatStore((s) => s.appendBrainSuggestionAsMessage)
@@ -33,10 +38,20 @@ export function StreamingCardList({ runId }: StreamingCardListProps) {
   const { cardOrder, cards, suggestions, dismissedSuggestionIds, rankedCandidates = [] } = run
   const visibleSuggestions = suggestions.filter((s) => !dismissedSuggestionIds.has(s.id))
 
-  const olderCount = Math.max(0, cardOrder.length - COLLAPSE_THRESHOLD)
+  // When a tactician filter is active, restrict to cards whose phaseId+slotIdx
+  // match.  Cards without this metadata (legacy IS runs) always pass through.
+  const filteredOrder = filterByTactician
+    ? cardOrder.filter(nodeId => {
+        const card = cards[nodeId] as NodeCard & { phaseId?: string; slotIdx?: number }
+        if (card?.phaseId == null) return true  // no metadata → include (legacy card)
+        return card.phaseId === filterByTactician.phaseId && card.slotIdx === filterByTactician.slotIdx
+      })
+    : cardOrder
+
+  const olderCount = Math.max(0, filteredOrder.length - COLLAPSE_THRESHOLD)
   const visibleOrder = showOlder
-    ? cardOrder
-    : cardOrder.slice(Math.max(0, cardOrder.length - COLLAPSE_THRESHOLD))
+    ? filteredOrder
+    : filteredOrder.slice(Math.max(0, filteredOrder.length - COLLAPSE_THRESHOLD))
 
   async function handleAction(suggestion: BrainSuggestion) {
     if (!suggestion.action) return
@@ -79,6 +94,13 @@ export function StreamingCardList({ runId }: StreamingCardListProps) {
           onAction={handleAction}
         />
       ))}
+
+      {filterByTactician && (
+        <div className="text-[10px] text-violet-400 bg-violet-950/30 border border-violet-800/40 rounded px-2 py-1 text-center">
+          Showing cards for Slot {filterByTactician.slotIdx} · {filterByTactician.phaseId.replace(/_/g, ' ')}
+          {' '}(click column again to clear)
+        </div>
+      )}
 
       {!showOlder && olderCount > 0 && (
         <button

@@ -67,6 +67,17 @@ export type WsEvent = {
   ranked_candidates?: unknown[]
   ru_consumed?: number
   ru_released?: number
+  // is.phase_start / is.phase_complete
+  phase_id?: string
+  n_tacticians?: number
+  gate_status?: string
+  distinct_candidate_names?: string[]
+  // is.tactician_start / is.tactician_complete
+  slot_idx?: number
+  tactic_id?: string
+  forbidden_candidates?: string[]
+  candidate_names?: string[]
+  findings_count?: number
 }
 
 type Handler = (event: WsEvent) => void
@@ -232,6 +243,47 @@ function connect(token: string) {
               if (Array.isArray(event.ranked_candidates)) {
                 stream.setRankedCandidates(rid, event.ranked_candidates as RankedCandidate[])
               }
+              break
+            }
+
+            case 'is.phase_start': {
+              const rid = event.run_id ?? event.job_id ?? ''
+              if (!rid || !event.phase_id) break
+              stream.setPhaseStatus(rid, event.phase_id, 'running')
+              if (event.n_tacticians != null) {
+                stream.setPhaseTacticianCount(rid, event.phase_id, event.n_tacticians)
+              }
+              break
+            }
+
+            case 'is.phase_complete': {
+              const rid = event.run_id ?? event.job_id ?? ''
+              if (!rid || !event.phase_id) break
+              // gate_status from backend; derive phase status from it
+              const rawGate = event.gate_status ?? 'pass'
+              const gateStatus = rawGate === 'ask_user' ? 'ask_user' : rawGate === 'fail' ? 'fail' : 'pass'
+              stream.setPhaseComplete(rid, event.phase_id, gateStatus as 'pass' | 'fail' | 'ask_user', event.distinct_candidate_names ?? [])
+              break
+            }
+
+            case 'is.tactician_start': {
+              const rid = event.run_id ?? event.job_id ?? ''
+              if (!rid || !event.phase_id || event.slot_idx == null) break
+              stream.addTactician(rid, event.phase_id, {
+                slot_idx: event.slot_idx,
+                tactic_id: event.tactic_id ?? '',
+                forbidden_candidates: event.forbidden_candidates ?? [],
+              })
+              break
+            }
+
+            case 'is.tactician_complete': {
+              const rid = event.run_id ?? event.job_id ?? ''
+              if (!rid || !event.phase_id || event.slot_idx == null) break
+              stream.setTacticianResult(rid, event.phase_id, event.slot_idx, {
+                candidate_names: event.candidate_names ?? [],
+                findings_count: event.findings_count ?? 0,
+              })
               break
             }
 

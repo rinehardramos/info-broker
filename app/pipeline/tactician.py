@@ -71,6 +71,44 @@ class TacticianOutput:
 
 
 # ---------------------------------------------------------------------------
+# Technique-id → source_class mapping (UI-P3 propagation)
+# ---------------------------------------------------------------------------
+
+# Maps technique catalog ids to the SourceClass values the frontend expects.
+# Unmapped technique ids default to "training_knowledge" (safest non-live class).
+# TODO(post-MVP): promote this into the Technique catalog schema as a source_class field.
+_TECHNIQUE_SOURCE_CLASS: dict[str, str] = {
+    "web_search": "live_search",
+    "web_search_live": "live_search",
+    "news_search": "live_search",
+    "news_search_live": "live_search",
+    "image_search": "live_search",
+    "image_search_live": "live_search",
+    "social_media_search": "live_search",
+    "official_profile_lookup": "primary_official",
+    "agency_roster_lookup": "primary_official",
+    "imdb_lookup": "primary_official",
+    "social_profile_direct": "primary_self",
+    "prior_research_seed": "prior_research",
+    "rag_lookup": "prior_research",
+    "training_knowledge_recall": "training_knowledge",
+}
+
+
+def _technique_to_source_class(technique_id: str) -> str:
+    """Resolve a technique catalog id to its SourceClass string.
+
+    Falls back to "live_search" for any unknown technique whose id ends with
+    '_search' or '_live', else "training_knowledge".
+    """
+    if technique_id in _TECHNIQUE_SOURCE_CLASS:
+        return _TECHNIQUE_SOURCE_CLASS[technique_id]
+    if technique_id.endswith(("_search", "_live", "_lookup")):
+        return "live_search"
+    return "training_knowledge"
+
+
+# ---------------------------------------------------------------------------
 # Tactic selection (deterministic, MVP — no LLM call)
 # ---------------------------------------------------------------------------
 
@@ -313,14 +351,23 @@ async def execute_tactician(
         from app.pipeline.specialist import Finding
 
         if isinstance(result, Finding):
-            # Annotate with source_class from technique catalog
+            # Annotate with source_class resolved from technique_id → SourceClass map.
+            # Both "candidate" and "candidate_name" are set so the strategist's
+            # _aggregate() (which looks for "candidate_name") and downstream
+            # enrichment (which also uses "candidate_name") both work.
             raw = result.raw_output
+            entity_name = (
+                raw.get("candidate") or raw.get("entity") or raw.get("subject") or ""
+            )
+            resolved_source_class = _technique_to_source_class(technique_id)
             finding_entry: dict[str, Any] = {
-                "candidate": raw.get("candidate") or raw.get("entity") or raw.get("subject") or "",
-                "source_class": technique_id,
+                "candidate": entity_name,
+                "candidate_name": entity_name,
+                "source_class": resolved_source_class,
                 "source_url": raw.get("url") or raw.get("source_url"),
                 "evidence_snippet": raw.get("snippet") or raw.get("evidence_snippet") or "",
                 "confidence": raw.get("confidence", 0.0),
+                "date": raw.get("date"),
             }
             findings.append(finding_entry)
             name = _extract_candidate_name(finding_entry)
