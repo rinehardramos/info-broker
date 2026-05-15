@@ -50,6 +50,30 @@ _TIER_MODEL: dict[str, str] = {
 # Prompt builder for scoped subprocess
 # ---------------------------------------------------------------------------
 
+def _deep_parse_json(value: Any) -> Any:
+    """Recursively decode JSON-encoded strings inside a value.
+
+    MCP tools often wrap structured payloads as `{"result": "<json string>"}`
+    where the inner string still contains JSON. A single json.loads only
+    peels one layer; this function walks the tree and decodes any string
+    that itself looks like JSON so the final payload is a fully-parsed
+    object tree (no nested escape-soup when re-serialized for display).
+    """
+    if isinstance(value, str):
+        s = value.strip()
+        if s.startswith(("{", "[")) and s.endswith(("}", "]")):
+            try:
+                return _deep_parse_json(json.loads(s))
+            except Exception:
+                return value
+        return value
+    if isinstance(value, list):
+        return [_deep_parse_json(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _deep_parse_json(v) for k, v in value.items()}
+    return value
+
+
 def _build_scoped_prompt(
     tactic: Tactic,
     unit_of_work: dict[str, Any],
@@ -436,6 +460,11 @@ async def scoped_brain_runner(
                                     preview = json.dumps(tool_result_data, default=str)[:2000]
                                 else:
                                     preview = str(tool_result_data)[:2000] if tool_result_data else ""
+
+                                # Recursively decode JSON-encoded string fields
+                                # so the modal's Raw Output tab renders pretty
+                                # JSON, not escape-soup like {"result":"{\\\"..."}.
+                                full_output = _deep_parse_json(full_output)
 
                                 # Cap the full output at ~50 KB to keep the
                                 # WS frame reasonable. If it exceeds that,
