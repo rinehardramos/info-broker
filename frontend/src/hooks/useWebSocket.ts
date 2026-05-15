@@ -3,7 +3,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { useRunStreamStore, type NodeCardStatus, type BrainSuggestion } from '../stores/runStreamStore'
-import type { RankedCandidate } from '../types/research'
+import type { RankedCandidate, ACHMatrix } from '../types/research'
 
 export type WsEvent = {
   type: string
@@ -67,6 +67,7 @@ export type WsEvent = {
   ranked_candidates?: unknown[]
   ru_consumed?: number
   ru_released?: number
+  ach_matrix?: unknown
   // is.phase_start / is.phase_complete
   phase_id?: string
   n_tacticians?: number
@@ -242,6 +243,10 @@ function connect(token: string) {
               // (signal_scores defaults to {} when absent in MVP).
               if (Array.isArray(event.ranked_candidates)) {
                 stream.setRankedCandidates(rid, event.ranked_candidates as RankedCandidate[])
+              }
+              // Populate ACH matrix when present (P5); absent on legacy runs → stays null.
+              if (event.ach_matrix != null) {
+                stream.setAchMatrix(rid, event.ach_matrix as ACHMatrix)
               }
               break
             }

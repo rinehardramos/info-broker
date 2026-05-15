@@ -35,6 +35,7 @@ from app.pipeline.strategist import Strategist, RunResult
 from app.pipeline.tactician import execute_tactician
 from app.pipeline.specialist import execute_task
 from app.pipeline import budget as wallet
+from app.pipeline.ach import ach_matrix_to_dict
 
 log = logging.getLogger(__name__)
 
@@ -420,7 +421,15 @@ async def run_engine_v2(
                 "slot_idx": c.get("slot_idx", 0),
             })
 
-    await _emit(event_emit, {
+    # Serialize ach_matrix if present on the RunResult
+    serialized_ach_matrix = None
+    if result.ach_matrix is not None:
+        try:
+            serialized_ach_matrix = ach_matrix_to_dict(result.ach_matrix)
+        except Exception as exc:
+            log.warning("engine_v2: ach_matrix serialization failed (non-fatal): %s", exc)
+
+    run_complete_payload: dict = {
         "type": "is.run_complete",
         "run_id": run_id,
         "job_id": run_id,
@@ -428,7 +437,11 @@ async def run_engine_v2(
         "ranked_candidates": serialized_candidates,
         "ru_consumed": sum_consumed_ru,
         "ru_released": remaining_ru,
-    })
+    }
+    if serialized_ach_matrix is not None:
+        run_complete_payload["ach_matrix"] = serialized_ach_matrix
+
+    await _emit(event_emit, run_complete_payload)
 
     log.info(
         "engine_v2: run_id=%s finished status=%s consumed=%d released=%d",

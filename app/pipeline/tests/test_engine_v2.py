@@ -578,7 +578,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
             ],
         )
         from app.pipeline.strategist import _enrich_ranked_candidates
-        enriched = _enrich_ranked_candidates(
+        enriched, ach_mat = _enrich_ranked_candidates(
             phase_out.ranked_candidates,
             [phase_out],
             strategy_id="media_identification",
@@ -587,6 +587,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
             run_id="test-run-id",
             status="completed",
             phases=[phase_out],
+            ach_matrix=ach_mat,
             ranked_candidates=enriched,
         )
 
@@ -692,3 +693,135 @@ def test_engine_v2_classifier_output_has_rag_hits_key():
     )
     assert result_with_rag["rag_hits"] == ["Zhao Lusi", "Wonyoung"]
     assert "classifier_top_candidates" in result_with_rag
+
+
+def test_engine_v2_run_complete_includes_ach_matrix():
+    """is.run_complete payload includes ach_matrix when the run completes with ranked candidates.
+
+    Extends test_89_regression_run_complete_has_enriched_ranked_candidates to assert
+    the P5 ach_matrix payload shape on the run_complete event.
+    """
+    from app.pipeline.strategist import Strategist, RunResult, PhaseOutput
+    from app.pipeline.catalogs.budget import BudgetEnvelope
+    from app.pipeline.ach import ACHMatrix as ACHMatrixType
+
+    phase = _make_phase(
+        "broaden",
+        hypothesis_count_policy="fixed:2",
+        checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
+    )
+    strategy = _make_strategy([phase])
+    envelope = _make_envelope()
+
+    canned_findings = [
+        {
+            "candidate_name": "Candidate A",
+            "source_class": "live_search",
+            "source_url": "https://example.com/candidate-a",
+            "evidence_snippet": "Live evidence for Candidate A",
+            "confidence": 0.82,
+            "phase_id": "broaden",
+            "hypothesis_slot": 0,
+        },
+        {
+            "candidate_name": "Candidate B",
+            "source_class": "primary_official",
+            "source_url": "https://example.com/candidate-b",
+            "evidence_snippet": "Evidence for Candidate B",
+            "confidence": 0.71,
+            "phase_id": "broaden",
+            "hypothesis_slot": 1,
+        },
+    ]
+
+    async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None):
+        phase_out = PhaseOutput(
+            phase_id="broaden",
+            aggregated_findings=canned_findings,
+            distinct_candidate_names=["Candidate A", "Candidate B"],
+            metadata={"primary_signals_count": 2, "actual_ru": 4, "num_tacticians": 2,
+                      "hypotheses_explored": 2, "disconfirm_count": 0,
+                      "surviving_hypothesis_count": 2},
+            ranked_candidates=[
+                {"name": "Candidate A", "confidence": 0.82},
+                {"name": "Candidate B", "confidence": 0.71},
+            ],
+        )
+        from app.pipeline.strategist import _enrich_ranked_candidates
+        enriched, ach_mat = _enrich_ranked_candidates(
+            phase_out.ranked_candidates,
+            [phase_out],
+            strategy_id="media_identification",
+        )
+        return RunResult(
+            run_id="test-run-id",
+            status="completed",
+            phases=[phase_out],
+            ranked_candidates=enriched,
+            ach_matrix=ach_mat,
+        )
+
+    emitted: list[dict] = []
+
+    async def _event_emit(payload: dict) -> None:
+        emitted.append(payload)
+
+    with (
+        patch("app.pipeline.engine_v2._load_all_catalogs", return_value=(
+            {"media_identification": strategy},
+            {"hypothesis_first_search": _make_tactic([phase.id])},
+            {"web_search": _make_technique()},
+        )),
+        patch("app.pipeline.engine_v2._classify_query_stub",
+              return_value={"task_type": "celebrity_identification"}),
+        patch.object(Strategist, "execute", side_effect=_fake_strategist_execute),
+        patch("app.pipeline.engine_v2.wallet.consume"),
+        patch("app.pipeline.engine_v2.wallet.release"),
+        patch("app.pipeline.engine_v2.wallet.refund"),
+        patch("app.pipeline.engine_v2._write_research_trail"),
+        patch("app.pipeline.strategist.wallet.consume"),
+    ):
+        from app.pipeline.engine_v2 import run_engine_v2
+
+        result = asyncio.run(run_engine_v2(
+            user_id="test-user",
+            run_id="test-run-ach",
+            hold_id="test-hold-id",
+            hold_amount_ru=50,
+            query="test query for ACH",
+            envelope=envelope,
+            strategy_id="media_identification",
+            event_emit=_event_emit,
+        ))
+
+    run_complete = next(e for e in emitted if e["type"] == "is.run_complete")
+    assert run_complete["status"] == "completed"
+
+    # ach_matrix must be present in the payload
+    assert "ach_matrix" in run_complete, (
+        "is.run_complete must include ach_matrix when run completes with candidates"
+    )
+
+    ach = run_complete["ach_matrix"]
+    assert isinstance(ach, dict), "ach_matrix must be a dict (JSON-serializable)"
+    assert "signals" in ach and isinstance(ach["signals"], list)
+    assert "hypotheses" in ach and isinstance(ach["hypotheses"], list)
+    assert "cells" in ach and isinstance(ach["cells"], list)
+    assert "scores" in ach and isinstance(ach["scores"], dict)
+
+    # Both candidates should appear in hypotheses and scores
+    assert "Candidate A" in ach["hypotheses"]
+    assert "Candidate B" in ach["hypotheses"]
+    assert "Candidate A" in ach["scores"]
+    assert "Candidate B" in ach["scores"]
+
+    # Scores are floats in [0, 1]
+    for name, score in ach["scores"].items():
+        assert 0.0 <= score <= 1.0, f"ACH score for {name} out of range: {score}"
+
+    # Cells have required shape
+    for cell in ach["cells"]:
+        assert "signal_id" in cell
+        assert "hypothesis_name" in cell
+        assert "mark" in cell
+        assert cell["mark"] in {"consistent", "inconsistent", "neutral", "unknown"}

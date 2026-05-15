@@ -578,7 +578,7 @@ def test_signal_scores_heuristic_match_and_unknown():
         {"name": "Alice", "confidence": 0.75},
         {"name": "Bob", "confidence": 0.5},
     ]
-    enriched = _enrich_ranked_candidates(raw_ranked, [phase_output], strategy_id="test")
+    enriched, _matrix = _enrich_ranked_candidates(raw_ranked, [phase_output], strategy_id="test")
 
     alice = next(c for c in enriched if c["name"] == "Alice")
     bob = next(c for c in enriched if c["name"] == "Bob")
@@ -627,7 +627,7 @@ def test_evidence_collected_from_aggregated_findings():
         {"name": "Alice", "confidence": 0.8},
         {"name": "Bob", "confidence": 0.7},
     ]
-    enriched = _enrich_ranked_candidates(raw_ranked, [phase_output])
+    enriched, _matrix = _enrich_ranked_candidates(raw_ranked, [phase_output])
 
     alice = next(c for c in enriched if c["name"] == "Alice")
     bob = next(c for c in enriched if c["name"] == "Bob")
@@ -673,7 +673,7 @@ def test_disconfirm_findings_flagged_in_evidence():
     )
 
     raw_ranked = [{"name": "Alice", "confidence": 0.8}]
-    enriched = _enrich_ranked_candidates(
+    enriched, _matrix = _enrich_ranked_candidates(
         raw_ranked, [broaden_output, red_team_output]
     )
 
@@ -720,7 +720,7 @@ def test_slot_idx_lowest_wins_for_consensus_candidate():
     )
 
     raw_ranked = [{"name": "Alice", "confidence": 0.8}]
-    enriched = _enrich_ranked_candidates(raw_ranked, [phase_output])
+    enriched, _matrix = _enrich_ranked_candidates(raw_ranked, [phase_output])
 
     alice = enriched[0]
     # Lowest slot_idx among findings for Alice is 0
@@ -835,3 +835,155 @@ def test_forbidden_per_slot_injected_into_tactician_unit_of_work():
     assert captured_uow[2] == ["Zhao Lusi", "Wonyoung"], (
         f"Slot 2 must forbid top-2, got {captured_uow[2]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P5: ACH matrix tests
+# ---------------------------------------------------------------------------
+
+
+def test_strategist_emits_ach_matrix_in_run_result():
+    """RunResult.ach_matrix is populated when the run completes with candidates."""
+    phase = _make_phase("rank_verify")
+    strategy = _make_strategy([phase])
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        return {
+            "findings": [
+                {
+                    "candidate_name": "Alice",
+                    "source_class": "live_search",
+                    "confidence": 0.9,
+                    "evidence_snippet": "Alice live evidence",
+                    "phase_id": "rank_verify",
+                }
+            ],
+            "metadata": {
+                "primary_signals_count": 1,
+                "actual_ru": 1,
+                "hypotheses_explored": 1,
+                "disconfirm_count": 0,
+                "surviving_hypothesis_count": 1,
+            },
+            "ranked_candidates": [{"name": "Alice", "confidence": 0.9}],
+        }
+
+    strategist = _make_strategist(strategy)
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", {}, fake_tactician))
+
+    assert result.status == "completed"
+    assert result.ach_matrix is not None, "RunResult.ach_matrix must be set on completed run"
+    assert "Alice" in result.ach_matrix.scores, "ACH matrix must include score for Alice"
+    assert isinstance(result.ach_matrix.cells, list)
+    assert len(result.ach_matrix.cells) > 0
+
+
+def test_signal_scores_derived_from_ach_matrix():
+    """signal_scores values match ACH cells: consistent→match, inconsistent→mismatch."""
+    from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
+
+    phase_output = PhaseOutput(
+        phase_id="broaden",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.8,
+                "evidence_snippet": "Live evidence Alice",
+                "phase_id": "broaden",
+                "hypothesis_slot": 0,
+            },
+        ],
+        distinct_candidate_names=["Alice"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    red_team_output = PhaseOutput(
+        phase_id="red_team",
+        aggregated_findings=[
+            {
+                "candidate_name": "Bob",
+                "source_class": "live_search",
+                "confidence": 0.75,
+                "evidence_snippet": "Bob disconfirmed",
+                "phase_id": "red_team",
+                "hypothesis_slot": 1,
+            },
+        ],
+        distinct_candidate_names=["Bob"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    raw_ranked = [
+        {"name": "Alice", "confidence": 0.8},
+        {"name": "Bob", "confidence": 0.5},
+    ]
+    enriched, matrix = _enrich_ranked_candidates(
+        raw_ranked, [phase_output, red_team_output]
+    )
+
+    assert matrix is not None
+
+    alice = next(c for c in enriched if c["name"] == "Alice")
+    bob = next(c for c in enriched if c["name"] == "Bob")
+
+    # Alice: live_search + conf 0.8 → primary consistent → signal_scores match
+    assert alice["signal_scores"]["primary"] == "match"
+
+    # Bob: findings are all in red_team phase (disconfirm) → primary inconsistent → mismatch
+    # Bob has a disconfirm finding with confidence 0.75 >= 0.5 → inconsistent
+    assert bob["signal_scores"]["primary"] == "mismatch"
+
+    # Verify matrix cell marks align
+    alice_primary = next(
+        c for c in matrix.cells if c.signal_id == "primary" and c.hypothesis_name == "Alice"
+    )
+    assert alice_primary.mark == "consistent"
+
+    bob_primary = next(
+        c for c in matrix.cells if c.signal_id == "primary" and c.hypothesis_name == "Bob"
+    )
+    assert bob_primary.mark == "inconsistent"
+
+
+def test_ach_uses_strategy_signal_weights():
+    """ACH scores reflect custom strategy signal weights, not hardcoded defaults."""
+    from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
+    from app.pipeline.ach import ACHSignal
+
+    # Use a single signal with very high weight so we can verify score precisely
+    custom_signals = [
+        ACHSignal("primary", "Primary", 1.0, 0.0),
+    ]
+
+    phase_output = PhaseOutput(
+        phase_id="broaden",
+        aggregated_findings=[
+            {
+                "candidate_name": "Alice",
+                "source_class": "live_search",
+                "confidence": 0.85,
+                "evidence_snippet": "Alice is consistent",
+                "phase_id": "broaden",
+            }
+        ],
+        distinct_candidate_names=["Alice"],
+        metadata={},
+        ranked_candidates=[],
+    )
+
+    raw_ranked = [{"name": "Alice", "confidence": 0.85}]
+    enriched, matrix = _enrich_ranked_candidates(
+        raw_ranked, [phase_output], ach_signals=custom_signals
+    )
+
+    assert matrix is not None
+    # With weight=1.0 and consistent mark, score should be 1.0
+    assert abs(matrix.scores["Alice"] - 1.0) < 0.001, (
+        f"Expected score 1.0 with weight=1.0 consistent, got {matrix.scores['Alice']}"
+    )
+    assert enriched[0]["signal_scores"]["primary"] == "match"

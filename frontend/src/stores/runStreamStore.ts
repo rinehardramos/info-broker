@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { RankedCandidate, PhaseState, TacticianState } from '@/types/research'
+import type { RankedCandidate, PhaseState, TacticianState, ACHMatrix } from '@/types/research'
 
 export type NodeCardStatus = 'pending' | 'running' | 'streaming' | 'succeeded' | 'failed' | 'canceled'
 
@@ -54,6 +54,8 @@ export interface RunStream {
   hydratedFromServer: boolean
   /** Populated from is.run_complete event; empty array until run finishes. */
   rankedCandidates: RankedCandidate[]
+  /** ACH matrix from is.run_complete event; null until run finishes or when absent (legacy). */
+  achMatrix: ACHMatrix | null
   /** v2 engine phase tracking — populated by is.phase_start / is.phase_complete events. */
   phases: Record<string, PhaseState>
   /** v2 engine tactician tracking — populated by is.tactician_start / is.tactician_complete events. */
@@ -73,6 +75,7 @@ interface RunStreamState {
   hydrateFromServer: (runId: string, serverRun: Partial<RunStream>) => void
   clearRun: (runId: string) => void
   setRankedCandidates: (runId: string, candidates: RankedCandidate[]) => void
+  setAchMatrix: (runId: string, matrix: ACHMatrix | null) => void
   // v2 phase actions
   setPhaseStatus: (runId: string, phaseId: string, status: PhaseState['status']) => void
   setPhaseTacticianCount: (runId: string, phaseId: string, n: number) => void
@@ -103,6 +106,7 @@ function ensureRun(
       dismissedSuggestionIds: new Set(),
       hydratedFromServer: false,
       rankedCandidates: [],
+      achMatrix: null,
       phases: {},
       tacticians: {},
       activePhase: null,
@@ -244,6 +248,15 @@ export const useRunStreamStore = create<RunStreamState>()((set, get) => ({
       const runsById = { ...state.runsById }
       const run = ensureRun(runsById, runId, 'is')
       run.rankedCandidates = candidates
+      return { runsById }
+    })
+  },
+
+  setAchMatrix(runId, matrix) {
+    set((state) => {
+      const runsById = { ...state.runsById }
+      const run = ensureRun(runsById, runId, 'is')
+      run.achMatrix = matrix
       return { runsById }
     })
   },

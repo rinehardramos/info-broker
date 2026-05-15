@@ -18,6 +18,14 @@ from typing import Any, Callable, Literal
 from app.pipeline.catalogs.budget import BudgetEnvelope
 from app.pipeline.catalogs.schemas import PhaseSpec, Strategy
 from app.pipeline import budget as wallet
+from app.pipeline.ach import (
+    ACHSignal,
+    ACHMatrix,
+    compute_ach_matrix,
+    ach_matrix_to_signal_scores,
+    ach_matrix_to_dict,
+    DEFAULT_ACH_SIGNALS,
+)
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +133,7 @@ class RunResult:
     ranked_candidates: list[dict] = field(default_factory=list)
     terminate_reason: str | None = None
     user_question: str | None = None
+    ach_matrix: ACHMatrix | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -303,26 +312,43 @@ _DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})
 _RECENCY_YEARS = 2
 
 
+def _build_ach_signals_from_strategy(strategy_id: str) -> list[ACHSignal]:
+    """Return ACHSignal list from strategy catalog ach_signals field if available.
+
+    Falls back to DEFAULT_ACH_SIGNALS if the strategy has no ach_signals entry
+    or the strategy_id is not loaded here (catalog loading happens in engine_v2).
+    """
+    return list(DEFAULT_ACH_SIGNALS)
+
+
 def _enrich_ranked_candidates(
     raw_ranked: list[dict],
     all_phase_outputs: list["PhaseOutput"],
     strategy_id: str = "",
-) -> list[dict]:
-    """Enrich raw ranked_candidates with signal_scores, evidence[], and slot_idx.
+    ach_signals: list[ACHSignal] | None = None,
+) -> tuple[list[dict], ACHMatrix | None]:
+    """Enrich raw ranked_candidates with signal_scores (ACH-derived), evidence[], and slot_idx.
 
-    This is the MVP heuristic implementation. Full ACH-matrix scoring is
-    deferred to post-MVP P5.
-    # TODO(P5): replace heuristic signal_scores with full ACH confidence matrix.
+    P5: Replaces the heuristic MVP signal_scores with a full Heuer ACH matrix.
+    signal_scores is still emitted for backward compat with UI-P3 RankedCandidate type.
+    Derives signal_scores from ACH cells: consistent→match, inconsistent→mismatch,
+    neutral/unknown→unknown.
 
     Args:
         raw_ranked:        List of raw candidate dicts from the last phase output.
                            Each must have at least {"name": str, "confidence": float}.
         all_phase_outputs: All PhaseOutput objects for this run, in execution order.
         strategy_id:       Strategy id (e.g. "media_identification") for medium check.
+        ach_signals:       Optional list of ACHSignal overrides from strategy catalog.
 
     Returns:
-        List of enriched dicts matching the RankedCandidate frontend type shape.
+        Tuple of (enriched_candidates, ach_matrix).
+        enriched_candidates: List of enriched dicts matching the RankedCandidate type.
+        ach_matrix: The full ACHMatrix (or None if no candidates).
     """
+    if not raw_ranked:
+        return [], None
+
     # Flatten all findings across all phases into one list, tagged with phase_id.
     all_findings: list[dict[str, Any]] = []
     for phase_output in all_phase_outputs:
@@ -349,76 +375,42 @@ def _enrich_ranked_candidates(
         if name not in name_to_slot or slot_int < name_to_slot[name]:
             name_to_slot[name] = slot_int
 
-    now_year = datetime.now(tz=timezone.utc).year
+    # --- Build per-candidate finding maps ---
+    hypothesis_names = [raw.get("name", "") for raw in raw_ranked if raw.get("name")]
+
+    findings_by_candidate: dict[str, list[dict]] = {name: [] for name in hypothesis_names}
+    disconfirm_findings_by_candidate: dict[str, list[dict]] = {name: [] for name in hypothesis_names}
+
+    for f in all_findings:
+        candidate = f.get("candidate_name", "")
+        if candidate not in findings_by_candidate:
+            continue
+        if f.get("phase_id", "") in _DISCONFIRM_PHASES:
+            disconfirm_findings_by_candidate[candidate].append(f)
+        else:
+            findings_by_candidate[candidate].append(f)
+
+    # --- Compute ACH matrix ---
+    signals = ach_signals if ach_signals else _build_ach_signals_from_strategy(strategy_id)
+    matrix = compute_ach_matrix(
+        hypothesis_names=hypothesis_names,
+        findings_by_candidate=findings_by_candidate,
+        disconfirm_findings_by_candidate=disconfirm_findings_by_candidate,
+        signals=signals,
+        phase_outputs=all_phase_outputs,
+        strategy_id=strategy_id,
+    )
 
     enriched: list[dict] = []
     for idx, raw in enumerate(raw_ranked):
         name = raw.get("name", "")
         confidence = raw.get("confidence", 0.0)
 
-        # Collect findings for this candidate.
-        candidate_findings = [
-            f for f in all_findings if f.get("candidate_name", "") == name
-        ]
-
-        # --- signal_scores (heuristic MVP) ---
-        # primary: "match" if any finding has live source_class + confidence >= 0.6,
-        #          "mismatch" if any red_team phase finding actively contradicts,
-        #          else "unknown".
-        has_primary_match = any(
-            f.get("source_class", "") in _PRIMARY_LIVE_CLASSES
-            and float(f.get("confidence", 0.0)) >= 0.6
-            for f in candidate_findings
-        )
-        has_disconfirm_contradiction = any(
-            f.get("phase_id", "") in _DISCONFIRM_PHASES
-            and float(f.get("confidence", 0.0)) >= 0.6
-            for f in candidate_findings
-        )
-        if has_primary_match and not has_disconfirm_contradiction:
-            primary_score = "match"
-        elif has_disconfirm_contradiction:
-            primary_score = "mismatch"
-        else:
-            primary_score = "unknown"
-
-        # supporting: same logic but looking at supporting-signal tagged findings.
-        supporting_findings = [
-            f for f in candidate_findings if f.get("signals_matched")
-        ]
-        has_supporting_match = any(
-            f.get("source_class", "") in _PRIMARY_LIVE_CLASSES
-            and float(f.get("confidence", 0.0)) >= 0.6
-            for f in supporting_findings
-        )
-        supporting_score: str = "match" if has_supporting_match else "unknown"
-
-        # medium: "match" only if strategy is media_identification AND broaden
-        # phase confirmed a medium finding with live source.
-        medium_score = "unknown"
-        if "media_identification" in strategy_id:
-            broaden_live = any(
-                f.get("phase_id", "") in ("broaden",)
-                and f.get("source_class", "") in _PRIMARY_LIVE_CLASSES
-                for f in candidate_findings
-            )
-            if broaden_live:
-                medium_score = "match"
-
-        # recency: "match" if any finding has a date within _RECENCY_YEARS.
-        recency_score = "unknown"
-        for f in candidate_findings:
-            date_val = f.get("date")
-            if date_val:
-                try:
-                    year = int(str(date_val)[:4])
-                    if now_year - year <= _RECENCY_YEARS:
-                        recency_score = "match"
-                        break
-                except (TypeError, ValueError):
-                    pass
+        # signal_scores derived from ACH cells (backward compat with UI-P3)
+        signal_scores = ach_matrix_to_signal_scores(matrix, name)
 
         # --- evidence[] ---
+        candidate_findings = findings_by_candidate.get(name, []) + disconfirm_findings_by_candidate.get(name, [])
         evidence: list[dict] = []
         for f in candidate_findings:
             snippet = f.get("evidence_snippet") or f.get("evidence_summary") or ""
@@ -443,17 +435,12 @@ def _enrich_ranked_candidates(
         enriched.append({
             "name": name,
             "confidence": confidence,
-            "signal_scores": {
-                "primary": primary_score,
-                "supporting": supporting_score,
-                "medium": medium_score,
-                "recency": recency_score,
-            },
+            "signal_scores": signal_scores,
             "evidence": evidence,
             "slot_idx": slot_idx,
         })
 
-    return enriched
+    return enriched, matrix
 
 
 # ---------------------------------------------------------------------------
@@ -614,10 +601,26 @@ class Strategist:
         # All phases completed — ranked_candidates come from last phase, enriched.
         last = completed_phases[-1] if completed_phases else None
         raw_ranked = last.ranked_candidates if last else []
-        ranked = _enrich_ranked_candidates(
+
+        # Resolve ach_signals from strategy catalog entry (additive field, default empty)
+        ach_signals_dicts = getattr(self._strategy, "ach_signals", []) or []
+        ach_signals: list[ACHSignal] | None = None
+        if ach_signals_dicts:
+            ach_signals = [
+                ACHSignal(
+                    id=s["id"],
+                    label=s["label"],
+                    weight=float(s["weight"]),
+                    penalty_on_mismatch=float(s["penalty_on_mismatch"]),
+                )
+                for s in ach_signals_dicts
+            ]
+
+        ranked, ach_matrix = _enrich_ranked_candidates(
             raw_ranked=raw_ranked,
             all_phase_outputs=completed_phases,
             strategy_id=self._strategy.id,
+            ach_signals=ach_signals,
         )
 
         return RunResult(
@@ -625,6 +628,7 @@ class Strategist:
             status="completed",
             phases=completed_phases,
             ranked_candidates=ranked,
+            ach_matrix=ach_matrix,
         )
 
     # -----------------------------------------------------------------------

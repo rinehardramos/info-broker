@@ -1,9 +1,11 @@
-import React from 'react'
-import type { RankedCandidate } from '@/types/research'
+import React, { useState } from 'react'
+import type { RankedCandidate, ACHMatrix as ACHMatrixType } from '@/types/research'
 import { CandidateRow } from './CandidateRow'
+import { ACHMatrix } from './ACHMatrix'
 
 interface CandidateComparisonProps {
   candidates: RankedCandidate[]
+  achMatrix?: ACHMatrixType | null
 }
 
 /**
@@ -13,7 +15,9 @@ interface CandidateComparisonProps {
  * but NOT visually dominant. Runner-ups must read as legitimate alternatives
  * because the #89 failure mode was UIs that hid alternatives.
  */
-export function CandidateComparison({ candidates }: CandidateComparisonProps) {
+export function CandidateComparison({ candidates, achMatrix }: CandidateComparisonProps) {
+  const [showAch, setShowAch] = useState(false)
+
   if (candidates.length < 2) return null
 
   // Sort by confidence descending; backend should already send in order, but
@@ -61,6 +65,31 @@ export function CandidateComparison({ candidates }: CandidateComparisonProps) {
       <p className="text-[9px] text-muted-foreground/60 italic pt-1">
         Pri = primary signal · Sup = supporting signal · Med = medium type · Rec = recency
       </p>
+
+      {/* ACH Matrix expandable section — only shown when matrix is present (P5) */}
+      {achMatrix != null && (
+        <div className="pt-1 border-t border-border/50">
+          <button
+            type="button"
+            onClick={() => setShowAch((v) => !v)}
+            className="flex items-center gap-1.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            aria-expanded={showAch}
+          >
+            <span className="text-[9px]">{showAch ? '▾' : '▸'}</span>
+            <span className="font-medium">
+              {showAch ? 'Hide' : 'Show'} ACH Matrix
+            </span>
+            <span className="text-muted-foreground/60">
+              · Heuer Analysis of Competing Hypotheses
+            </span>
+          </button>
+          {showAch && (
+            <div className="mt-2">
+              <ACHMatrix matrix={achMatrix} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

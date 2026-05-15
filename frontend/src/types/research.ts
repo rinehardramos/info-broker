@@ -1,3 +1,27 @@
+export type ACHMark = "consistent" | "inconsistent" | "neutral" | "unknown"
+
+export interface ACHSignal {
+  id: string
+  label: string
+  weight: number
+  penalty_on_mismatch: number
+}
+
+export interface ACHCell {
+  signal_id: string
+  hypothesis_name: string
+  mark: ACHMark
+  evidence_finding_id?: string
+  notes?: string
+}
+
+export interface ACHMatrix {
+  signals: ACHSignal[]
+  hypotheses: string[]
+  cells: ACHCell[]
+  scores: Record<string, number>
+}
+
 export type PhaseStatus = 'pending' | 'running' | 'passed' | 'failed' | 'ask_user' | 'skipped'
 export type GateStatus = 'pass' | 'fail' | 'ask_user'
 

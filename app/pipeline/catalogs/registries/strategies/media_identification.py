@@ -10,6 +10,13 @@ from __future__ import annotations
 
 STRATEGY = {
     "id": "media_identification",
+    "ach_signals": [
+        {"id": "primary", "label": "Primary subject match", "weight": 0.40, "penalty_on_mismatch": 0.30},
+        {"id": "supporting", "label": "Supporting detail match", "weight": 0.25, "penalty_on_mismatch": 0.15},
+        {"id": "medium", "label": "Medium type match", "weight": 0.15, "penalty_on_mismatch": 0.25},
+        {"id": "recency", "label": "Recency match", "weight": 0.10, "penalty_on_mismatch": 0.10},
+        {"id": "live_source", "label": "Has live source", "weight": 0.10, "penalty_on_mismatch": 0.05},
+    ],
     "applies_to": {
         "signals": [
             "description_signals_only",

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +96,7 @@ class Strategy(BaseModel):
     phases: list[PhaseSpec]
     default_mode: str
     budget_minimums: dict[str, Any]
+    ach_signals: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_validator("phases")
     @classmethod

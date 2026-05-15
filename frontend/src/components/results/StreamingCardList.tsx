@@ -35,7 +35,7 @@ export function StreamingCardList({ runId, filterByTactician }: StreamingCardLis
     )
   }
 
-  const { cardOrder, cards, suggestions, dismissedSuggestionIds, rankedCandidates = [] } = run
+  const { cardOrder, cards, suggestions, dismissedSuggestionIds, rankedCandidates = [], achMatrix = null } = run
   const visibleSuggestions = suggestions.filter((s) => !dismissedSuggestionIds.has(s.id))
 
   // When a tactician filter is active, restrict to cards whose phaseId+slotIdx
@@ -83,7 +83,7 @@ export function StreamingCardList({ runId, filterByTactician }: StreamingCardLis
       {/* Candidate comparison is injected above the card list when the IS engine
           run finishes with 2+ distinct candidates. Renders nothing otherwise. */}
       {rankedCandidates.length >= 2 && (
-        <CandidateComparison candidates={rankedCandidates} />
+        <CandidateComparison candidates={rankedCandidates} achMatrix={achMatrix} />
       )}
 
       {visibleSuggestions.map((sug) => (
