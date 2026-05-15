@@ -57,22 +57,39 @@ function normalizeOne(obj: unknown): NormalizedFinding | null {
   }
 }
 
+/** Try to parse a JSON-encoded string; pass through anything else. */
+function maybeParseJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return value
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return value
+  }
+}
+
 export function normalizeFindings(obj: unknown): NormalizedFinding[] | null {
-  if (!obj) return null
-  const single = normalizeOne(obj)
+  // MCP tools often nest JSON-encoded strings inside fields like
+  // `{result: "<json string>"}`. Auto-parse so we can keep recursing.
+  const parsed = maybeParseJson(obj)
+  if (!parsed) return null
+  const single = normalizeOne(parsed)
   if (single) return [single]
-  if (Array.isArray(obj)) {
-    const list = obj.map(normalizeOne).filter((x): x is NormalizedFinding => x !== null)
+  if (Array.isArray(parsed)) {
+    const list = parsed.map(normalizeOne).filter((x): x is NormalizedFinding => x !== null)
     return list.length > 0 ? list : null
   }
-  if (typeof obj === 'object') {
-    const o = obj as Record<string, unknown>
+  if (typeof parsed === 'object') {
+    const o = parsed as Record<string, unknown>
     if (o.result) {
+      // result may itself be a JSON string — recurse handles parsing.
       const inner = normalizeFindings(o.result)
       if (inner) return inner
     }
     for (const key of ['items', 'results', 'findings']) {
-      const arr = o[key]
+      const raw = o[key]
+      const arr = maybeParseJson(raw)
       if (Array.isArray(arr)) {
         const list = arr.map(normalizeOne).filter((x): x is NormalizedFinding => x !== null)
         if (list.length > 0) return list
