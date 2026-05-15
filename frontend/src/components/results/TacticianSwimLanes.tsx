@@ -142,6 +142,23 @@ export function TacticianSwimLanes({
   const isComplete = phaseStatus === 'passed' || phaseStatus === 'failed' || phaseStatus === 'ask_user' || phaseStatus === 'skipped'
 
   if (slots.length === 0) {
+    // Phase has no slot data — for analysis-only tactics (signal_extraction,
+    // rank_verify) this is expected: the brain reasons without spawning per-
+    // slot work. Show a completion marker instead of an indefinite "waiting".
+    if (isComplete) {
+      const label = phaseId.replace(/_/g, ' ')
+      const statusLabel =
+        phaseStatus === 'passed' ? '✓ complete' :
+        phaseStatus === 'failed' ? '✗ failed' :
+        phaseStatus === 'ask_user' ? '⚠ awaiting input' :
+        '· skipped'
+      return (
+        <div className="px-3 py-3 text-[11px] text-slate-500 italic text-center">
+          <span className="font-medium">{label}</span> {statusLabel} —
+          analysis phase, no parallel tacticians
+        </div>
+      )
+    }
     return (
       <div className="px-3 py-4 text-[11px] text-slate-600 italic text-center">
         Waiting for tacticians in phase: {phaseId.replace(/_/g, ' ')}
