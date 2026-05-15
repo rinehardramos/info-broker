@@ -23,12 +23,47 @@ function unwrapNestedJson(value: unknown, depth = 0): unknown {
   if (depth > 4) return value
   if (typeof value === 'string') {
     const trimmed = value.trim()
-    if (
-      (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-      (trimmed.startsWith('[') && trimmed.endsWith(']'))
-    ) {
+    const startsObj = trimmed.startsWith('{')
+    const startsArr = trimmed.startsWith('[')
+    if (startsObj || startsArr) {
+      // Try strict parse first (string is well-formed JSON)
       try {
         return unwrapNestedJson(JSON.parse(trimmed), depth + 1)
+      } catch {
+        // Fall through to truncation-tolerant parse below
+      }
+      // Truncation-tolerant: tool_result previews are capped (typically 2000
+      // chars) so the closing bracket may be missing. Try to close the
+      // string + outermost brackets and re-parse. If that yields a partial
+      // tree, surface it — better than rendering raw \"escaped\" text.
+      try {
+        let candidate = trimmed
+        // If the truncated content ends mid-string-value, close it.
+        // Count unescaped quotes to detect odd count.
+        let unescapedQuotes = 0
+        for (let i = 0; i < candidate.length; i++) {
+          if (candidate[i] === '"' && candidate[i - 1] !== '\\') unescapedQuotes++
+        }
+        if (unescapedQuotes % 2 === 1) candidate += '"'
+        // Close all open brackets, in reverse order.
+        const stack: string[] = []
+        let inString = false
+        for (let i = 0; i < candidate.length; i++) {
+          const ch = candidate[i]
+          if (ch === '"' && candidate[i - 1] !== '\\') {
+            inString = !inString
+            continue
+          }
+          if (inString) continue
+          if (ch === '{' || ch === '[') stack.push(ch)
+          else if (ch === '}' && stack[stack.length - 1] === '{') stack.pop()
+          else if (ch === ']' && stack[stack.length - 1] === '[') stack.pop()
+        }
+        while (stack.length > 0) {
+          const open = stack.pop()
+          candidate += open === '{' ? '}' : ']'
+        }
+        return unwrapNestedJson(JSON.parse(candidate), depth + 1)
       } catch {
         return value
       }
