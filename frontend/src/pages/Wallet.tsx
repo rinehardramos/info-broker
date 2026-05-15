@@ -13,6 +13,7 @@ import { BurnChart } from '@/components/wallet/BurnChart'
 import { FloorConfig } from '@/components/wallet/FloorConfig'
 import { TopupSection } from '@/components/wallet/TopupSection'
 import { TransactionHistory } from '@/components/wallet/TransactionHistory'
+import { TemplatesSection } from '@/components/wallet/TemplatesSection'
 import { useWallet, useWalletForecast } from '@/hooks/useWallet'
 
 export default function Wallet() {
@@ -82,6 +83,9 @@ export default function Wallet() {
 
         {/* Transaction history */}
         <TransactionHistory />
+
+        {/* Saved query templates */}
+        <TemplatesSection />
       </div>
       <IconRail />
     </div>

@@ -39,6 +39,65 @@ def _resolve_hypothesis_count(dial_value: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Forbidden-candidates allocation (P4 — §11, §12 Q2 RESOLVED, §9)
+# ---------------------------------------------------------------------------
+
+_FORBIDDEN_ACTIVATION_THRESHOLD = 3  # competing and above
+_FORBIDDEN_PRIOR_CAP = 5             # never forbid more than 5 priors per slot
+
+
+def _compute_forbidden_per_slot(
+    priors: dict,
+    hypothesis_count_int: int,
+) -> list[list[str]]:
+    """Compute forbidden_candidates per tactician slot from priors only.
+
+    Slot 0: empty (verifies the obvious H_PRIOR candidate).
+    Slot 1: forbid top-1 prior.
+    Slot N: forbid top-N priors.
+
+    Priors are deduped from rag_hits + classifier_top_candidates, capped at 5.
+    Activates only when hypothesis_count_int >= 3 (competing tier).
+    When below threshold, all slots return empty lists so single/paired runs
+    are unaffected and H_PRIOR is still tested at slot 0.
+
+    Args:
+        priors: {
+            "rag_hits": [...],                   # candidate names from prior research / RAG
+            "classifier_top_candidates": [...],  # candidate names from classifier LLM peek
+        }
+        hypothesis_count_int: resolved int from _resolve_hypothesis_count.
+
+    Returns:
+        list of length hypothesis_count_int; each element is a list[str].
+    """
+    if hypothesis_count_int < _FORBIDDEN_ACTIVATION_THRESHOLD:
+        return [[] for _ in range(hypothesis_count_int)]
+
+    # Dedupe while preserving order: rag_hits first, then classifier additions
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for name in list(priors.get("rag_hits", [])) + list(priors.get("classifier_top_candidates", [])):
+        if isinstance(name, str) and name.strip() and name not in seen:
+            seen.add(name)
+            ordered.append(name)
+
+    # Cap at _FORBIDDEN_PRIOR_CAP
+    ordered = ordered[:_FORBIDDEN_PRIOR_CAP]
+
+    slots: list[list[str]] = []
+    for slot_idx in range(hypothesis_count_int):
+        if slot_idx == 0:
+            # Slot 0 always empty — verifies H_PRIOR
+            slots.append([])
+        else:
+            # Slot N forbids top-N priors
+            slots.append(ordered[:slot_idx])
+
+    return slots
+
+
+# ---------------------------------------------------------------------------
 # Result types
 # ---------------------------------------------------------------------------
 
@@ -467,15 +526,32 @@ class Strategist:
                 phase, phase_outputs_by_id
             )
 
+            # P4: forbidden_per_slot was pre-computed in _build_unit_of_work.
+            # Inject the per-slot slice into a copy of unit_of_work so each
+            # tactician sees only its own forbidden list (no cross-slot leakage).
+            forbidden_per_slot: list[list[str]] = unit_of_work.get("forbidden_per_slot", [])
+            # Extend with empty lists if n_tacticians exceeds pre-computed length
+            # (can happen when from_prior_phase grows beyond hypothesis_count_int).
+            while len(forbidden_per_slot) < n_tacticians:
+                forbidden_per_slot.append([])
+
             # Spawn tacticians in parallel; visibility invariant enforced by
-            # limiting the tactician_fn signature to (phase, unit_of_work, slot_idx)
+            # limiting the tactician_fn signature to (phase, unit_of_work, slot_idx).
+            # Each slot receives a shallow copy with forbidden_candidates injected.
+            def _uow_for_slot(slot_idx: int) -> dict:
+                slot_uow = dict(unit_of_work)
+                slot_uow["forbidden_candidates"] = forbidden_per_slot[slot_idx]
+                return slot_uow
+
             tactician_tasks = [
-                tactician_fn(phase, unit_of_work, slot_idx)
+                tactician_fn(phase, _uow_for_slot(slot_idx), slot_idx)
                 for slot_idx in range(n_tacticians)
             ]
             raw_outputs: list[dict] = await asyncio.gather(*tactician_tasks)
 
             phase_output = self._aggregate(phase.id, raw_outputs)
+            # Audit: record forbidden_per_slot in phase metadata for research_trails
+            phase_output.metadata["forbidden_per_slot"] = forbidden_per_slot[:n_tacticians]
             gate_passed = _run_gate(phase_output, phase, self._envelope)
 
             # Consume RU for this phase regardless of gate outcome
@@ -567,6 +643,11 @@ class Strategist:
         Only AGGREGATED findings from prior phases are included — never raw tool
         results (§7.1).  The unit_of_work_contract template is merged with
         resolved prior-phase aggregates.
+
+        For phases with from_dial hypothesis_count_policy, forbidden_candidates
+        is computed per-slot from classifier priors (P4 §11/§12).  The full
+        forbidden_per_slot list is embedded so the fan-out loop can inject the
+        correct slice per slot_idx.
         """
         uow: dict[str, Any] = dict(phase.unit_of_work_contract)
         uow["query"] = query
@@ -584,6 +665,17 @@ class Strategist:
 
         if prior_aggregates:
             uow["prior_phase_aggregates"] = prior_aggregates
+
+        # P4: pre-compute forbidden_per_slot so the fan-out loop can inject
+        # the right slice per slot_idx.  Only computed once per phase; the
+        # loop reads uow["forbidden_per_slot"][slot_idx].
+        priors = {
+            "rag_hits": classifier_output.get("rag_hits", []),
+            "classifier_top_candidates": classifier_output.get("classifier_top_candidates", []),
+        }
+        hypothesis_count_int = _resolve_hypothesis_count(self._envelope.hypothesis_count)
+        forbidden_per_slot = _compute_forbidden_per_slot(priors, hypothesis_count_int)
+        uow["forbidden_per_slot"] = forbidden_per_slot
 
         return uow
 

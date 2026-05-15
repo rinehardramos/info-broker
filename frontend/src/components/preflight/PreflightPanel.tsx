@@ -4,6 +4,10 @@ import type { DialsIn, ModeEntry } from '../../hooks/usePreflight'
 import { ModePicker } from './ModePicker'
 import { DialPicker } from './DialPicker'
 import { EstimateBreakdown } from './EstimateBreakdown'
+import { TemplateDropdown } from './TemplateDropdown'
+import { SaveTemplateDialog } from './SaveTemplateDialog'
+import { useTemplates } from '../../hooks/useTemplates'
+import type { Template } from '../../hooks/useTemplates'
 
 // ---------------------------------------------------------------------------
 // Dial level constants — single source of truth for the UI
@@ -94,9 +98,10 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
     isLoading,
     error,
     modes,
+    userDefaults,
   } = usePreflight()
 
-  // ---- dial state -----------------------------------------------------------
+  // ---- dial state — seeded from per-user defaults when available ------------
   const [mode, setMode] = useState<string>('investigation')
   const [advanced, setAdvanced] = useState(false)
   const [speed, setSpeed] = useState<DialsIn['speed']>('normal')
@@ -106,6 +111,23 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
   const [hypothesisCount, setHypothesisCount] = useState<DialsIn['hypothesis_count']>('competing')
   const [showTopup, setShowTopup] = useState(false)
   const [confirming, setConfirming] = useState(false)
+
+  // Apply per-user defaults once they arrive (only if user hasn't touched dials yet)
+  const defaultsApplied = useState(false)
+  useEffect(() => {
+    if (userDefaults && !defaultsApplied[0]) {
+      defaultsApplied[1](true)
+      if (userDefaults.speed) setSpeed(userDefaults.speed as DialsIn['speed'])
+      if (userDefaults.capability) setCapability(userDefaults.capability as DialsIn['capability'])
+      if (userDefaults.resource) setResource(userDefaults.resource as DialsIn['resource'])
+      if (userDefaults.depth) setDepth(userDefaults.depth as DialsIn['depth'])
+      if (userDefaults.hypothesis_count) setHypothesisCount(userDefaults.hypothesis_count as DialsIn['hypothesis_count'])
+    }
+  }, [userDefaults]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [showSaveCta, setShowSaveCta] = useState(false)
+
+  const { templates, isLoading: templatesLoading, createTemplate, useTemplate } = useTemplates()
 
   // ---- initial load ---------------------------------------------------------
   useEffect(() => {
@@ -158,6 +180,37 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
     })
   }
 
+  // ---- template load --------------------------------------------------------
+  function handleTemplateSelect(template: Template) {
+    const env = template.envelope
+    if (env.speed) setSpeed(env.speed as DialsIn['speed'])
+    if (env.capability) setCapability(env.capability as DialsIn['capability'])
+    if (env.resource) setResource(env.resource as DialsIn['resource'])
+    if (env.depth) setDepth(env.depth as DialsIn['depth'])
+    if (env.hypothesis_count) setHypothesisCount(env.hypothesis_count as DialsIn['hypothesis_count'])
+    useTemplate(template.id)
+    preflight({
+      query,
+      mode: env.mode ?? mode,
+      dials: {
+        speed: (env.speed as DialsIn['speed']) ?? speed,
+        capability: (env.capability as DialsIn['capability']) ?? capability,
+        resource: (env.resource as DialsIn['resource']) ?? resource,
+        depth: (env.depth as DialsIn['depth']) ?? depth,
+        hypothesis_count: (env.hypothesis_count as DialsIn['hypothesis_count']) ?? hypothesisCount,
+      },
+    })
+  }
+
+  async function handleSaveTemplate(name: string) {
+    await createTemplate({
+      name,
+      query,
+      envelope: { speed, capability, resource, depth, hypothesis_count: hypothesisCount, mode },
+      strategy_id: strategy,
+    })
+  }
+
   // ---- derived values -------------------------------------------------------
   const insufficientRu = error === 'insufficient_ru' || error === 'below_floor'
   const strategy = estimate?.suggested_strategy ?? 'media_identification'
@@ -169,6 +222,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
   async function handleRun() {
     if (!estimate) return
     setConfirming(true)
+    setShowSaveCta(false)
     const result = await confirm({
       query,
       envelope: { speed, capability, resource, hypothesis_count: hypothesisCount, depth },
@@ -176,6 +230,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
     })
     setConfirming(false)
     if (result) {
+      setShowSaveCta(true)
       onConfirmed(result.run_id, result.hold_id)
     }
   }
@@ -183,6 +238,13 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
   return (
     <>
       {showTopup && <TopupModal onClose={() => setShowTopup(false)} />}
+      {showSaveDialog && (
+        <SaveTemplateDialog
+          existingNames={templates.map(t => t.name)}
+          onSave={handleSaveTemplate}
+          onClose={() => setShowSaveDialog(false)}
+        />
+      )}
 
       <div
         style={{
@@ -194,6 +256,14 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
           fontSize: 12,
         }}
       >
+        {/* Template quick-pick */}
+        <TemplateDropdown
+          templates={templates}
+          isLoading={templatesLoading}
+          onSelect={handleTemplateSelect}
+          onSaveRequest={() => setShowSaveDialog(true)}
+        />
+
         {/* Mode picker — 6 modes in a pill row */}
         <ModePicker
           modes={modes}
@@ -331,6 +401,55 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
             >
               Top up
             </button>
+          </div>
+        )}
+
+        {/* Post-run: save as template CTA */}
+        {showSaveCta && (
+          <div
+            style={{
+              marginBottom: 8,
+              padding: '6px 10px',
+              borderRadius: 4,
+              border: '1px solid var(--border)',
+              background: 'rgba(var(--accent-rgb, 99,102,241),0.06)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 11,
+            }}
+          >
+            <span style={{ color: 'var(--muted)' }}>Save these settings as a template?</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                onClick={() => setShowSaveDialog(true)}
+                style={{
+                  fontSize: 11,
+                  padding: '2px 8px',
+                  borderRadius: 3,
+                  border: 'none',
+                  background: 'var(--accent)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                Save
+              </button>
+              <button
+                onClick={() => setShowSaveCta(false)}
+                style={{
+                  fontSize: 11,
+                  padding: '2px 8px',
+                  borderRadius: 3,
+                  border: '1px solid var(--border)',
+                  background: 'transparent',
+                  color: 'var(--muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
           </div>
         )}
 

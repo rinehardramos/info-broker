@@ -2,6 +2,19 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import { api } from '../api/client'
 
 // ---------------------------------------------------------------------------
+// Per-user default envelope (loaded on mount, used as initial dial state)
+// ---------------------------------------------------------------------------
+
+export interface UserDefaultEnvelope {
+  speed?: string
+  capability?: string
+  resource?: string
+  depth?: string
+  hypothesis_count?: string
+  mode?: string | null
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -98,9 +111,33 @@ export function usePreflight() {
   const [error, setError] = useState<string | null>(null)
   const [modes, setModes] = useState<ModeEntry[]>([])
   const [modesLoading, setModesLoading] = useState(false)
+  const [userDefaults, setUserDefaults] = useState<UserDefaultEnvelope | null>(null)
+  const [defaultsLoading, setDefaultsLoading] = useState(false)
 
   // Ref used to cancel in-flight debounced calls
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // ---------------------------------------------------------------------------
+  // Fetch per-user default envelope (once on mount)
+  // ---------------------------------------------------------------------------
+
+  const fetchUserDefaults = useCallback(async () => {
+    setDefaultsLoading(true)
+    try {
+      const { data } = await api.get<{ envelope: UserDefaultEnvelope }>('/v3/user/defaults')
+      if (data?.envelope && Object.keys(data.envelope).length > 0) {
+        setUserDefaults(data.envelope)
+      }
+    } catch {
+      // Non-fatal: fall back to hardcoded dial defaults
+    } finally {
+      setDefaultsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchUserDefaults()
+  }, [fetchUserDefaults])
 
   // ---------------------------------------------------------------------------
   // Fetch mode catalog (once on mount)
@@ -191,5 +228,7 @@ export function usePreflight() {
     error,
     modes,
     modesLoading,
+    userDefaults,
+    defaultsLoading,
   }
 }

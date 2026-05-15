@@ -337,6 +337,7 @@ from app.routers.v3.preflight import router as v3_preflight_router  # noqa: E402
 from app.routers.v3.findings_grades import router as v3_findings_grades_router  # noqa: E402
 from app.routers.v3.wallet import router as v3_wallet_router, runs_cost_router as v3_runs_cost_router  # noqa: E402
 from app.routers.v3.share import router as v3_share_router  # noqa: E402
+from app.routers.v3.templates import router as v3_templates_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
@@ -364,3 +365,4 @@ app.include_router(v3_findings_grades_router)
 app.include_router(v3_wallet_router)
 app.include_router(v3_runs_cost_router)
 app.include_router(v3_share_router)
+app.include_router(v3_templates_router)

@@ -59,9 +59,38 @@ def _load_all_catalogs() -> tuple[dict, dict, dict]:
 # Classifier stub (§10.1 — replace post-MVP with real LLM classifier)
 # ---------------------------------------------------------------------------
 
-def _classify_query_stub(query: str) -> dict[str, Any]:
-    """MVP stub: always returns celebrity_identification task_type."""
-    return {"task_type": "celebrity_identification"}
+def _classify_query_stub(query: str, *, retriever_fn: Any = None) -> dict[str, Any]:
+    """MVP stub: returns celebrity_identification task_type with prior candidates.
+
+    P4 extension: also returns rag_hits from the real RAG retriever (when
+    available) and classifier_top_candidates (empty in MVP; populated by a
+    future LLM-peek classifier).
+
+    Args:
+        query:        The sanitized user query.
+        retriever_fn: Optional callable(query, user_id) -> list[str] for RAG
+                      lookup.  In production this wraps app.memory.retriever.
+                      In tests it is omitted (rag_hits returns empty list).
+
+    Returns:
+        {
+            "task_type": "celebrity_identification",
+            "rag_hits": [...],                    # candidate names from RAG
+            "classifier_top_candidates": [...],  # candidate names from LLM peek (empty in MVP)
+        }
+    """
+    rag_hits: list[str] = []
+    if retriever_fn is not None:
+        try:
+            rag_hits = list(retriever_fn(query) or [])
+        except Exception as exc:
+            log.warning("_classify_query_stub: RAG retriever failed (non-fatal): %s", exc)
+
+    return {
+        "task_type": "celebrity_identification",
+        "rag_hits": rag_hits,
+        "classifier_top_candidates": [],  # TODO(post-MVP): LLM-peek classifier
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +246,8 @@ async def run_engine_v2(
             "phase_id": phase.id,
             "slot_idx": slot_idx,
             "tactic_id": "",
+            # P4 audit: UI-P2 TacticianSwimLanes can render forbidden list per slot
+            "forbidden_candidates": unit_of_work.get("forbidden_candidates", []),
         })
 
         tactic_runner_fn = _make_tactic_runner_fn(phase, slot_idx)

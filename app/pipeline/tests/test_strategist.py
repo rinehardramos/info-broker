@@ -19,6 +19,7 @@ from app.pipeline.strategist import (
     RunResult,
     Strategist,
     _GATE_CHECKS,
+    _compute_forbidden_per_slot,
     _resolve_hypothesis_count,
     _strip_finding,
     _topo_sort,
@@ -724,3 +725,113 @@ def test_slot_idx_lowest_wins_for_consensus_candidate():
     alice = enriched[0]
     # Lowest slot_idx among findings for Alice is 0
     assert alice["slot_idx"] == 0
+
+
+# ---------------------------------------------------------------------------
+# P4: _compute_forbidden_per_slot tests
+# ---------------------------------------------------------------------------
+
+
+def test_compute_forbidden_per_slot_slot0_empty():
+    """Slot 0 always gets an empty forbidden list so H_PRIOR is verified."""
+    priors = {
+        "rag_hits": ["Zhao Lusi", "Wonyoung"],
+        "classifier_top_candidates": [],
+    }
+    result = _compute_forbidden_per_slot(priors, hypothesis_count_int=3)
+    assert result[0] == [], f"Slot 0 must be empty, got {result[0]}"
+
+
+def test_compute_forbidden_per_slot_slot_n_forbids_top_n():
+    """Slot N forbids exactly the top-N priors in order."""
+    priors = {
+        "rag_hits": ["Zhao Lusi", "Wonyoung", "Karina"],
+        "classifier_top_candidates": [],
+    }
+    result = _compute_forbidden_per_slot(priors, hypothesis_count_int=4)
+    assert result[0] == []
+    assert result[1] == ["Zhao Lusi"]
+    assert result[2] == ["Zhao Lusi", "Wonyoung"]
+    assert result[3] == ["Zhao Lusi", "Wonyoung", "Karina"]
+
+
+def test_compute_forbidden_per_slot_no_priors_returns_empty_lists():
+    """When no priors exist, all slots get empty forbidden lists."""
+    priors = {"rag_hits": [], "classifier_top_candidates": []}
+    result = _compute_forbidden_per_slot(priors, hypothesis_count_int=5)
+    assert result == [[] for _ in range(5)]
+
+
+def test_compute_forbidden_per_slot_caps_at_5_priors():
+    """Priors are capped at 5 regardless of how many rag_hits are provided."""
+    priors = {
+        "rag_hits": ["A", "B", "C", "D", "E", "F", "G"],
+        "classifier_top_candidates": [],
+    }
+    result = _compute_forbidden_per_slot(priors, hypothesis_count_int=8)
+    # Slot 7 should forbid at most 5 even though 7 priors were supplied
+    assert len(result[7]) <= 5
+    # Specifically slot 6+ should all equal the capped 5-item list
+    assert result[6] == ["A", "B", "C", "D", "E"]
+    assert result[7] == ["A", "B", "C", "D", "E"]
+
+
+def test_compute_forbidden_per_slot_dedupes_rag_and_classifier_overlap():
+    """Overlapping names between rag_hits and classifier_top_candidates are deduped."""
+    priors = {
+        "rag_hits": ["Zhao Lusi", "Wonyoung"],
+        "classifier_top_candidates": ["Wonyoung", "Karina"],  # Wonyoung is a dup
+    }
+    result = _compute_forbidden_per_slot(priors, hypothesis_count_int=4)
+    # Deduped order: Zhao Lusi, Wonyoung, Karina (3 unique)
+    assert result[1] == ["Zhao Lusi"]
+    assert result[2] == ["Zhao Lusi", "Wonyoung"]
+    assert result[3] == ["Zhao Lusi", "Wonyoung", "Karina"]
+
+
+def test_compute_forbidden_per_slot_below_threshold_all_empty():
+    """When hypothesis_count_int < 3 (single/paired), all slots return empty lists."""
+    priors = {
+        "rag_hits": ["Zhao Lusi", "Wonyoung"],
+        "classifier_top_candidates": ["Karina"],
+    }
+    for count in (1, 2):
+        result = _compute_forbidden_per_slot(priors, hypothesis_count_int=count)
+        assert all(s == [] for s in result), (
+            f"Expected all empty for count={count}, got {result}"
+        )
+
+
+def test_forbidden_per_slot_injected_into_tactician_unit_of_work():
+    """Integration: each slot's unit_of_work has the correct forbidden_candidates list."""
+    captured_uow: dict[int, list[str]] = {}
+
+    phase = _make_phase("broaden", hypothesis_count_policy="from_dial")
+    strategy = _make_strategy([phase])
+
+    priors = {
+        "rag_hits": ["Zhao Lusi", "Wonyoung"],
+        "classifier_top_candidates": [],
+    }
+    # competing = 3 slots
+    classifier_output = {
+        "task_type": "celebrity_identification",
+        **priors,
+    }
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        captured_uow[slot_idx] = unit_of_work.get("forbidden_candidates", [])
+        return _make_passing_output(candidate_name=f"Candidate {slot_idx}")
+
+    strategist = _make_strategist(strategy, hypothesis_count="competing")
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("query", classifier_output, fake_tactician))
+
+    assert result.status == "completed"
+    # Slot 0 must be empty (H_PRIOR verification)
+    assert captured_uow[0] == [], f"Slot 0 forbidden must be empty, got {captured_uow[0]}"
+    # Slot 2 must forbid exactly the top-2 priors
+    assert captured_uow[2] == ["Zhao Lusi", "Wonyoung"], (
+        f"Slot 2 must forbid top-2, got {captured_uow[2]}"
+    )

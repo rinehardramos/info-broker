@@ -772,10 +772,33 @@ CREATE INDEX IF NOT EXISTS idx_share_links_expires_at ON run_share_links (expire
 """
 
 
+_MIGRATION_SAVED_TEMPLATES = """
+CREATE TABLE IF NOT EXISTS saved_templates (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     uuid NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    name        text NOT NULL,
+    query       text NOT NULL,
+    envelope    jsonb NOT NULL,
+    strategy_id text NOT NULL,
+    last_used   timestamptz,
+    use_count   int NOT NULL DEFAULT 0,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (user_id, name)
+);
+CREATE INDEX IF NOT EXISTS saved_templates_user_idx ON saved_templates(user_id, last_used DESC);
+
+CREATE TABLE IF NOT EXISTS user_defaults (
+    user_id     uuid PRIMARY KEY REFERENCES ui_users(id) ON DELETE CASCADE,
+    envelope    jsonb NOT NULL DEFAULT '{}',
+    updated_at  timestamptz NOT NULL DEFAULT now()
+)
+"""
+
+
 def run_migrations() -> None:
     # psycopg2 execute() only runs the first statement in a multi-statement
     # string. Split on ";" and run each non-empty statement individually.
-    all_sql = _MIGRATION + _SEED + _MIGRATION_WALLET_V2 + _MIGRATION_FINDINGS_GRADES + _MIGRATION_SHARE_LINKS
+    all_sql = _MIGRATION + _SEED + _MIGRATION_WALLET_V2 + _MIGRATION_FINDINGS_GRADES + _MIGRATION_SHARE_LINKS + _MIGRATION_SAVED_TEMPLATES
     statements = [s.strip() for s in all_sql.split(";") if s.strip()]
     with get_conn() as conn:
         with conn.cursor() as cur:

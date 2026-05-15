@@ -667,3 +667,28 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
     cand_b = next(c for c in candidates if c["name"] == "Candidate B")
     assert cand_b["signal_scores"]["primary"] == "match"
     assert cand_b["slot_idx"] == 1  # hypothesis_slot was 1
+
+
+def test_engine_v2_classifier_output_has_rag_hits_key():
+    """P4: classifier_output passed to strategist always has a rag_hits key.
+
+    Even when the RAG retriever is absent (MVP stub mode), the key must be
+    present so _compute_forbidden_per_slot can safely read it.
+    """
+    from app.pipeline.engine_v2 import _classify_query_stub
+
+    # Without a retriever_fn (MVP mode) — rag_hits present and empty
+    result = _classify_query_stub("asian girl with mole in cheekbone")
+    assert "rag_hits" in result, "classifier_output must have 'rag_hits' key"
+    assert isinstance(result["rag_hits"], list)
+
+    # With a fake retriever_fn that returns some names
+    def _fake_retriever(query):
+        return ["Zhao Lusi", "Wonyoung"]
+
+    result_with_rag = _classify_query_stub(
+        "asian girl with mole in cheekbone",
+        retriever_fn=_fake_retriever,
+    )
+    assert result_with_rag["rag_hits"] == ["Zhao Lusi", "Wonyoung"]
+    assert "classifier_top_candidates" in result_with_rag

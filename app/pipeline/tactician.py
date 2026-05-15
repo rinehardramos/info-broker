@@ -195,10 +195,11 @@ def _build_tactic_prompt(
     forbidden = unit_of_work.get("forbidden_candidates", [])
     if forbidden:
         lines += [
-            "## Forbidden candidates (DO NOT name these as primary hypothesis)",
-            ", ".join(str(c) for c in forbidden),
-            "",
+            "## FORBIDDEN_CANDIDATES (do not converge on any of these — explicitly investigate alternatives):",
         ]
+        for name in forbidden:
+            lines.append(f"- {name}")
+        lines.append("")
 
     lines += [
         "# Tactic",
