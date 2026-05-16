@@ -74,30 +74,56 @@ _CELEBRITY_PATTERNS = {
 }
 
 
+def _engine_v2_supported_strategies() -> set[str]:
+    """Strategy IDs registered in app/pipeline/catalogs/registries/strategies.
+
+    Computed lazily so we don't blow up at import time if the registry path
+    isn't accessible. Cached for the lifetime of the process.
+    """
+    global _SUPPORTED_STRATEGIES_CACHE
+    cache = globals().get("_SUPPORTED_STRATEGIES_CACHE")
+    if cache is not None:
+        return cache
+    try:
+        from pathlib import Path
+        reg = Path(__file__).parent.parent.parent / "pipeline" / "catalogs" / "registries" / "strategies"
+        names = {p.stem for p in reg.glob("*.py") if not p.stem.startswith("_")}
+    except Exception:
+        names = {"media_identification"}
+    if not names:
+        names = {"media_identification"}
+    globals()["_SUPPORTED_STRATEGIES_CACHE"] = names
+    return names
+
+
 def _classify_query(query: str) -> str:
     """Return a strategy_id for the given query.
 
-    Delegates to the orchestrator's keyword classifier which knows about
-    person / company / lead / due_diligence / media_identification / etc.
-    Falls back to media_identification if the orchestrator returns a
-    category we don't have a strategy module for.
+    Uses orchestrator.classify_query for the intent guess; clamps the result
+    to whatever strategies engine_v2 actually has registered. Today that's
+    just media_identification — as more strategies are ported into
+    app/pipeline/catalogs/registries/strategies/ they're picked up
+    automatically.
     """
+    supported = _engine_v2_supported_strategies()
     try:
         from app.pipeline.strategies.orchestrator import classify_query as _orch_classify
         cat = _orch_classify(query or "")
-        # Map orchestrator categories to engine_v2 strategy_ids.
-        # Most are 1:1; aliases live in the dict below.
+        # Aliases for orchestrator categories that don't directly match a
+        # strategy module name.
         alias = {
             "researcher": "person",
-            "generation": "media_identification",  # fall back until generation strategy supports engine_v2
-            "explanation": "media_identification",
-            "prediction": "media_identification",
-            "synthesis": "media_identification",
             "place": "person",
         }
-        return alias.get(cat, cat) if cat else "media_identification"
+        cat = alias.get(cat, cat) if cat else ""
+        if cat in supported:
+            return cat
     except Exception:
+        pass
+    # Fallback: prefer media_identification if it exists, else any registered.
+    if "media_identification" in supported:
         return "media_identification"
+    return next(iter(supported))
 
 
 def _suggest_mode(strategy_id: str) -> str:

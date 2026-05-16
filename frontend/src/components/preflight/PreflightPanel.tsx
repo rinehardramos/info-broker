@@ -214,6 +214,12 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
   // ---- derived values -------------------------------------------------------
   const insufficientRu = error === 'insufficient_ru' || error === 'below_floor'
   const strategy = estimate?.suggested_strategy ?? 'media_identification'
+  // classifier_output is the brain's read of WHAT the user is asking about
+  // (e.g. "lead", "person", "company") — independent of which engine_v2
+  // strategy will actually run. Show the intent in the UI so it matches
+  // what the user typed, even when only one engine strategy is registered.
+  const intent = estimate?.classifier_output ?? strategy
+  const humanizeId = (id: string) => id.replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   const disabledHypotheses = buildDisabledHypotheses(strategy)
   const est = estimate?.estimate
   const wal = estimate?.wallet
@@ -274,16 +280,20 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
           onSelect={handleModeSelect}
         />
 
-        {/* Strategy badge (read-only for MVP) */}
+        {/* Intent badge — what the brain thinks you're asking about.
+            The actual execution strategy may differ (engine_v2 catalog is
+            still rolling out per-intent strategies) but the intent label
+            is always honest to your query. */}
         <div style={{ marginBottom: 12 }}>
-          <span style={{ fontWeight: 600, marginRight: 8 }}>Strategy</span>
+          <span style={{ fontWeight: 600, marginRight: 8 }}>Detected intent</span>
           <span
             style={{
               background: 'var(--accent)', color: '#fff',
               borderRadius: 4, padding: '1px 8px', fontSize: 11,
             }}
+            title={`Engine strategy: ${strategy}`}
           >
-            {strategy}
+            {humanizeId(intent)}
           </span>
           <button
             onClick={() => setAdvanced(v => !v)}
