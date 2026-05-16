@@ -13,9 +13,12 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import IconRail from '@/components/layout/IconRail'
 import { StatusBadge } from '@/components/runs/StatusBadge'
+import { DownloadMenu } from '@/components/runs/DownloadMenu'
 import { RunCostBreakdown } from '@/components/wallet/RunCostBreakdown'
 import { listRuns, type RunRow } from '@/api/v3'
 import { X } from 'lucide-react'
+
+const COMPLETED = new Set(['succeeded', 'failed', 'canceled'])
 
 const PAGE_SIZE = 50
 
@@ -190,6 +193,7 @@ export default function Runs() {
                         >
                           View
                         </button>
+                        {COMPLETED.has(row.status) && <DownloadMenu runId={row.id} />}
                         <button
                           onClick={() => setSelectedRunId(isSelected ? null : row.id)}
                           style={{

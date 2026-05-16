@@ -232,54 +232,61 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await wait(1000)
 
   // ----- Go Deeper / Analyze / Save Pipeline -----
-  // These buttons live in ResultsPanel (the legacy analysis view), not the
-  // V2 LIVE VIEW the demo is currently on. Click a "Results" tab / panel
-  // header first to surface them.
-  for (const sel of [
-    'button:has-text("Results")',
-    '[role="tab"]:has-text("Results")',
-    'button:has-text("Analyze")',
-  ]) {
-    const tab = page.locator(sel).first()
-    if (await tab.isVisible({ timeout: 800 }).catch(() => false)) {
-      await tab.click().catch(() => {})
-      await wait(1000)
-      break
-    }
-  }
-  const goDeepBtn = page.locator('button:has-text("Go Deep")').first()
-  const analyzeBtn = page.locator('button:has-text("Analyze")').first()
-  const saveBtn = page.locator('button:has-text("Save Pipeline"), button:has-text("Save as Pipeline")').first()
+  // These buttons live in ResultsPanel which short-circuits to RunResultsView
+  // during live runs. To surface them, navigate to /runs and click View on
+  // a completed run — that opens ResultsPanel in post-run mode.
+  await page.goto(`${BASE}/runs`)
+  await wait(2500)
+  const firstViewBtn = page.locator('button:has-text("View")').first()
+  if (await firstViewBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await firstViewBtn.click().catch(() => {})
+    await wait(3000)
+    const goDeepBtn = page.locator('button:has-text("Go Deeper")').first()
+    const analyzeBtn = page.locator('button:has-text("Analyze")').first()
+    const saveBtn = page.locator('button:has-text("Save as Pipeline"), button:has-text("Save Pipeline")').first()
 
-  if (await goDeepBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await goDeepBtn.scrollIntoViewIfNeeded()
-    await wait(800)
-    await subtitle(page, 'Three post-run actions: Go Deeper · Analyze · Save Pipeline.', 4500)
-    await wait(2000)
-    await goDeepBtn.hover().catch(() => {})
-    await subtitle(page,
-      'Go Deeper — spawn fresh hypotheses around the top lead and keep investigating.',
-      4500,
-    )
-    await wait(2500)
-    if (await analyzeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await analyzeBtn.hover().catch(() => {})
-      await subtitle(page, 'Analyze — summarise all findings into a coherent lead-gen briefing.', 4500)
+    if (await goDeepBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+      await goDeepBtn.scrollIntoViewIfNeeded()
+      await wait(800)
+      await subtitle(page, 'Three post-run actions: Go Deeper · Analyze · Save Pipeline.', 4500)
+      await wait(2000)
+      await goDeepBtn.hover().catch(() => {})
+      await subtitle(page,
+        'Go Deeper — spawn fresh hypotheses around the top lead and keep investigating.',
+        4500,
+      )
       await wait(2500)
-    }
-    if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await saveBtn.hover().catch(() => {})
-      await subtitle(page, 'Save as Pipeline — template this run; re-execute with new ICPs later.', 4500)
-      await wait(2500)
+      if (await analyzeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await analyzeBtn.hover().catch(() => {})
+        await subtitle(page, 'Analyze — summarise all findings into a coherent lead-gen briefing.', 4500)
+        await wait(2500)
+      }
+      if (await saveBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await saveBtn.hover().catch(() => {})
+        await subtitle(page, 'Save as Pipeline — template this run; re-execute with new ICPs later.', 4500)
+        await wait(2500)
+      }
+    } else {
+      // Buttons require findings + status===succeeded; not always guaranteed.
+      await subtitle(page,
+        'After a run completes: Go Deeper · Analyze · Save as Pipeline\n' +
+        '— spawn follow-up hypotheses, summarise findings, or template the run.',
+        5500,
+      )
+      await wait(3500)
     }
   }
+  await page.goto(`${BASE}/research`)
+  await wait(2000)
   await clearSubtitle(page)
 
   // ----- Full investigation DAG (4-levels-deep flow diagram) -----
-  // PhaseDAGView toolbar uses plain <button> elements, not [role="tab"].
-  const dagBtn = page.locator('button', { hasText: /^DAG$/ }).first()
-  if (await dagBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await dagBtn.click()
+  // PhaseDAGView toolbar: <button>{ 'Live' | 'Compact' | 'DAG' }</button>
+  // Use exact-text matching with getByText, then walk to the button parent.
+  const dagBtn = page.getByText('DAG', { exact: true }).first()
+  if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+    await dagBtn.scrollIntoViewIfNeeded()
+    await dagBtn.click({ force: true }).catch(() => {})
     await wait(1500)
     await subtitle(page,
       'Full investigation DAG — phase → tactician → tool-call → finding.\n' +
@@ -287,8 +294,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
       6000,
     )
     await wait(3500)
-    const liveBtn = page.locator('button', { hasText: /^Live$/ }).first()
-    await liveBtn.click().catch(() => {})
+    const liveBtn = page.getByText('Live', { exact: true }).first()
+    await liveBtn.click({ force: true }).catch(() => {})
     await wait(800)
   }
   await clearSubtitle(page)
