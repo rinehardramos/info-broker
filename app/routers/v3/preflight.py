@@ -96,31 +96,33 @@ def _engine_v2_supported_strategies() -> set[str]:
     return names
 
 
-def _classify_query(query: str) -> str:
-    """Return a strategy_id for the given query.
-
-    Uses orchestrator.classify_query for the intent guess; clamps the result
-    to whatever strategies engine_v2 actually has registered. Today that's
-    just media_identification — as more strategies are ported into
-    app/pipeline/catalogs/registries/strategies/ they're picked up
-    automatically.
+def _classify_intent(query: str) -> str:
+    """Raw orchestrator classification — the brain's read of WHAT the user
+    is asking about. Independent of which engine_v2 strategy will actually
+    run. Used for the UI "Detected intent" badge so it matches the user's
+    query even when engine_v2 hasn't yet registered a strategy for that
+    intent (currently only media_identification is registered).
     """
-    supported = _engine_v2_supported_strategies()
     try:
         from app.pipeline.strategies.orchestrator import classify_query as _orch_classify
         cat = _orch_classify(query or "")
-        # Aliases for orchestrator categories that don't directly match a
-        # strategy module name.
-        alias = {
-            "researcher": "person",
-            "place": "person",
-        }
-        cat = alias.get(cat, cat) if cat else ""
-        if cat in supported:
-            return cat
+        alias = {"researcher": "person", "place": "person"}
+        return alias.get(cat, cat) if cat else "media_identification"
     except Exception:
-        pass
-    # Fallback: prefer media_identification if it exists, else any registered.
+        return "media_identification"
+
+
+def _classify_query(query: str) -> str:
+    """Return a strategy_id for the given query, clamped to whatever
+    engine_v2's catalog registry actually supports (today: just
+    media_identification). As more strategy modules are ported into
+    app/pipeline/catalogs/registries/strategies/ they're picked up
+    automatically.
+    """
+    intent = _classify_intent(query)
+    supported = _engine_v2_supported_strategies()
+    if intent in supported:
+        return intent
     if "media_identification" in supported:
         return "media_identification"
     return next(iter(supported))
@@ -364,7 +366,9 @@ def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
     after_run = ws["available_ru"] - est.estimated_ru_p90
 
     return PreflightOut(
-        classifier_output=strategy_id,
+        # classifier_output = raw intent (what the user asked about);
+        # suggested_strategy = engine-runnable strategy (clamped to registry).
+        classifier_output=_classify_intent(body.query),
         suggested_strategy=strategy_id,
         suggested_mode=suggested_mode,
         envelope=EnvelopeOut(
