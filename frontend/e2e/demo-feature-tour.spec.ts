@@ -29,7 +29,9 @@ test.use({
   viewport: { width: 1440, height: 900 },
   headless: false,
   launchOptions: {
-    args: ['--auto-open-devtools-for-tabs=false', '--window-size=1440,900'],
+    // No --auto-open-devtools-for-tabs — Chrome treats the flag's mere
+    // presence as ENABLE regardless of =true/=false. Just don't pass it.
+    args: ['--window-size=1440,900'],
   },
 })
 
