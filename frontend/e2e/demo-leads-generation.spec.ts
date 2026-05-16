@@ -111,6 +111,65 @@ async function clearTitle(page: Page) {
   })
 }
 
+async function scrollThroughContent(page: Page, totalPx = 800, stepDelay = 1100) {
+  const scrolled = await page.evaluate(async ({ total, delay }) => {
+    function delay_(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+    const all = Array.from(document.querySelectorAll<HTMLElement>('*'))
+    const target = all.filter(el => {
+      const s = getComputedStyle(el)
+      return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+             el.scrollHeight > el.clientHeight + 20
+    }).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0]
+    if (!target) return 0
+    const steps = 5
+    const step = Math.min(total / steps, (target.scrollHeight - target.clientHeight) / steps)
+    for (let i = 0; i < steps; i++) {
+      target.scrollTop += step
+      await delay_(delay)
+    }
+    await delay_(delay)
+    target.scrollTop = 0
+    return steps * step
+  }, { total: totalPx, delay: stepDelay })
+  if (scrolled === 0) {
+    for (let i = 0; i < 5; i++) {
+      await page.mouse.wheel(0, 200)
+      await page.waitForTimeout(stepDelay)
+    }
+    await page.evaluate(() => window.scrollTo({ top: 0 }))
+  }
+}
+
+async function waitForContent(page: Page, opts: { minNodes?: number; timeoutMs?: number } = {}) {
+  const { minNodes = 30, timeoutMs = 8000 } = opts
+  await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => null)
+  await page.waitForFunction(
+    (min) => document.querySelectorAll('main *, [data-slot], button, [role]').length >= min,
+    minNodes,
+    { timeout: timeoutMs },
+  ).catch(() => null)
+  await page.waitForTimeout(400)
+}
+
+async function cleanupSources(page: Page) {
+  try {
+    const tok = await page.evaluate(() => localStorage.getItem('access_token'))
+    if (!tok) return
+    const base = BASE.replace(':5173', ':8000')
+    const resp = await page.request.get(`${base}/v3/sources`, {
+      headers: { Authorization: `Bearer ${tok}` },
+    })
+    if (!resp.ok()) return
+    const items = (await resp.json()) as Array<{ id: string }>
+    for (const item of items) {
+      await page.request.delete(`${base}/v3/sources/${item.id}`, {
+        headers: { Authorization: `Bearer ${tok}` },
+      }).catch(() => null)
+    }
+    console.log(`cleanupSources: removed ${items.length} prior uploads`)
+  } catch { /* non-blocking */ }
+}
+
 async function login(page: Page) {
   await page.goto(`${BASE}/login`)
   await wait(1500)
@@ -150,6 +209,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
 
   await login(page)
   await wait(1200)
+  // Clean slate — wipe prior uploads so the file-upload scene later is realistic.
+  await cleanupSources(page)
   await page.goto(`${BASE}/research`)
   await wait(2500)
 
@@ -448,9 +509,10 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     ['/settings',    'Settings — LLM provider, API keys, MCP server health, OAuth providers.'],
   ] as const) {
     await page.goto(`${BASE}${path}`).catch(() => {})
-    await wait(2500)
+    await waitForContent(page, { minNodes: 40 })
     await subtitle(page, msg, 4500)
-    await wait(2500)
+    await scrollThroughContent(page, 700, 1000)
+    await clearSubtitle(page)
   }
 
   // ----- Cost-breakdown panel on /runs (click a row to slide it in) -----

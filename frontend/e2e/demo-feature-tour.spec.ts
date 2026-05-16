@@ -154,35 +154,65 @@ async function waitForContent(page: Page, opts: { minNodes?: number; timeoutMs?:
   await new Promise(r => setTimeout(r, 400))
 }
 
-/** Scroll the page (and the largest scrollable container inside the main
- *  content area) so off-screen tables / sections are revealed in the recording. */
-async function scrollThroughContent(page: Page, totalPx = 600, stepDelay = 800) {
-  await page.evaluate(async ({ total, delay }) => {
+/** Scroll the largest scrollable container so off-screen content is visible
+ *  in the recording. Returns the total pixels actually scrolled so callers
+ *  can fall back to keyboard scrolling if the auto-detect found nothing. */
+async function scrollThroughContent(page: Page, totalPx = 800, stepDelay = 1100) {
+  const scrolled = await page.evaluate(async ({ total, delay }) => {
     function delay_(ms: number) { return new Promise(r => setTimeout(r, ms)) }
-
-    // Find the largest scrollable container — main content scrolls are usually
-    // inside a flex panel, not the document body.
     const all = Array.from(document.querySelectorAll<HTMLElement>('*'))
     const scrollable = all.filter(el => {
       const s = getComputedStyle(el)
       return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
-             el.scrollHeight > el.clientHeight + 50
+             el.scrollHeight > el.clientHeight + 20
     }).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))
-
-    const target = scrollable[0] ?? document.scrollingElement ?? document.documentElement
-    const steps = 4
-    const step = total / steps
+    const target = scrollable[0]
+    if (!target) return 0
+    const steps = 5
+    const step = Math.min(total / steps, (target.scrollHeight - target.clientHeight) / steps)
+    let totalScrolled = 0
     for (let i = 0; i < steps; i++) {
-      target.scrollTop = (target.scrollTop ?? 0) + step
+      target.scrollTop += step
+      totalScrolled += step
       await delay_(delay)
     }
-    // Brief pause at the bottom, then scroll back so the next scene starts clean.
     await delay_(delay)
     target.scrollTop = 0
+    return totalScrolled
   }, { total: totalPx, delay: stepDelay })
+
+  // Fallback for pages where the scrollable element is document.body
+  // (no overflow-y on an inner div) — use the page's mouse wheel.
+  if (scrolled === 0) {
+    for (let i = 0; i < 5; i++) {
+      await page.mouse.wheel(0, 200)
+      await page.waitForTimeout(stepDelay)
+    }
+    await page.waitForTimeout(stepDelay)
+    await page.evaluate(() => window.scrollTo({ top: 0 }))
+  }
 }
 
 // ----------- helpers -----------
+
+/** Wipe all of the logged-in user's prior uploaded sources so the file-upload
+ *  scene starts clean — no library clutter, no scrolling chip list. */
+async function cleanupSources(page: Page) {
+  try {
+    const resp = await page.request.get(`${BASE.replace(':5173', ':8000')}/v3/sources`, {
+      headers: { Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('access_token'))}` },
+    })
+    if (!resp.ok()) return
+    const items = (await resp.json()) as Array<{ id: string }>
+    for (const item of items) {
+      await page.request.delete(
+        `${BASE.replace(':5173', ':8000')}/v3/sources/${item.id}`,
+        { headers: { Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('access_token'))}` } },
+      ).catch(() => null)
+    }
+    console.log(`cleanupSources: removed ${items.length} prior uploads`)
+  } catch { /* non-blocking */ }
+}
 
 async function login(page: Page) {
   await page.goto(`${BASE}/login`)
@@ -243,6 +273,10 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await login(page)
   await wait(1500)
   await clearSubtitle(page)
+
+  // Clean slate: remove prior uploads so the file-upload scene later
+  // is realistic (single new file in an empty library).
+  await cleanupSources(page)
 
   // ===========================================================
   //  DASHBOARD (proper time, not a flyover)
@@ -344,9 +378,8 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   // ----- Modal walk-through -----
   await subtitle(page,
-    'Modal — proper search-result cards with title, snippet, source link, confidence.\n' +
-    'Not raw JSON — formatted for reading.',
-    5500,
+    'Modal — proper search-result cards with title, snippet, source link, confidence.',
+    5000,
   )
   await wait(2500)
   // Scroll inside the modal so additional findings below the fold are
