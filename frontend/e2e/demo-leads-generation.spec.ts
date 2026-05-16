@@ -241,25 +241,31 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await subtitle(page,
     "Got an existing list? Drop the CSV — file is parsed, indexed, then\n" +
     "the agent can answer questions grounded in those rows.",
-    5500, 'top',
+    4500, 'top',
   )
 
-  // Upload the leads list
+  // Upload the leads list. Indexing happens in the background (embedding +
+  // Qdrant write); we don't need to BLOCK the demo on it — the next chat
+  // turn will pick up the source as soon as it's indexed. Show a short
+  // upload-status subtitle, then move on.
   const fileInput = page.locator('input[type="file"]').first()
   await fileInput.setInputFiles(SAMPLE_LEADS)
-  await wait(1500)
-  await subtitle(page, 'Uploading 5-company leads list...', 2500, 'top')
+  await wait(1000)
+  await subtitle(page, '5-company leads list uploading…', 2000, 'top')
 
-  // Wait for indexed
-  await page.waitForFunction(
-    () => /\bindexed|failed\b/i.test(document.body.textContent || ''),
-    null,
-    { timeout: 90_000 },
-  ).catch(() => {})
-  await wait(1500)
+  // Wait up to 15s for indexed status — long enough for fast tests, short
+  // enough not to bore the viewer. Whichever resolves first wins.
+  await Promise.race([
+    page.waitForFunction(
+      () => /\bindexed|failed\b/i.test(document.body.textContent || ''),
+      null,
+      { timeout: 15_000 },
+    ).catch(() => null),
+    page.waitForTimeout(15_000),
+  ])
   await subtitle(page,
     'CSV parsed, chunked, embedded — RAG context ready.',
-    4500,
+    3000,
   )
 
   // Ask agent to enrich
@@ -280,13 +286,14 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await wait(700)
   await input2.press('Enter')
 
-  await wait(15_000)
+  // Don't dead-wait for the agent. Narrate while the request streams.
   await subtitle(page,
     "Agent retrieves matching rows from the file, runs targeted searches\n" +
     "per company, and assembles a structured table with citations.",
     6000,
   )
-  await wait(5_000)
+  // Brief tail so the viewer sees the live response start to land.
+  await wait(4000)
 
   await clearSubtitle(page)
 
