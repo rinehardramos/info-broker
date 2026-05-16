@@ -70,7 +70,7 @@ export default function Dashboard() {
         <MetricCard
           label="Error Rate (1h)"
           value={errorRateStr}
-          highlight={errorRate > 10}
+          highlight={(errorRate ?? 0) > 10}
         />
         <MetricCard label="Avg Duration" value={avgDurationStr} />
       </div>

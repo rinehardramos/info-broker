@@ -11,9 +11,7 @@ import { ResultDrawer } from './components/runs/ResultDrawer'
 // Lazy-load pages to keep initial bundle small
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Research = lazy(() => import('./pages/Research'))
-const Jobs      = lazy(() => import('./pages/Jobs'))
 const Monitors  = lazy(() => import('./pages/Monitors'))
-const History   = lazy(() => import('./pages/History'))
 const Settings    = lazy(() => import('./pages/Settings'))
 const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 const PluginsPage    = lazy(() => import('./pages/PluginsPage'))
@@ -56,9 +54,10 @@ export default function App() {
             <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
             <Route path="/dashboard" element={<AuthGuard><Dashboard /></AuthGuard>} />
             <Route path="/research" element={<AuthGuard><Research /></AuthGuard>} />
-            <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
+            {/* /jobs and /history redirect to the unified /runs page */}
+            <Route path="/jobs" element={<Navigate to="/runs" replace />} />
             <Route path="/monitors" element={<AuthGuard><Monitors /></AuthGuard>} />
-            <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
+            <Route path="/history" element={<Navigate to="/runs" replace />} />
             <Route path="/runs" element={<AuthGuard><Runs /></AuthGuard>} />
             <Route path="/wallet" element={<AuthGuard><Wallet /></AuthGuard>} />
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
