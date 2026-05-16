@@ -223,11 +223,24 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await cards.nth(idx).click()
   await wait(1500)
   await subtitle(page,
-    "Lead detail — title, snippet, source link, confidence.\n" +
-    "Use Sources tab to verify and grade each citation.",
-    5500,
+    "Lead detail — Results tab: title, snippet, source link, confidence bar.",
+    5000,
   )
-  await wait(3500)
+  await wait(3000)
+  // Walk through every modal tab so all are highlighted.
+  for (const [tabName, sub] of [
+    ['sources',    'Sources tab — every URL behind the answer, gradable for trust.'],
+    ['hypothesis', 'Hypothesis tab — which Heuer hypothesis this finding supports / refutes.'],
+    ['details',    'Details tab — query params, timing, raw payload (collapsed for power users).'],
+  ] as const) {
+    const tab = page.getByRole('tab', { name: new RegExp(tabName, 'i') }).first()
+    if (await tab.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await tab.click().catch(() => {})
+      await wait(700)
+      await subtitle(page, sub, 4500)
+      await wait(2500)
+    }
+  }
   await page.keyboard.press('Escape').catch(() => {})
   await wait(1000)
 
@@ -287,6 +300,21 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   }
   await clearSubtitle(page)
 
+  // ----- Share dialog -----
+  const shareBtn = page.locator('[data-testid="share-run-button"]').first()
+  if (await shareBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await shareBtn.click().catch(() => {})
+    await wait(1200)
+    await subtitle(page,
+      'Share — generate a read-only link to this run. Recipients see findings + sources, no auth required.',
+      5500,
+    )
+    await wait(3500)
+    await page.keyboard.press('Escape').catch(() => {})
+    await wait(500)
+    await clearSubtitle(page)
+  }
+
   // ===========================================================
   // PART 2 — FILE UPLOAD LEAD ENRICHMENT
   // ===========================================================
@@ -309,6 +337,21 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await fileInput.setInputFiles(SAMPLE_LEADS)
   await wait(1000)
   await subtitle(page, '5-company leads list uploading…', 2000, 'top')
+
+  // Library picker — session isolation: uploaded files only show for the
+  // active chat session, but a Library picker lets you re-attach prior uploads.
+  const libBtn = page.locator('button:has-text("Library")').first()
+  if (await libBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await libBtn.click().catch(() => {})
+    await wait(1200)
+    await subtitle(page,
+      'Library picker — re-attach prior uploads to this session without re-uploading.',
+      4500, 'top',
+    )
+    await wait(2500)
+    await page.keyboard.press('Escape').catch(() => {})
+    await wait(500)
+  }
 
   // Wait up to 15s for indexed status — long enough for fast tests, short
   // enough not to bore the viewer. Whichever resolves first wins.
@@ -391,20 +434,39 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   // ===========================================================
   // PART 4 — REST OF THE APP (quick tour)
   // ===========================================================
-  await title(page, 'The rest of the workspace', 'Dashboard · Performance · Wallet · Plugins · Settings', 3500)
+  await title(page, 'The rest of the workspace',
+    'Dashboard · Monitors · Performance · Wallet · Plugins · Knowledge Graph · Settings', 4000)
   await clearTitle(page)
 
   for (const [path, msg] of [
-    ['/dashboard',   'Dashboard — runs today, success rate, live jobs, errors.'],
+    ['/dashboard',   'Dashboard — runs today, success rate, live jobs, errors at a glance.'],
+    ['/monitors',    'Monitors — scheduled / recurring research jobs and watchers.'],
     ['/performance', 'Performance — strategies, tactics, techniques graded on the Admiralty scale.'],
     ['/wallet',      'Wallet — Research Units (RU) held at preflight, settled at completion.'],
     ['/plugins',     'Plugins — 50+ OSINT modules: search engines, social feeds, SEC EDGAR, Apify, etc.'],
-    ['/settings',    'Settings — LLM provider, API keys, MCP server health.'],
+    ['/knowledge',   'Knowledge Graph — entities and relationships extracted across all runs.'],
+    ['/settings',    'Settings — LLM provider, API keys, MCP server health, OAuth providers.'],
   ] as const) {
     await page.goto(`${BASE}${path}`).catch(() => {})
     await wait(2500)
     await subtitle(page, msg, 4500)
     await wait(2500)
+  }
+
+  // ----- Cost-breakdown panel on /runs (click a row to slide it in) -----
+  await page.goto(`${BASE}/runs`)
+  await wait(2000)
+  const costToggle = page.locator('button[title="View cost breakdown"]').first()
+  if (await costToggle.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await costToggle.click().catch(() => {})
+    await wait(1200)
+    await subtitle(page,
+      'Cost breakdown — per-run RU consumption broken down by tool call and stage.',
+      4500,
+    )
+    await wait(3000)
+    await page.keyboard.press('Escape').catch(() => {})
+    await wait(500)
   }
   await clearSubtitle(page)
 
