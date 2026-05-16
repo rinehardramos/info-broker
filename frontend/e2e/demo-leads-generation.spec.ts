@@ -228,6 +228,51 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await wait(3500)
   await page.keyboard.press('Escape').catch(() => {})
   await wait(1000)
+
+  // ----- Go Deeper / Analyze / Save Pipeline -----
+  const goDeepBtn = page.locator('button:has-text("Go Deep")').first()
+  const analyzeBtn = page.locator('button:has-text("Analyze")').first()
+  const saveBtn = page.locator('button:has-text("Save Pipeline"), button:has-text("Save as Pipeline")').first()
+
+  if (await goDeepBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await goDeepBtn.scrollIntoViewIfNeeded()
+    await wait(800)
+    await subtitle(page, 'Three post-run actions: Go Deeper · Analyze · Save Pipeline.', 4500)
+    await wait(2000)
+    await goDeepBtn.hover().catch(() => {})
+    await subtitle(page,
+      'Go Deeper — spawn fresh hypotheses around the top lead and keep investigating.',
+      4500,
+    )
+    await wait(2500)
+    if (await analyzeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await analyzeBtn.hover().catch(() => {})
+      await subtitle(page, 'Analyze — summarise all findings into a coherent lead-gen briefing.', 4500)
+      await wait(2500)
+    }
+    if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await saveBtn.hover().catch(() => {})
+      await subtitle(page, 'Save as Pipeline — template this run; re-execute with new ICPs later.', 4500)
+      await wait(2500)
+    }
+  }
+  await clearSubtitle(page)
+
+  // ----- Full investigation DAG (4-levels-deep flow diagram) -----
+  const dagTab = page.getByRole('tab', { name: /^dag$/i }).first()
+  if (await dagTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await dagTab.click()
+    await wait(1500)
+    await subtitle(page,
+      'Full investigation DAG — phase → tactician → tool-call → finding.\n' +
+      "Four levels deep, all in one view.",
+      6000,
+    )
+    await wait(3500)
+    // back to Live tab so the next section starts clean
+    await page.getByRole('tab', { name: /^live$/i }).first().click().catch(() => {})
+    await wait(800)
+  }
   await clearSubtitle(page)
 
   // ===========================================================
@@ -294,10 +339,75 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   )
   // Brief tail so the viewer sees the live response start to land.
   await wait(4000)
-
   await clearSubtitle(page)
 
-  await title(page, "That's it", '/research handles both flows in one workspace', 4500)
+  // ===========================================================
+  // PART 3 — EXPORT + REPORTS (Runs → DownloadMenu)
+  // ===========================================================
+  await title(page, 'Export & reports', 'Every run is exportable: CSV, XLSX, PDF report', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/runs`)
+  await wait(2500)
+  await subtitle(page, 'Runs page — every investigation, filterable + downloadable.', 4500)
+  await wait(2500)
+
+  // Trigger DownloadMenu on the first row
+  const downloadBtn = page.locator('button:has-text("Download")').first()
+  if (await downloadBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await downloadBtn.click()
+    await wait(1000)
+    await subtitle(page,
+      'Download menu — Export as CSV / XLSX or generate a PDF report.\n' +
+      'Reports include all citations, confidence scores, and the ACH matrix.',
+      6000,
+    )
+    await wait(3500)
+    await page.keyboard.press('Escape').catch(() => {})
+    await wait(500)
+  }
+  await clearSubtitle(page)
+
+  // ===========================================================
+  // PART 4 — REST OF THE APP (quick tour)
+  // ===========================================================
+  await title(page, 'The rest of the workspace', 'Dashboard · Performance · Wallet · Plugins · Settings', 3500)
+  await clearTitle(page)
+
+  for (const [path, msg] of [
+    ['/dashboard',   'Dashboard — runs today, success rate, live jobs, errors.'],
+    ['/performance', 'Performance — strategies, tactics, techniques graded on the Admiralty scale.'],
+    ['/wallet',      'Wallet — Research Units (RU) held at preflight, settled at completion.'],
+    ['/plugins',     'Plugins — 50+ OSINT modules: search engines, social feeds, SEC EDGAR, Apify, etc.'],
+    ['/settings',    'Settings — LLM provider, API keys, MCP server health.'],
+  ] as const) {
+    await page.goto(`${BASE}${path}`).catch(() => {})
+    await wait(2500)
+    await subtitle(page, msg, 4500)
+    await wait(2500)
+  }
+  await clearSubtitle(page)
+
+  // ===========================================================
+  // PART 5 — NIGHT MODE TOGGLE
+  // ===========================================================
+  await title(page, 'Theme switcher', 'Deep Navy (default) ↔ Hacker (true black night mode)', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/dashboard`)
+  await wait(2000)
+  // The theme toggle lives in the IconRail at the bottom of the side strip.
+  const themeBtn = page.locator('button[title*="Switch to"]').first()
+  if (await themeBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+    await subtitle(page, 'Toggle to Hacker mode — true black, even higher contrast for long sessions.', 5000)
+    await themeBtn.click()
+    await wait(2500)
+    await themeBtn.click()
+    await wait(1500)
+    await subtitle(page, 'Toggle back to Deep Navy.', 3000)
+    await wait(2500)
+  }
+  await clearSubtitle(page)
+
+  await title(page, "That's it", "Lead-gen end-to-end · chat & file · export · all in one workspace", 4500)
   await clearTitle(page)
 
   // Write SRT sidecar
