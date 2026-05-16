@@ -13,6 +13,15 @@ import {
 
 // Coerce any value to a finite number then format. Backends sometimes return
 // numeric columns as strings (psycopg2 NUMERIC, etc.) which break .toFixed().
+
+// Convert snake_case / kebab-case identifiers to "Title Case" for display.
+function humanize(id: string): string {
+  if (!id) return id
+  return id
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
+
 function fmtNum(v: unknown, digits: number): string {
   const n = Number(v)
   return Number.isFinite(n) ? n.toFixed(digits) : '—'
@@ -181,13 +190,13 @@ function TechniqueTable({ rows }: { rows: TechniquePerf[] }) {
         <tbody>
           {sorted.map((t, i) => (
             <tr
-              key={t.tool}
+              key={humanize(t.tool)}
               style={{
                 background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)',
               }}
             >
               <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>
-                {t.tool}
+                {humanize(t.tool)}
               </td>
               <td style={{ padding: '5px 10px' }}>
                 <GradePill grade={t.avg_grade} />
@@ -228,7 +237,7 @@ function TacticTable({ rows }: { rows: TacticPerf[] }) {
         <tbody>
           {sorted.map((t, i) => (
             <tr
-              key={t.name}
+              key={humanize(t.name)}
               style={{
                 background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)',
               }}
@@ -311,8 +320,8 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
                 {data.steps.map((s, i) => {
                   const rate = s.total > 0 ? (s.succeeded / s.total) * 100 : 0
                   return (
-                    <tr key={s.node_type} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
-                      <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>{s.node_type}</td>
+                    <tr key={humanize(s.node_type)} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
+                      <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>{humanize(s.node_type)}</td>
                       <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.total}</td>
                       <td style={{ padding: '5px 10px', color: rate >= 80 ? '#4ade80' : rate >= 50 ? '#fbbf24' : '#f87171' }}>
                         {rate.toFixed(0)}%
@@ -344,7 +353,7 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
               <tbody>
                 {data.strategies.map((s, i) => (
                   <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
-                    <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{s.strategy}</td>
+                    <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{humanize(s.strategy)}</td>
                     <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
                     <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_score, 2)}</td>
                   </tr>
@@ -485,7 +494,7 @@ export default function PerformanceDashboard() {
               <tbody>
                 {(metricsSummary?.strategies ?? []).map((s, i) => (
                   <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel2)' }}>
-                    <td style={{ padding: '6px 10px', color: 'var(--text)', fontFamily: 'monospace', fontSize: 11 }}>{s.strategy}</td>
+                    <td style={{ padding: '6px 10px', color: 'var(--text)', fontSize: 12 }}>{humanize(s.strategy)}</td>
                     <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
                     <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_score, 2)}</td>
                   </tr>

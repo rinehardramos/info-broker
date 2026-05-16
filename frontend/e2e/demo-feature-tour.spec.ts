@@ -22,14 +22,14 @@ const BASE = 'http://localhost:5173'
 const SAMPLE_FILE = '/tmp/demo-fileupload-data.txt'
 
 test.use({
-  // Use the user's installed Google Chrome (not bundled chromium) in headed
-  // mode at 1080p — captures hi-res WebM video.
+  // Google Chrome at 1440×900 — fits comfortably on a 13" / 14" laptop
+  // and most external monitors without window-chrome clipping.
   channel: 'chrome',
-  video: { mode: 'on', size: { width: 1920, height: 1080 } },
-  viewport: { width: 1920, height: 1080 },
+  video: { mode: 'on', size: { width: 1440, height: 900 } },
+  viewport: { width: 1440, height: 900 },
   headless: false,
   launchOptions: {
-    args: ['--auto-open-devtools-for-tabs=false'],
+    args: ['--auto-open-devtools-for-tabs=false', '--window-size=1440,900'],
   },
 })
 
@@ -52,12 +52,12 @@ function fmtSrtTime(ms: number): string {
   return `${p2(h)}:${p2(m)}:${p2(s)},${msPart.toString().padStart(3, '0')}`
 }
 
-async function subtitle(page: Page, text: string, holdMs = 3500) {
+async function subtitle(page: Page, text: string, holdMs = 3500, position: 'top' | 'bottom' = 'bottom') {
   const t = Date.now()
   const startMs = t - demoStartMs
   subtitles.push({ startMs, endMs: startMs + holdMs, text })
 
-  await page.evaluate((s) => {
+  await page.evaluate(({ s, pos }) => {
     let el = document.getElementById('__demo_subtitle__')
     if (!el) {
       el = document.createElement('div')
@@ -66,13 +66,12 @@ async function subtitle(page: Page, text: string, holdMs = 3500) {
         'position:fixed',
         'left:50%',
         'transform:translateX(-50%)',
-        'bottom:48px',
         'z-index:2147483647',
         'background:rgba(15,15,20,0.92)',
         'color:#ffffff',
-        'font:600 22px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-        'padding:14px 28px',
-        'border-radius:14px',
+        'font:600 19px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+        'padding:11px 22px',
+        'border-radius:12px',
         'max-width:80vw',
         'text-align:center',
         'box-shadow:0 10px 40px rgba(0,0,0,0.45)',
@@ -82,8 +81,11 @@ async function subtitle(page: Page, text: string, holdMs = 3500) {
       ].join(';')
       document.body.appendChild(el)
     }
+    // Re-anchor each call so the position can toggle (typing scenes → top).
+    el.style.top = pos === 'top' ? '40px' : ''
+    el.style.bottom = pos === 'bottom' ? '40px' : ''
     el.textContent = s
-  }, text)
+  }, { s: text, pos: position })
 
   await wait(holdMs)
 }
@@ -186,42 +188,24 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await title(page, 'info-broker', 'Live OSINT research with AI assistance · 2026 demo', 4500)
   await clearTitle(page)
 
-  // -- Login
-  await login(page)
+  // -- Login (show SSO buttons even if disabled — visually convey the option)
+  await page.goto(`${BASE}/login`)
   await wait(1200)
+  await subtitle(page, 'Sign in — password, Google, or GitHub SSO', 4000, 'top')
+  await wait(2500)
+  await login(page)
+  await wait(1500)
+  await clearSubtitle(page)
 
   // ===========================================================
-  //  QUICK TOUR — supporting features (flyover, 8-12s each)
+  //  DASHBOARD (proper time, not a flyover)
   // ===========================================================
-  // Dashboard
   await page.goto(`${BASE}/dashboard`).catch(() => {})
   await wait(2500)
-  await subtitle(page, 'Dashboard — runs today, success rate, live jobs, errors at a glance', 4500)
-  await wait(500)
-
-  // History
-  await page.goto(`${BASE}/history`).catch(() => {})
-  await wait(2500)
-  await subtitle(page, 'History — every run logged, filterable, exportable as CSV/XLSX', 4500)
-  await wait(500)
-
-  // Performance
-  await page.goto(`${BASE}/performance`).catch(() => {})
-  await wait(2500)
-  await subtitle(page, 'Performance — strategies, tactics, and techniques graded on the Admiralty scale', 4500)
-  await wait(500)
-
-  // Pipelines
-  await page.goto(`${BASE}/pipelines`).catch(() => {})
-  await wait(2500)
-  await subtitle(page, 'Pipelines — drag-and-drop node editor for custom research workflows', 4500)
-  await wait(500)
-
-  // Settings (quick glance)
-  await page.goto(`${BASE}/settings`).catch(() => {})
-  await wait(2500)
-  await subtitle(page, 'Settings — agent config, model picks, MCP servers, API keys', 4500)
-  await wait(500)
+  await subtitle(page, 'Dashboard — at-a-glance metrics: runs today, success rate, live jobs, errors', 5500)
+  await wait(2000)
+  await subtitle(page, 'Recent runs table — click any row to inspect the full result', 4500)
+  await wait(3000)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -232,14 +216,15 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await page.goto(`${BASE}/research`)
   await wait(2000)
 
-  await subtitle(page, 'Research workspace — pipeline · agent chat · live stream', 4000)
+  await subtitle(page, 'Research workspace — pipeline · agent chat · live stream', 4000, 'top')
   await subtitle(page,
     "Let's ask: 'Who is the CEO of OpenAI in 2026?'\n" +
-    'The agent will pick a strategy, run parallel hypotheses, and stream results.',
+    'The agent will pick a strategy, run parallel hypotheses, stream live results.',
     5500,
+    'top',
   )
 
-  // Type query
+  // Type query — keep subtitle at TOP so the input field stays visible.
   const input = page
     .locator('textarea, input[type="text"]')
     .filter({ hasNot: page.locator('[type="password"]') })
@@ -248,7 +233,7 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await input.click()
   await input.pressSequentially('Who is the CEO of OpenAI in 2026?', { delay: 18 })
   await wait(600)
-  await subtitle(page, 'Submitting query...', 1800)
+  await subtitle(page, 'Submitting query...', 1800, 'top')
   await input.press('Enter')
 
   // Preflight panel appears
@@ -262,18 +247,27 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   const runBtn = page.getByRole('button', { name: /^run$/i }).first()
   await runBtn.click()
-  await wait(1200)
+  await wait(1500)
+
+  // Camera: switch the left tab strip away from "Pipeline" (empty graph) to
+  // the active-run / Results tab so the recording shows actual activity.
+  const resultsTab = page.locator(
+    '[role="tab"]:has-text("Result"), [role="tab"]:has-text("Run"), button:has-text("Agent Default")'
+  ).first()
+  if (await resultsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await resultsTab.click().catch(() => {})
+  }
+  await wait(1000)
   await subtitle(page, 'Engine v2 launched — Heuer analytic methodology, 4 phases', 4000)
 
   // Wait for first phase to start
-  await wait(4000)
+  await wait(3000)
   await subtitle(page,
     'Phase 1 of 4 — SIGNAL EXTRACTION.\n' +
     'The brain parses the query into structured entities & intent.',
     5000,
   )
 
-  // Wait for cards to start streaming
   await page.waitForFunction(
     () => document.querySelectorAll('[data-slot="node-result-card"]').length >= 3,
     null,
@@ -303,29 +297,55 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   const cards = page.locator('[data-slot="node-result-card"]')
   await cards.nth(targetIdx).scrollIntoViewIfNeeded()
-  await wait(500)
+  await wait(800)
   await cards.nth(targetIdx).click()
   await wait(1500)
 
+  // ----- Modal walk-through -----
   await subtitle(page,
-    'Modal — full result detail.\n' +
-    'Title, snippet, source link, confidence — formatted for reading, not JSON.',
+    'Modal — proper search-result cards with title, snippet, source link, confidence.\n' +
+    'Not raw JSON — formatted for reading.',
     5500,
   )
+  await wait(2500)
 
-  await wait(2000)
-
-  // Show the Sources tab too for variety
   const sourcesTab = page.getByRole('tab', { name: /sources/i }).first()
   if (await sourcesTab.isVisible({ timeout: 1500 }).catch(() => false)) {
     await sourcesTab.click()
     await wait(800)
     await subtitle(page, 'Sources tab — every URL behind the answer, gradable for trust', 4500)
+    await wait(3000)
+  }
+
+  const detailsTab = page.getByRole('tab', { name: /details/i }).first()
+  if (await detailsTab.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await detailsTab.click()
+    await wait(800)
+    await subtitle(page, 'Details tab — query params, timing, raw payload (collapsed) for power users', 5000)
+    await wait(3500)
   }
 
   // Close the modal
   await page.keyboard.press('Escape').catch(() => {})
-  await wait(800)
+  await wait(1000)
+
+  // ----- Scroll down to the Go Deep / Analyze / Save Pipeline action row -----
+  const actionsRow = page.locator(
+    'button:has-text("Go Deep"), button:has-text("Analyze"), button:has-text("Save Pipeline")'
+  ).first()
+  if (await actionsRow.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await actionsRow.scrollIntoViewIfNeeded()
+    await wait(1000)
+    await subtitle(page,
+      'Action row — Go Deep continues research, Analyze summarises, Save Pipeline templates this run.',
+      5500,
+    )
+    await wait(3500)
+  } else {
+    await subtitle(page, 'Scroll the result panel to find Go Deep / Analyze / Save Pipeline.', 4000)
+    await wait(2000)
+  }
+
   await clearSubtitle(page)
 
   // ===========================================================
@@ -370,9 +390,9 @@ test('demo feature tour — research + file upload + inference', async ({ page }
     .filter({ hasNot: page.locator('[type="password"]') })
     .first()
   await chatInput.click()
+  await subtitle(page, 'Asking the agent a question grounded in the uploaded file...', 4000, 'top')
   await chatInput.pressSequentially('Who is the CEO of ACME Research Group and what are the strategic priorities?', { delay: 18 })
   await wait(600)
-  await subtitle(page, 'Asking the agent a question grounded in the uploaded file...', 4000)
   await chatInput.press('Enter')
 
   // Wait for an answer to stream in
@@ -384,6 +404,69 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   )
 
   await wait(4000)
+  await clearSubtitle(page)
+
+  // ===========================================================
+  //  PART 3 — PERFORMANCE DASHBOARD
+  // ===========================================================
+  await title(page, 'Performance', 'Strategies, tactics & techniques graded on Admiralty scale', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/performance`).catch(() => {})
+  await wait(2500)
+  await subtitle(page, 'Every run is graded — letter grades (A-F) plus a numeric 1-6 credibility score.', 5500)
+  await wait(3000)
+  await subtitle(page, 'Tools, tactics, and strategies are ranked so you can see which approaches converge.', 5500)
+  await wait(3000)
+  await clearSubtitle(page)
+
+  // ===========================================================
+  //  PART 4 — PLUGINS
+  // ===========================================================
+  await title(page, 'Plugins', 'Search engines, OSINT sources, social feeds — drop-in modules', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/plugins`).catch(() => {})
+  await wait(2500)
+  await subtitle(page, 'Each plugin is a node the pipeline can use — install, configure, or build your own.', 5500)
+  await wait(3000)
+  await subtitle(page, '50+ MCP tools out of the box: SerpAPI, Brave, DDG, Wikipedia, Apify, SEC EDGAR, …', 5500)
+  await wait(3000)
+  await clearSubtitle(page)
+
+  // ===========================================================
+  //  PART 5 — WALLET
+  // ===========================================================
+  await title(page, 'Wallet', 'Research Units (RU) — pay-per-run with hold-and-settle', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/wallet`).catch(() => {})
+  await wait(2500)
+  await subtitle(page, 'Every run carries a cost estimate. The wallet holds RU at preflight; settles at completion.', 6000)
+  await wait(3500)
+  await subtitle(page, 'Transparent ledger — every charge tied to a specific run, with refunds on cancel.', 5500)
+  await wait(3000)
+  await clearSubtitle(page)
+
+  // ===========================================================
+  //  PART 6 — RUNS (merged history)
+  // ===========================================================
+  await title(page, 'Runs', 'All your investigations — filterable, exportable, replayable', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/runs`).catch(() => {})
+  await wait(2500)
+  await subtitle(page, 'Unified view: every run, with cost, status, duration, and filters by date / status.', 6000)
+  await wait(3500)
+  await subtitle(page, 'Click any row for the full result drawer — replay, download, or share.', 4500)
+  await wait(2500)
+  await clearSubtitle(page)
+
+  // ===========================================================
+  //  PART 7 — SETTINGS
+  // ===========================================================
+  await title(page, 'Settings', 'Agent config, model picks, API keys, node health', 3500)
+  await clearTitle(page)
+  await page.goto(`${BASE}/settings`).catch(() => {})
+  await wait(2500)
+  await subtitle(page, 'Pick your LLM provider, rotate API keys, monitor MCP server health from one place.', 6000)
+  await wait(3500)
   await clearSubtitle(page)
 
   // ===========================================================
