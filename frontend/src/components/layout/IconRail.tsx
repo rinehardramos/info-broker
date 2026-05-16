@@ -25,9 +25,9 @@ const NAV = [
   { icon: <LayoutDashboard size={18} />, path: '/dashboard',       label: 'Dashboard' },
   { icon: <Search size={18} />,          path: '/research',         label: 'Research' },
   { icon: <Radio size={18} />,           path: '/monitors',         label: 'Monitors' },
-  // Runs is the unified history (filters + cost column). /history and /jobs
-  // both redirect to /runs in App.tsx.
-  { icon: <List size={18} />,            path: '/runs',             label: 'Runs' },
+  // History is the unified run log (filters + cost column).
+  // /history and /jobs both redirect to /runs in App.tsx.
+  { icon: <List size={18} />,            path: '/runs',             label: 'History' },
   { icon: <Wallet size={18} />,          path: '/wallet',           label: 'Wallet' },
   { icon: <Puzzle size={18} />,          path: '/plugins',          label: 'Plugins' },
   { icon: <Server size={18} />,          path: '/admin/processes',  label: 'Live Processes' },

@@ -71,7 +71,7 @@ export default function Runs() {
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <div className="flex-1 overflow-auto p-6 space-y-4">
-        <h1 className="text-lg font-semibold">Runs</h1>
+        <h1 className="text-lg font-semibold">History</h1>
 
         {/* Filters */}
         <div className="flex flex-wrap items-end gap-3">

@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels'
 import { StreamingCardList } from './StreamingCardList'
 import { FlowMiniPreview } from './FlowMiniPreview'
+import { InvestigationDAG } from './InvestigationDAG'
 import { PhaseDAGView } from './PhaseDAGView'
 import { ShareDialog } from './ShareDialog'
 import { useLayoutStore } from '@/stores/layoutStore'
@@ -137,7 +138,11 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
         maxSize={60}
         className="overflow-hidden"
       >
-        <FlowMiniPreview runId={runId} />
+        {/* Bottom panel: full investigation DAG. Replaces the previous
+            FlowMiniPreview — the DAG shows the same data (phases /
+            tacticians / tool calls / findings) but rendered as a real
+            graph, scrollable in all directions. */}
+        <InvestigationDAG runId={runId} />
       </Panel>
     </PanelGroup>
   )

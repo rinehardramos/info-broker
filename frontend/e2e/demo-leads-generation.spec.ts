@@ -112,32 +112,20 @@ async function clearTitle(page: Page) {
 }
 
 async function scrollThroughContent(page: Page, totalPx = 800, stepDelay = 1100) {
-  const scrolled = await page.evaluate(async ({ total, delay }) => {
-    function delay_(ms: number) { return new Promise(r => setTimeout(r, ms)) }
-    const all = Array.from(document.querySelectorAll<HTMLElement>('*'))
-    const target = all.filter(el => {
-      const s = getComputedStyle(el)
-      return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
-             el.scrollHeight > el.clientHeight + 20
-    }).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0]
-    if (!target) return 0
-    const steps = 5
-    const step = Math.min(total / steps, (target.scrollHeight - target.clientHeight) / steps)
-    for (let i = 0; i < steps; i++) {
-      target.scrollTop += step
-      await delay_(delay)
-    }
-    await delay_(delay)
-    target.scrollTop = 0
-    return steps * step
-  }, { total: totalPx, delay: stepDelay })
-  if (scrolled === 0) {
-    for (let i = 0; i < 5; i++) {
-      await page.mouse.wheel(0, 200)
-      await page.waitForTimeout(stepDelay)
-    }
-    await page.evaluate(() => window.scrollTo({ top: 0 }))
+  const steps = 5
+  const stepPx = Math.round(totalPx / steps)
+  for (let i = 0; i < steps; i++) {
+    await page.mouse.wheel(0, stepPx)
+    await page.waitForTimeout(stepDelay)
   }
+  await page.waitForTimeout(stepDelay)
+  await page.evaluate(() => {
+    window.scrollTo({ top: 0 })
+    document.querySelectorAll<HTMLElement>('*').forEach(el => {
+      const s = getComputedStyle(el)
+      if (s.overflowY === 'auto' || s.overflowY === 'scroll') el.scrollTop = 0
+    })
+  })
 }
 
 async function waitForContent(page: Page, opts: { minNodes?: number; timeoutMs?: number } = {}) {
@@ -305,23 +293,18 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await page.keyboard.press('Escape').catch(() => {})
   await wait(1000)
 
-  // ----- Full investigation DAG (4-levels-deep flow diagram) -----
-  // Run the DAG scene FIRST so we're still on /research with PhaseDAGView visible.
-  const dagBtn = page.getByText('DAG', { exact: true }).first()
-  if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
-    await dagBtn.scrollIntoViewIfNeeded()
-    await dagBtn.click({ force: true }).catch(() => {})
-    await wait(1500)
-    await subtitle(page,
-      'Full investigation DAG — phase → tactician → tool-call → finding.\n' +
-      "Four levels deep, all in one view.",
-      6000,
-    )
-    await wait(3500)
-    const liveBtn = page.getByText('Live', { exact: true }).first()
-    await liveBtn.click({ force: true }).catch(() => {})
-    await wait(800)
-  }
+  // ----- DAG in bottom panel — phase → tactician → tool-call → finding -----
+  await page.evaluate(() => window.scrollBy({ top: 400 }))
+  await wait(1500)
+  await subtitle(page,
+    'Bottom panel: full investigation DAG — phase → tactician → tool-call → finding.\n' +
+    'Four levels deep in a single graph.',
+    6000,
+  )
+  await wait(3500)
+  await scrollThroughContent(page, 500, 900)
+  await page.evaluate(() => window.scrollTo({ top: 0 }))
+  await wait(800)
   await clearSubtitle(page)
 
   // ----- Go Deeper / Analyze / Save Pipeline -----

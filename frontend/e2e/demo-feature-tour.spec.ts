@@ -158,39 +158,25 @@ async function waitForContent(page: Page, opts: { minNodes?: number; timeoutMs?:
  *  in the recording. Returns the total pixels actually scrolled so callers
  *  can fall back to keyboard scrolling if the auto-detect found nothing. */
 async function scrollThroughContent(page: Page, totalPx = 800, stepDelay = 1100) {
-  const scrolled = await page.evaluate(async ({ total, delay }) => {
-    function delay_(ms: number) { return new Promise(r => setTimeout(r, ms)) }
-    const all = Array.from(document.querySelectorAll<HTMLElement>('*'))
-    const scrollable = all.filter(el => {
-      const s = getComputedStyle(el)
-      return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
-             el.scrollHeight > el.clientHeight + 20
-    }).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))
-    const target = scrollable[0]
-    if (!target) return 0
-    const steps = 5
-    const step = Math.min(total / steps, (target.scrollHeight - target.clientHeight) / steps)
-    let totalScrolled = 0
-    for (let i = 0; i < steps; i++) {
-      target.scrollTop += step
-      totalScrolled += step
-      await delay_(delay)
-    }
-    await delay_(delay)
-    target.scrollTop = 0
-    return totalScrolled
-  }, { total: totalPx, delay: stepDelay })
-
-  // Fallback for pages where the scrollable element is document.body
-  // (no overflow-y on an inner div) — use the page's mouse wheel.
-  if (scrolled === 0) {
-    for (let i = 0; i < 5; i++) {
-      await page.mouse.wheel(0, 200)
-      await page.waitForTimeout(stepDelay)
-    }
+  // ALWAYS use the page's mouse wheel — it works whether the scrollable
+  // element is window or a flex panel, and lets the viewer see the
+  // scrollbar move. The previous DOM-walk approach missed flex containers
+  // where the overflow-y was on a different ancestor.
+  const steps = 5
+  const stepPx = Math.round(totalPx / steps)
+  for (let i = 0; i < steps; i++) {
+    await page.mouse.wheel(0, stepPx)
     await page.waitForTimeout(stepDelay)
-    await page.evaluate(() => window.scrollTo({ top: 0 }))
   }
+  await page.waitForTimeout(stepDelay)
+  // Reset both window and any inner scrollables so the next scene starts clean
+  await page.evaluate(() => {
+    window.scrollTo({ top: 0 })
+    document.querySelectorAll<HTMLElement>('*').forEach(el => {
+      const s = getComputedStyle(el)
+      if (s.overflowY === 'auto' || s.overflowY === 'scroll') el.scrollTop = 0
+    })
+  })
 }
 
 // ----------- helpers -----------
@@ -434,37 +420,36 @@ test('demo feature tour — research + file upload + inference', async ({ page }
     await wait(800)
     await subtitle(page,
       'Three actions on a finished run: Go Deeper, Analyze, Save as Pipeline.',
-      5000,
+      4500,
     )
     await wait(2500)
 
-    // Hover (don't click) Go Deeper so the tooltip/affordance shows
-    await goDeepBtn.hover().catch(() => {})
+    // ACTUALLY click each button. RunActionRow's onClick handlers dispatch
+    // CustomEvents (demo:goDeeper / demo:analyze / demo:savePipeline) — no
+    // backend side effects, safe for the demo.
     await subtitle(page,
-      'Go Deeper — continues investigating from where you left off,\n' +
-      'spawning new hypotheses around the top result.',
-      5500,
+      'Go Deeper — spawns new hypotheses around the top result.',
+      4500,
     )
-    await wait(3000)
+    await goDeepBtn.click().catch(() => {})
+    await wait(2000)
 
     if (await analyzeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await analyzeBtn.hover().catch(() => {})
       await subtitle(page,
-        'Analyze — runs a summarisation pass over all findings\n' +
-        'and produces a coherent answer with citations.',
-        5500,
+        'Analyze — summarises all findings into a coherent narrative answer.',
+        4500,
       )
-      await wait(3000)
+      await analyzeBtn.click().catch(() => {})
+      await wait(2000)
     }
 
     if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await saveBtn.hover().catch(() => {})
       await subtitle(page,
-        'Save as Pipeline — templates this run as a reusable workflow\n' +
-        'so the same shape of investigation can be re-run with new inputs.',
-        5500,
+        'Save as Pipeline — templates this run so the workflow can be re-run with new inputs.',
+        5000,
       )
-      await wait(3000)
+      await saveBtn.click().catch(() => {})
+      await wait(2000)
     }
   } else {
     await subtitle(page, 'Action row buttons (Go Deeper / Analyze / Save Pipeline) below the cards.', 4000)
@@ -473,40 +458,31 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   await clearSubtitle(page)
 
-  // ----- Full investigation DAG: 3-layers-deep drill -----
-  const dagBtn = page.getByText('DAG', { exact: true }).first()
-  if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
-    await dagBtn.scrollIntoViewIfNeeded()
-    await dagBtn.click({ force: true }).catch(() => {})
-    await wait(1500)
-    await subtitle(page,
-      'Full investigation DAG — layer 1: phases (signal extraction → broaden → red team → rank verify)',
-      5500,
-    )
-    await wait(3500)
-    // Pan/zoom — many DAG implementations have a "fit" button. Click it if present.
-    const fitBtn = page.locator('button:has-text("fit"), button[title*="fit" i]').first()
-    if (await fitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await fitBtn.click().catch(() => {})
-      await wait(700)
-    }
-    await subtitle(page,
-      'Layer 2: each phase fans out into parallel tacticians (s0, s1, s2…)',
-      5000,
-    )
-    // Scroll the DAG canvas to reveal lower layers
-    await scrollThroughContent(page, 500, 700)
-    await subtitle(page,
-      'Layer 3: each tactician card is a tool call with a structured finding inside.\n' +
-      'Click any node to inspect the full payload.',
-      6000,
-    )
-    await wait(3500)
-    const liveBtn = page.getByText('Live', { exact: true }).first()
-    await liveBtn.click({ force: true }).catch(() => {})
-    await wait(800)
-    await clearSubtitle(page)
-  }
+  // ----- DAG in bottom panel — 3 layers deep -----
+  // The full investigation DAG lives permanently in the bottom panel of the
+  // run-results view; no toolbar click needed. Scroll the bottom panel into
+  // view and pan through the layers.
+  await page.evaluate(() => window.scrollBy({ top: 400 }))
+  await wait(1500)
+  await subtitle(page,
+    'Bottom panel: full investigation DAG — phases (signal extraction → broaden → red team → rank verify).',
+    5500,
+  )
+  await wait(3500)
+  await subtitle(page,
+    'Each phase fans out into parallel tacticians (slot 0, 1, 2…) — layer 2.',
+    5000,
+  )
+  await scrollThroughContent(page, 500, 900)
+  await subtitle(page,
+    'Layer 3: each tactician runs tool calls; the findings hang off as leaves.\n' +
+    'Click any node to inspect the full payload.',
+    6000,
+  )
+  await wait(3500)
+  await page.evaluate(() => window.scrollTo({ top: 0 }))
+  await wait(800)
+  await clearSubtitle(page)
 
   // ===========================================================
   //  PART 2 — FILE UPLOAD + INFERENCE
@@ -609,7 +585,7 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   // ===========================================================
   //  PART 6 — RUNS (merged history)
   // ===========================================================
-  await title(page, 'Runs', 'All your investigations — filterable, exportable, replayable', 3500)
+  await title(page, 'History', 'All your investigations — filterable, exportable, replayable', 3500)
   await clearTitle(page)
   await page.goto(`${BASE}/runs`).catch(() => {})
   await waitForContent(page, { minNodes: 40 })
