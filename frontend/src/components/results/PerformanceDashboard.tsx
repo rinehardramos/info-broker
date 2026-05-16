@@ -195,7 +195,7 @@ function TechniqueTable({ rows }: { rows: TechniquePerf[] }) {
                 background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)',
               }}
             >
-              <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>
+              <td style={{ padding: '5px 10px', color: 'var(--text)' }}>
                 {humanize(t.tool)}
               </td>
               <td style={{ padding: '5px 10px' }}>
@@ -321,7 +321,7 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
                   const rate = s.total > 0 ? (s.succeeded / s.total) * 100 : 0
                   return (
                     <tr key={humanize(s.node_type)} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
-                      <td style={{ padding: '5px 10px', fontFamily: 'monospace', color: 'var(--text)' }}>{humanize(s.node_type)}</td>
+                      <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{humanize(s.node_type)}</td>
                       <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.total}</td>
                       <td style={{ padding: '5px 10px', color: rate >= 80 ? '#4ade80' : rate >= 50 ? '#fbbf24' : '#f87171' }}>
                         {rate.toFixed(0)}%

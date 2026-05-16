@@ -137,6 +137,34 @@ async function clearTitle(page: Page) {
   })
 }
 
+/** Scroll the page (and the largest scrollable container inside the main
+ *  content area) so off-screen tables / sections are revealed in the recording. */
+async function scrollThroughContent(page: Page, totalPx = 600, stepDelay = 800) {
+  await page.evaluate(async ({ total, delay }) => {
+    function delay_(ms: number) { return new Promise(r => setTimeout(r, ms)) }
+
+    // Find the largest scrollable container — main content scrolls are usually
+    // inside a flex panel, not the document body.
+    const all = Array.from(document.querySelectorAll<HTMLElement>('*'))
+    const scrollable = all.filter(el => {
+      const s = getComputedStyle(el)
+      return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+             el.scrollHeight > el.clientHeight + 50
+    }).sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))
+
+    const target = scrollable[0] ?? document.scrollingElement ?? document.documentElement
+    const steps = 4
+    const step = total / steps
+    for (let i = 0; i < steps; i++) {
+      target.scrollTop = (target.scrollTop ?? 0) + step
+      await delay_(delay)
+    }
+    // Brief pause at the bottom, then scroll back so the next scene starts clean.
+    await delay_(delay)
+    target.scrollTop = 0
+  }, { total: totalPx, delay: stepDelay })
+}
+
 // ----------- helpers -----------
 
 async function login(page: Page) {
@@ -325,20 +353,50 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await page.keyboard.press('Escape').catch(() => {})
   await wait(1000)
 
-  // ----- Scroll down to the Go Deep / Analyze / Save Pipeline action row -----
-  const actionsRow = page.locator(
-    'button:has-text("Go Deep"), button:has-text("Analyze"), button:has-text("Save Pipeline")'
-  ).first()
-  if (await actionsRow.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await actionsRow.scrollIntoViewIfNeeded()
-    await wait(1000)
+  // ----- Demo the Go Deep / Analyze / Save Pipeline action buttons -----
+  const goDeepBtn = page.locator('button:has-text("Go Deep")').first()
+  const analyzeBtn = page.locator('button:has-text("Analyze")').first()
+  const saveBtn = page.locator('button:has-text("Save Pipeline"), button:has-text("Save as Pipeline")').first()
+
+  if (await goDeepBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await goDeepBtn.scrollIntoViewIfNeeded()
+    await wait(800)
     await subtitle(page,
-      'Action row — Go Deep continues research, Analyze summarises, Save Pipeline templates this run.',
+      'Three actions on a finished run: Go Deeper, Analyze, Save as Pipeline.',
+      5000,
+    )
+    await wait(2500)
+
+    // Hover (don't click) Go Deeper so the tooltip/affordance shows
+    await goDeepBtn.hover().catch(() => {})
+    await subtitle(page,
+      'Go Deeper — continues investigating from where you left off,\n' +
+      'spawning new hypotheses around the top result.',
       5500,
     )
-    await wait(3500)
+    await wait(3000)
+
+    if (await analyzeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await analyzeBtn.hover().catch(() => {})
+      await subtitle(page,
+        'Analyze — runs a summarisation pass over all findings\n' +
+        'and produces a coherent answer with citations.',
+        5500,
+      )
+      await wait(3000)
+    }
+
+    if (await saveBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await saveBtn.hover().catch(() => {})
+      await subtitle(page,
+        'Save as Pipeline — templates this run as a reusable workflow\n' +
+        'so the same shape of investigation can be re-run with new inputs.',
+        5500,
+      )
+      await wait(3000)
+    }
   } else {
-    await subtitle(page, 'Scroll the result panel to find Go Deep / Analyze / Save Pipeline.', 4000)
+    await subtitle(page, 'Action row buttons (Go Deeper / Analyze / Save Pipeline) below the cards.', 4000)
     await wait(2000)
   }
 
@@ -412,7 +470,8 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await subtitle(page, 'Every run is graded — letter grades (A-F) plus a numeric 1-6 credibility score.', 5500)
   await wait(3000)
   await subtitle(page, 'Tools, tactics, and strategies are ranked so you can see which approaches converge.', 5500)
-  await wait(3000)
+  await scrollThroughContent(page, 800, 1000) // reveal lower tables (Strategy Usage, Run History)
+  await wait(2000)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -438,7 +497,8 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await subtitle(page, 'Every run carries a cost estimate. The wallet holds RU at preflight; settles at completion.', 6000)
   await wait(3500)
   await subtitle(page, 'Transparent ledger — every charge tied to a specific run, with refunds on cancel.', 5500)
-  await wait(3000)
+  await scrollThroughContent(page, 600, 900)
+  await wait(2000)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -451,7 +511,8 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await subtitle(page, 'Unified view: every run, with cost, status, duration, and filters by date / status.', 6000)
   await wait(3500)
   await subtitle(page, 'Click any row for the full result drawer — replay, download, or share.', 4500)
-  await wait(2500)
+  await scrollThroughContent(page, 600, 900)
+  await wait(2000)
   await clearSubtitle(page)
 
   // ===========================================================
