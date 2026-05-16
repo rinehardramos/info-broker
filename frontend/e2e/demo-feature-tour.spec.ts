@@ -250,16 +250,10 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   const runBtn = page.getByRole('button', { name: /^run$/i }).first()
   await runBtn.click()
   await wait(1500)
-
-  // Camera: switch the left tab strip away from "Pipeline" (empty graph) to
-  // the active-run / Results tab so the recording shows actual activity.
-  const resultsTab = page.locator(
-    '[role="tab"]:has-text("Result"), [role="tab"]:has-text("Run"), button:has-text("Agent Default")'
-  ).first()
-  if (await resultsTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await resultsTab.click().catch(() => {})
-  }
-  await wait(1000)
+  // Note: Run click already sets activeJobId + col1Content via PreflightPanel's
+  // onConfirmed callback, so the page is already on the run-results view.
+  // Don't try to switch tabs — earlier attempts clicked the wrong element and
+  // navigated AWAY from where cards render.
   await subtitle(page, 'Engine v2 launched — Heuer analytic methodology, 4 phases', 4000)
 
   // Wait for first phase to start
