@@ -169,9 +169,12 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     .first()
   await chatInput.waitFor({ timeout: 5000 })
   await chatInput.click()
+  // Use explicit "find leads" / "prospect list" signals so the brain's
+  // keyword classifier (orchestrator.py:classify_query) picks the `lead`
+  // strategy instead of defaulting to media_identification / person.
   await chatInput.pressSequentially(
-    'Find 5 mid-sized fintech SaaS companies in Southeast Asia. ' +
-    'Prioritise ones that closed a Series B in the last 18 months.',
+    'Find leads: 5 mid-sized fintech SaaS companies in Southeast Asia. ' +
+    'Build a prospect list — focus on ones that closed Series B in the last 18 months.',
     { delay: 14 },
   )
   await wait(700)
@@ -270,8 +273,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     4500, 'top',
   )
   await input2.pressSequentially(
-    'For each company in the uploaded leads list, find their CEO and ' +
-    'most recent funding round. Output as a table.',
+    'For each company in the uploaded prospect list, find their CEO and ' +
+    'most recent funding round. Output as a leads enrichment table.',
     { delay: 14 },
   )
   await wait(700)

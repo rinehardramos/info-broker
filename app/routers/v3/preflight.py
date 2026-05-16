@@ -77,10 +77,27 @@ _CELEBRITY_PATTERNS = {
 def _classify_query(query: str) -> str:
     """Return a strategy_id for the given query.
 
-    MVP stub: always returns 'media_identification' — we only have one strategy.
+    Delegates to the orchestrator's keyword classifier which knows about
+    person / company / lead / due_diligence / media_identification / etc.
+    Falls back to media_identification if the orchestrator returns a
+    category we don't have a strategy module for.
     """
-    # TODO (post-MVP): expand to multi-strategy classifier
-    return "media_identification"
+    try:
+        from app.pipeline.strategies.orchestrator import classify_query as _orch_classify
+        cat = _orch_classify(query or "")
+        # Map orchestrator categories to engine_v2 strategy_ids.
+        # Most are 1:1; aliases live in the dict below.
+        alias = {
+            "researcher": "person",
+            "generation": "media_identification",  # fall back until generation strategy supports engine_v2
+            "explanation": "media_identification",
+            "prediction": "media_identification",
+            "synthesis": "media_identification",
+            "place": "person",
+        }
+        return alias.get(cat, cat) if cat else "media_identification"
+    except Exception:
+        return "media_identification"
 
 
 def _suggest_mode(strategy_id: str) -> str:
