@@ -528,6 +528,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_ui_users_oauth_identity
 CREATE UNIQUE INDEX IF NOT EXISTS ix_ui_users_email_unique
     ON ui_users(LOWER(email)) WHERE email IS NOT NULL;
 
+-- Session-scoped file uploads: research_sources now optionally tracks the
+-- agent_session it was uploaded into. NULL session_id = library item
+-- (re-attachable to any new session via /v3/sources/attach).
+ALTER TABLE research_sources ADD COLUMN IF NOT EXISTS session_id UUID;
+CREATE INDEX IF NOT EXISTS ix_research_sources_session
+    ON research_sources(session_id) WHERE session_id IS NOT NULL;
+
 
 -- Session multi-turn hypothesis memory
 ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS investigated_hypotheses JSONB DEFAULT '[]'::jsonb;

@@ -97,6 +97,7 @@ async def _process_source(source_id: str, user_id: str, file_path: str, filename
 async def upload_source(
     file: UploadFile = File(...),
     run_id: str = Form(None),
+    session_id: str = Form(None),
     user: dict = Depends(require_analyst_user),
 ) -> dict:
     """Upload a file, persist metadata, and kick off async parsing."""
@@ -130,13 +131,19 @@ async def upload_source(
                 raise HTTPException(status_code=413, detail="File exceeds configured source upload limit")
             fh.write(chunk)
 
-    # Insert research_sources row
+    # Insert research_sources row — scoped to the active agent session so the
+    # FileUploadZone doesn't bleed prior uploads into a new chat. NULL
+    # session_id reserved for explicit library imports.
     execute(
         """
-        INSERT INTO research_sources (id, user_id, org_id, run_id, filename, file_type, file_size_bytes, status)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, 'processing')
+        INSERT INTO research_sources (
+            id, user_id, org_id, run_id, session_id,
+            filename, file_type, file_size_bytes, status
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'processing')
         """,
-        (source_id, user_id, org, run_id or None, filename, file_type, file_size_bytes),
+        (source_id, user_id, org, run_id or None, session_id or None,
+         filename, file_type, file_size_bytes),
     )
 
     # Launch background processing
@@ -152,13 +159,66 @@ async def upload_source(
 
 
 @router.get("")
-def list_sources(user: dict = Depends(get_current_user)) -> list[dict]:
-    """List all sources for the authenticated user."""
-    rows = fetch_all(
-        "SELECT * FROM research_sources WHERE user_id = %s AND org_id = %s ORDER BY created_at DESC",
-        (str(user["id"]), user_org_id(user)),
-    )
+def list_sources(
+    session_id: str | None = None,
+    include_library: bool = False,
+    user: dict = Depends(get_current_user),
+) -> list[dict]:
+    """List sources for the authenticated user.
+
+    Scoping:
+      - session_id provided → only that session's uploads
+        (+ library items if include_library=true)
+      - session_id omitted → ALL of the user's sources (library view)
+    """
+    uid = str(user["id"])
+    org = user_org_id(user)
+    if session_id:
+        if include_library:
+            rows = fetch_all(
+                "SELECT * FROM research_sources WHERE user_id = %s AND org_id = %s "
+                "AND (session_id = %s OR session_id IS NULL) ORDER BY created_at DESC",
+                (uid, org, session_id),
+            )
+        else:
+            rows = fetch_all(
+                "SELECT * FROM research_sources WHERE user_id = %s AND org_id = %s "
+                "AND session_id = %s ORDER BY created_at DESC",
+                (uid, org, session_id),
+            )
+    else:
+        rows = fetch_all(
+            "SELECT * FROM research_sources WHERE user_id = %s AND org_id = %s ORDER BY created_at DESC",
+            (uid, org),
+        )
     return rows
+
+
+@router.post("/{source_id}/attach")
+def attach_source_to_session(
+    source_id: str,
+    body: dict,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Attach an existing library source to an active session.
+
+    Stamps the row's session_id without creating a copy — same parsed content
+    is reused, which is the whole point of the library.
+    """
+    sess = body.get("session_id")
+    if not sess:
+        raise HTTPException(status_code=400, detail="session_id required")
+    row = fetch_one(
+        "SELECT id FROM research_sources WHERE id = %s AND user_id = %s",
+        (source_id, str(user["id"])),
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="source not found")
+    execute(
+        "UPDATE research_sources SET session_id = %s WHERE id = %s",
+        (sess, source_id),
+    )
+    return {"source_id": source_id, "session_id": sess}
 
 
 @router.get("/{source_id}")

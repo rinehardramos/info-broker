@@ -7,8 +7,9 @@ import {
   DragEvent,
   ChangeEvent,
 } from 'react'
-import { Upload, FileText, Loader2 } from 'lucide-react'
+import { Upload, FileText, Loader2, Library } from 'lucide-react'
 import { api } from '../../api/client'
+import { useChatStore } from '../../stores/chatStore'
 
 export type SourceStatus = 'uploading' | 'processing' | 'indexed' | 'failed'
 
@@ -39,9 +40,13 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
   function FileUploadZone({ onSourcesChange }, ref) {
     const [sources, setSources] = useState<UploadedSource[]>([])
     const [dragging, setDragging] = useState(false)
+    const [showLibrary, setShowLibrary] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const onSourcesChangeRef = useRef(onSourcesChange)
     onSourcesChangeRef.current = onSourcesChange
+    // Active chat session — uploads scope here so files don't bleed across
+    // sessions. Null means no active session yet (file becomes a library item).
+    const sessionId = useChatStore(s => s.sessionId)
 
     function applyUpdate(updater: (prev: UploadedSource[]) => UploadedSource[]) {
       setSources(prev => {
@@ -59,10 +64,12 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
       },
     }))
 
-    // Fetch existing sources on mount
+    // Fetch sources scoped to the current session. When sessionId changes,
+    // refetch so we don't leak prior-session uploads into a new chat.
     useEffect(() => {
+      const params = sessionId ? `?session_id=${sessionId}` : ''
       api
-        .get('/v3/sources')
+        .get(`/v3/sources${params}`)
         .then(res => {
           const raw: Array<{
             id: string
@@ -84,7 +91,7 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
         .catch(() => {
           // sources panel is non-critical — silently ignore fetch failures
         })
-    }, [])
+    }, [sessionId])
 
     async function uploadFile(file: File) {
       const tempId = `upload-${Date.now()}-${Math.random()}`
@@ -97,6 +104,7 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
       try {
         const formData = new FormData()
         formData.append('file', file)
+        if (sessionId) formData.append('session_id', sessionId)
         const res = await api.post('/v3/sources/upload', formData)
         const serverSource = res.data
         const sourceId = serverSource.source_id ?? serverSource.id ?? tempId
@@ -175,31 +183,80 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
       }
     }
 
+    function attachFromLibrary(srcId: string) {
+      if (!sessionId) return
+      api.post(`/v3/sources/${srcId}/attach`, { session_id: sessionId })
+        .then(() => {
+          // refetch session-scoped list
+          api.get(`/v3/sources?session_id=${sessionId}`).then(res => {
+            const raw = res.data?.sources ?? res.data ?? []
+            const mapped: UploadedSource[] = raw.map((s: { id: string; filename: string; status: string; findings_count?: number }) => ({
+              id: s.id,
+              filename: s.filename,
+              status: mapApiStatus(s.status),
+              findingsCount: s.findings_count,
+            }))
+            setSources(mapped)
+            onSourcesChangeRef.current?.(mapped)
+          })
+          setShowLibrary(false)
+        })
+        .catch(() => { /* keep dialog open */ })
+    }
+
     return (
       <div style={{ paddingBottom: 6 }}>
-        {/* Thin drop-zone bar */}
-        <div
-          onClick={() => inputRef.current?.click()}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '4px 10px',
-            borderRadius: 6,
-            border: `1px dashed ${dragging ? '#6366f1' : 'var(--border)'}`,
-            background: dragging ? 'rgba(99,102,241,0.08)' : 'transparent',
-            cursor: 'pointer',
-            fontSize: 11,
-            color: 'var(--muted)',
-            transition: 'all 0.15s',
-            userSelect: 'none',
-          }}
-        >
-          <Upload size={12} />
-          <span>Drop files or click to upload</span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {/* Thin drop-zone bar */}
+          <div
+            onClick={() => inputRef.current?.click()}
+            onDragOver={onDragOver}
+            onDragLeave={onDragLeave}
+            onDrop={onDrop}
+            style={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 6,
+              border: `1px dashed ${dragging ? '#6366f1' : 'var(--border)'}`,
+              background: dragging ? 'rgba(99,102,241,0.08)' : 'transparent',
+              cursor: 'pointer',
+              fontSize: 11,
+              color: 'var(--muted)',
+              transition: 'all 0.15s',
+              userSelect: 'none',
+            }}
+          >
+            <Upload size={12} />
+            <span>Drop files or click to upload</span>
+          </div>
+          {/* From-library trigger — only meaningful when we have an
+              active session to attach into. */}
+          {sessionId && (
+            <button
+              type="button"
+              onClick={() => setShowLibrary(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                cursor: 'pointer',
+                fontSize: 11,
+                color: 'var(--muted)',
+                whiteSpace: 'nowrap',
+              }}
+              title="Attach a file you've uploaded previously"
+            >
+              <Library size={12} />
+              <span>Library</span>
+            </button>
+          )}
         </div>
 
         <input
@@ -223,10 +280,107 @@ const FileUploadZone = forwardRef<FileUploadZoneHandle, FileUploadZoneProps>(
             ))}
           </div>
         )}
+        {showLibrary && (
+          <LibraryPicker
+            currentSessionId={sessionId}
+            attachedIds={new Set(sources.map(s => s.id))}
+            onAttach={attachFromLibrary}
+            onClose={() => setShowLibrary(false)}
+          />
+        )}
       </div>
     )
   },
 )
+
+// ---- Library picker ----
+
+interface LibraryItem {
+  id: string
+  filename: string
+  status: string
+  findings_count?: number
+  created_at?: string
+}
+
+function LibraryPicker({
+  currentSessionId,
+  attachedIds,
+  onAttach,
+  onClose,
+}: {
+  currentSessionId: string | null
+  attachedIds: Set<string>
+  onAttach: (id: string) => void
+  onClose: () => void
+}) {
+  const [items, setItems] = useState<LibraryItem[]>([])
+  useEffect(() => {
+    api.get('/v3/sources').then(res => {
+      const raw: LibraryItem[] = res.data?.sources ?? res.data ?? []
+      setItems(raw)
+    }).catch(() => setItems([]))
+  }, [])
+  const available = items.filter(i => !attachedIds.has(i.id))
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 60,
+        background: 'rgba(0,0,0,0.5)', display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'var(--panel)', color: 'var(--text)',
+          width: 480, maxHeight: '70vh', overflow: 'auto',
+          borderRadius: 10, padding: 16,
+          border: '1px solid var(--border)',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+          <strong style={{ fontSize: 13 }}>Attach from library</strong>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer' }}>✕</button>
+        </div>
+        {available.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            No other files in your library yet.
+          </div>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {available.map(it => (
+              <li key={it.id} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '6px 0', borderBottom: '1px solid var(--border)',
+              }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.filename}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                    {it.status}{it.findings_count != null ? ` · ${it.findings_count} findings` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onAttach(it.id)}
+                  disabled={!currentSessionId}
+                  style={{
+                    fontSize: 11, padding: '3px 8px',
+                    border: '1px solid var(--border)', borderRadius: 4,
+                    background: 'transparent', color: 'var(--accent)',
+                    cursor: currentSessionId ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  Attach
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export default FileUploadZone
 
