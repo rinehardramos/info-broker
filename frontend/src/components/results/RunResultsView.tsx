@@ -118,6 +118,12 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
           <div className="flex-1 overflow-hidden">
             <StreamingCardList runId={runId} filterByTactician={tacticianFilter ?? undefined} />
           </div>
+          {/* Action row — Go Deeper / Analyze / Save as Pipeline. Visible
+              once the run has streamed at least one terminal card so users
+              know it's safe to follow up. ResultsPanel's identical row
+              short-circuits behind RunResultsView for v2 runs, so we
+              surface a parallel one here. */}
+          <RunActionRow runId={runId} />
         </div>
       </Panel>
 
@@ -134,5 +140,56 @@ export function RunResultsView({ runId }: RunResultsViewProps) {
         <FlowMiniPreview runId={runId} />
       </Panel>
     </PanelGroup>
+  )
+}
+
+/** Inline action row for the v2 run view. Mirrors the legacy ResultsPanel
+ *  buttons (Go Deeper / Analyze / Save as Pipeline) so users don't have to
+ *  navigate to a separate post-run mode to take next steps. */
+function RunActionRow({ runId }: { runId: string }) {
+  const run = useRunStreamStore((s) => s.runsById[runId])
+  // Only show once at least one card exists — gives users something to act on.
+  const hasCards = run != null && run.cardOrder.length > 0
+  if (!hasCards) return null
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 border-t border-border/40 bg-card/30 flex-shrink-0">
+      <button
+        type="button"
+        className="text-[11px] font-semibold px-3 py-1.5 rounded border border-violet-500/40 bg-violet-950/40 text-violet-200 hover:bg-violet-900/60 transition-colors"
+        title="Continue investigating around the top findings"
+        onClick={() => {
+          // Minimal stub: surfaces the action; full wiring to the brain's
+          // deep-dive endpoint is tracked in ResultsPanel (legacy).
+          // For now this opens the chat with a templated prompt.
+          const ev = new CustomEvent('demo:goDeeper', { detail: { runId } })
+          window.dispatchEvent(ev)
+        }}
+      >
+        ↳ Go Deeper
+      </button>
+      <button
+        type="button"
+        className="text-[11px] font-semibold px-3 py-1.5 rounded border border-sky-500/40 bg-sky-950/40 text-sky-200 hover:bg-sky-900/60 transition-colors"
+        title="Summarise all findings into a narrative briefing"
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent('demo:analyze', { detail: { runId } }))
+        }}
+      >
+        ⌬ Analyze
+      </button>
+      <button
+        type="button"
+        className="text-[11px] font-semibold px-3 py-1.5 rounded border border-emerald-500/40 bg-emerald-950/40 text-emerald-200 hover:bg-emerald-900/60 transition-colors"
+        title="Template this run as a reusable pipeline"
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent('demo:savePipeline', { detail: { runId } }))
+        }}
+      >
+        ⎘ Save as Pipeline
+      </button>
+      <span className="ml-auto text-[10px] text-muted-foreground italic">
+        Post-run actions
+      </span>
+    </div>
   )
 }

@@ -231,58 +231,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await page.keyboard.press('Escape').catch(() => {})
   await wait(1000)
 
-  // ----- Go Deeper / Analyze / Save Pipeline -----
-  // These buttons live in ResultsPanel which short-circuits to RunResultsView
-  // during live runs. To surface them, navigate to /runs and click View on
-  // a completed run — that opens ResultsPanel in post-run mode.
-  await page.goto(`${BASE}/runs`)
-  await wait(2500)
-  const firstViewBtn = page.locator('button:has-text("View")').first()
-  if (await firstViewBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-    await firstViewBtn.click().catch(() => {})
-    await wait(3000)
-    const goDeepBtn = page.locator('button:has-text("Go Deeper")').first()
-    const analyzeBtn = page.locator('button:has-text("Analyze")').first()
-    const saveBtn = page.locator('button:has-text("Save as Pipeline"), button:has-text("Save Pipeline")').first()
-
-    if (await goDeepBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
-      await goDeepBtn.scrollIntoViewIfNeeded()
-      await wait(800)
-      await subtitle(page, 'Three post-run actions: Go Deeper · Analyze · Save Pipeline.', 4500)
-      await wait(2000)
-      await goDeepBtn.hover().catch(() => {})
-      await subtitle(page,
-        'Go Deeper — spawn fresh hypotheses around the top lead and keep investigating.',
-        4500,
-      )
-      await wait(2500)
-      if (await analyzeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await analyzeBtn.hover().catch(() => {})
-        await subtitle(page, 'Analyze — summarise all findings into a coherent lead-gen briefing.', 4500)
-        await wait(2500)
-      }
-      if (await saveBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await saveBtn.hover().catch(() => {})
-        await subtitle(page, 'Save as Pipeline — template this run; re-execute with new ICPs later.', 4500)
-        await wait(2500)
-      }
-    } else {
-      // Buttons require findings + status===succeeded; not always guaranteed.
-      await subtitle(page,
-        'After a run completes: Go Deeper · Analyze · Save as Pipeline\n' +
-        '— spawn follow-up hypotheses, summarise findings, or template the run.',
-        5500,
-      )
-      await wait(3500)
-    }
-  }
-  await page.goto(`${BASE}/research`)
-  await wait(2000)
-  await clearSubtitle(page)
-
   // ----- Full investigation DAG (4-levels-deep flow diagram) -----
-  // PhaseDAGView toolbar: <button>{ 'Live' | 'Compact' | 'DAG' }</button>
-  // Use exact-text matching with getByText, then walk to the button parent.
+  // Run the DAG scene FIRST so we're still on /research with PhaseDAGView visible.
   const dagBtn = page.getByText('DAG', { exact: true }).first()
   if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
     await dagBtn.scrollIntoViewIfNeeded()
@@ -297,6 +247,43 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     const liveBtn = page.getByText('Live', { exact: true }).first()
     await liveBtn.click({ force: true }).catch(() => {})
     await wait(800)
+  }
+  await clearSubtitle(page)
+
+  // ----- Go Deeper / Analyze / Save Pipeline -----
+  // RunResultsView's RunActionRow surfaces these inline once cards exist —
+  // no navigation needed.
+  const goDeepBtn = page.locator('button:has-text("Go Deeper")').first()
+  const analyzeBtn = page.locator('button:has-text("Analyze")').first()
+  const saveBtn = page.locator('button:has-text("Save as Pipeline"), button:has-text("Save Pipeline")').first()
+
+  if (await goDeepBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await goDeepBtn.scrollIntoViewIfNeeded()
+    await wait(800)
+    await subtitle(page, 'Three post-run actions: Go Deeper · Analyze · Save Pipeline.', 4500)
+    await wait(2000)
+    await goDeepBtn.hover().catch(() => {})
+    await subtitle(page,
+      'Go Deeper — spawn fresh hypotheses around the top lead and keep investigating.',
+      4500,
+    )
+    await wait(2500)
+    if (await analyzeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await analyzeBtn.hover().catch(() => {})
+      await subtitle(page, 'Analyze — summarise all findings into a coherent lead-gen briefing.', 4500)
+      await wait(2500)
+    }
+    if (await saveBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await saveBtn.hover().catch(() => {})
+      await subtitle(page, 'Save as Pipeline — template this run; re-execute with new ICPs later.', 4500)
+      await wait(2500)
+    }
+  } else {
+    await subtitle(page,
+      'After a run produces cards: Go Deeper · Analyze · Save as Pipeline.',
+      4500,
+    )
+    await wait(2500)
   }
   await clearSubtitle(page)
 
@@ -376,18 +363,13 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await subtitle(page, 'Runs page — every investigation, filterable + downloadable.', 4500)
   await wait(2500)
 
-  // Open a run row (click "View" / first row action) → ResultDrawer
-  // has the DownloadMenu. (Runs.tsx itself doesn't render DownloadMenu
-  // inline after the History/Runs merge — see issue #95.)
-  const firstRowAction = page.locator('button:has-text("View"), tr td a').first()
-  if (await firstRowAction.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await firstRowAction.click().catch(() => {})
-    await wait(1500)
-  }
-  const downloadBtn = page.locator('button:has-text("Download"), button[aria-label="Download"]').first()
+  // DownloadMenu is rendered inline next to View on each completed row
+  // (issue #95 fix). Click it directly — no View-navigate first.
+  const downloadBtn = page.locator('button[aria-label="Download"]').first()
   if (await downloadBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await downloadBtn.scrollIntoViewIfNeeded()
     await downloadBtn.click()
-    await wait(1000)
+    await wait(1200)
     await subtitle(page,
       'Download menu — Export as CSV / XLSX or generate a PDF report.\n' +
       'Reports include all citations, confidence scores, and the ACH matrix.',
@@ -397,9 +379,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     await page.keyboard.press('Escape').catch(() => {})
     await wait(500)
   } else {
-    // Inline narration if the affordance isn't reachable from this page.
     await subtitle(page,
-      'Open a run from this page to access the Download menu — CSV / XLSX / PDF.\n' +
+      'Every completed run has a Download menu inline — CSV / XLSX / PDF.\n' +
       'Reports include citations, confidence scores, and the ACH matrix.',
       5500,
     )
