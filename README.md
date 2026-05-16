@@ -18,6 +18,20 @@ Information-gathering and OSINT research service exposed as a REST API.
 - **Searches** ingested profiles semantically via Qdrant.
 - **Exposes** all of the above behind an `X-API-Key`-protected REST API.
 
+### Recent additions (v0.6.0)
+
+- **Live research workspace** at `/research`. Type a query → brain proposes
+  strategies → click Run → engine_v2 streams Heuer-methodology cards in real-time
+  (signal extraction → broaden → red team → rank verify).
+- **Google + GitHub OAuth login.** Set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+  and/or `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` in `.env` to enable. First
+  sign-in auto-creates a user + personal org.
+- **Session-scoped file uploads.** Drop PDFs/CSVs/DOCX into the chat panel — they
+  attach to the active session. A "Library" picker re-attaches prior uploads
+  without re-uploading.
+- **Unified `/runs` page** with filters, pagination, and per-run cost breakdown
+  (replaces the older Runs/History/Jobs pages).
+
 ## Quickstart
 
 ```bash

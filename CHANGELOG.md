@@ -5,6 +5,86 @@ Entries follow **Keep a Changelog** conventions (newest first).
 
 ---
 
+## [0.6.0] — 2026-05-16
+
+### Added
+
+- **Google + GitHub OAuth login.** Server-side authorization-code flow.
+  - New routes: `GET /v3/auth/{google,github}/login`, `GET /v3/auth/{google,github}/callback`,
+    `GET /v3/auth/providers` (probe).
+  - First-login flow auto-creates user + personal org. Existing accounts match by email.
+  - Secrets resolve from `core_settings` table first, env vars as fallback
+    (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`).
+  - `ui_users` gains `oauth_provider`, `oauth_sub`, `avatar_url` columns; `password_hash`
+    NOT NULL constraint relaxed for SSO-only users. Coexists with password login.
+- **Session-scoped file uploads with library opt-in.**
+  - `research_sources` gains a nullable `session_id` column.
+  - `POST /v3/sources/upload` accepts `session_id` form field.
+  - `GET /v3/sources?session_id=…&include_library=…` filters appropriately.
+  - `POST /v3/sources/{id}/attach` re-attaches a library item to a new session.
+  - FileUploadZone reads active session from chatStore; refetches on session change.
+  - New "Library" button opens a picker for prior uploads.
+- **WebSocket event buffer with replay on reconnect.** Cloudflare-tunneled WS
+  connections cycle every ~10s; buffering ensures cards emitted during disconnects
+  are replayed on reconnect within a 120s TTL.
+- **engine_v2 `start_run` flag wired end-to-end.** Frontend's preflight confirm now
+  triggers the actual pipeline launch (previously a no-op).
+- **Demo recording infrastructure.**
+  - `e2e/demo-feature-tour.spec.ts` records a 6–12 min Chrome 1440×900 WebM video
+    with overlay subtitles + parallel SRT sidecar covering all happy-path features.
+  - `e2e/preflight-watch.spec.ts` for WS event diagnostics.
+  - `e2e/gcp-oauth-bootstrap.spec.ts` semi-automates Google OAuth Client ID creation.
+- **`/v3/sources/{id}/attach`** and **`/v3/auth/providers`** new public endpoints.
+
+### Changed
+
+- **Runs / History / Jobs pages consolidated into `/runs`.**
+  - Both Runs and History rendered the same `listRuns()` data; History was a strict
+    subset. `/jobs` page was a vestigial 23-line list using a different older endpoint.
+  - Old routes `/history` and `/jobs` now `<Navigate to="/runs" replace />`.
+  - Sidebar IconRail trimmed. The `/v3/jobs` backend endpoint and `listJobs()`
+    function are kept (LiveStream.tsx still consumes them for real-time tracking).
+- **PerformanceDashboard humanized:** snake_case tool / tactic / strategy / node IDs
+  are converted to Title Case at the UI layer. Monospace styling removed where it
+  made labels read as JSON-ish.
+- **FindingView redesigned** with proper visual hierarchy: host strip · date · bold
+  title · prose snippet · footer with confidence bar + "Open source ↗". Leading
+  "N hours ago - " prefixes stripped from snippets.
+- **`FindingRow` cleans up MCP snippets** with broken whitespace
+  (BeautifulSoup `get_text(strip=True)` was stripping all inter-tag whitespace);
+  multi_search.py now uses `get_text(" ", strip=True)`.
+- **Modal redesign:** Raw Output tab folded into a "Details" tab (collapsed by default)
+  alongside Input + Timing. Default tab now "Results" rendering proper FindingView,
+  not JSON.
+- **Dark theme by default.** Moved dark shadcn CSS vars to `:root` so navy mode
+  no longer renders light cards/borders when `.dark` class absent.
+- **Run cards no longer dump raw JSON.** Body falls back to a clean status line
+  when the data isn't a recognizable finding shape.
+
+### Fixed
+
+- **Metrics router prefix bug** — was mounted at `/api/v3/metrics/...`; Vite proxy
+  strips `/api` so backend never matched. Now mounted at `/v3`.
+- **Button missing `forwardRef`** caused Radix `Primitive.button.SlotClone` warnings.
+- **Null-unsafe `.toFixed()` calls** in dashboards: now use Number()-coerced
+  `fmtNum` / `fmtPct` helpers that handle null + DB NUMERIC strings.
+- **JSON-encoded nested string fields** in MCP tool results: `_deep_parse_json`
+  recursively decodes so the modal renders structured data, not escape-soup.
+- **FlowMiniPreview restored** for v2 runs (the v2 path had swapped to a vertical
+  mini-DAG that was redundant with the phase pills above).
+- **Dead vertical space removed** above the result cards (was a fixed
+  `height: 200px` wrapper now that the swim lanes collapsed to a subtitle).
+
+### Known issues — see filed tickets
+
+- [#90] Test isolation: ~90 pytest failures when full suite runs (shared user fixtures)
+- [#91] Frontend vitest: 33 test files fail to import (jsdom localStorage missing)
+- [#92] Test collection: 2 stale imports break pytest (test_github_search, test_multi_search)
+- [#93] Security: 2 moderate dev-dependency CVEs (esbuild + vite path traversal)
+- [#94] Ruff: 14 S608 false positives (clause-constant SQL injection warnings)
+
+---
+
 ## [0.5.0] — 2026-04-23
 
 ### Added
