@@ -63,7 +63,7 @@ async function subtitle(page: Page, text: string, holdMs = 4000, position: 'top'
       document.body.appendChild(el)
     }
     el.style.top = pos === 'top' ? '40px' : ''
-    el.style.bottom = pos === 'bottom' ? '40px' : ''
+    el.style.bottom = pos === 'bottom' ? '140px' : ''
     el.textContent = s
   }, { s: text, pos: position })
   await wait(holdMs)

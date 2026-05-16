@@ -84,8 +84,10 @@ async function subtitle(page: Page, text: string, holdMs = 3500, position: 'top'
       document.body.appendChild(el)
     }
     // Re-anchor each call so the position can toggle (typing scenes → top).
+    // Bottom uses a larger offset (140px) to clear the chat-input panel
+    // and pipeline status strip on /research and /runs.
     el.style.top = pos === 'top' ? '40px' : ''
-    el.style.bottom = pos === 'bottom' ? '40px' : ''
+    el.style.bottom = pos === 'bottom' ? '140px' : ''
     el.textContent = s
   }, { s: text, pos: position })
 
