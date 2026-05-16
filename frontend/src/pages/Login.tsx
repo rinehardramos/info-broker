@@ -1,8 +1,31 @@
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useSessionStore } from '../stores/sessionStore'
 import { api } from '@/api/client'
+
+// Google Identity Services types (loaded via script tag, see useEffect below)
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string
+            callback: (resp: { credential: string }) => void
+            auto_select?: boolean
+            cancel_on_tap_outside?: boolean
+          }) => void
+          renderButton: (
+            el: HTMLElement,
+            opts: { theme?: 'outline' | 'filled_blue' | 'filled_black'; size?: 'small' | 'medium' | 'large'; width?: number; type?: 'standard' | 'icon'; shape?: 'rectangular' | 'pill' | 'circle' | 'square'; text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin' },
+          ) => void
+          prompt: () => void
+        }
+      }
+    }
+  }
+}
 import { Logo } from '@/components/brand/Logo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -38,17 +61,73 @@ export default function Login() {
 
   // Discover which SSO providers are configured on the backend so we can
   // disable buttons (and label them as "coming soon") when keys aren't set.
-  const [providers, setProviders] = useState<{ google: boolean; github: boolean }>({
-    google: false, github: false,
-  })
+  const [providers, setProviders] = useState<{
+    google: boolean
+    github: boolean
+    google_client_id?: string | null
+  }>({ google: false, github: false, google_client_id: null })
   useEffect(() => {
     api.get('/v3/auth/providers')
       .then((r) => setProviders(r.data))
       .catch(() => { /* leave both disabled */ })
   }, [])
 
+  // ---- Google One-Tap / "Sign in with Google" native button ----
+  const gsiBtnRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!providers.google || !providers.google_client_id) return
+    // Inject the GSI script once.
+    const existing = document.querySelector('script[src="https://accounts.google.com/gsi/client"]')
+    let cleanup: (() => void) | undefined
+    function initGsi() {
+      const g = window.google
+      const cid = providers.google_client_id
+      if (!g || !cid) return
+      g.accounts.id.initialize({
+        client_id: cid,
+        callback: async (resp) => {
+          if (!resp?.credential) return
+          try {
+            const r = await api.post('/v3/auth/google/onetap', { credential: resp.credential })
+            setTokens(r.data.access_token, r.data.refresh_token)
+            navigate('/')
+          } catch (e: unknown) {
+            const errResp = (e as { response?: { data?: { detail?: string } } })?.response
+            setError(errResp?.data?.detail ?? 'Google sign-in failed')
+          }
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      })
+      if (gsiBtnRef.current) {
+        g.accounts.id.renderButton(gsiBtnRef.current, {
+          theme: 'filled_black',
+          size: 'large',
+          width: 320,
+          shape: 'rectangular',
+          text: 'continue_with',
+        })
+      }
+      // Also show the One-Tap prompt at the top right (auto-skips if no Google session).
+      g.accounts.id.prompt()
+    }
+    if (!existing) {
+      const s = document.createElement('script')
+      s.src = 'https://accounts.google.com/gsi/client'
+      s.async = true
+      s.defer = true
+      s.onload = initGsi
+      document.head.appendChild(s)
+      cleanup = () => { s.remove() }
+    } else {
+      initGsi()
+    }
+    return cleanup
+  }, [providers.google, providers.google_client_id, navigate, setTokens])
+
   function startOAuth(provider: 'google' | 'github') {
     // Full-page navigation — backend will 302 to the provider and back.
+    // Used by the legacy redirect button (GitHub) + Google fallback.
     window.location.href = `/api/v3/auth/${provider}/login`
   }
 
@@ -83,18 +162,24 @@ export default function Login() {
         <CardContent className="pb-8">
           {/* Social login placeholders */}
           <div className="flex flex-col gap-2 mb-5">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => startOAuth('google')}
-              className="w-full gap-2 text-sm"
-              style={{ borderColor: 'var(--border)', color: providers.google ? 'var(--text)' : 'var(--subtext)', background: 'transparent' }}
-              disabled={!providers.google}
-              title={providers.google ? 'Continue with your Google account' : 'Google login — not configured'}
-            >
-              <GoogleIcon />
-              Continue with Google
-            </Button>
+            {providers.google && providers.google_client_id ? (
+              // Google Identity Services renders its own button into this div
+              // (filled-black, "Continue with Google", with the official logo).
+              <div ref={gsiBtnRef} style={{ display: 'flex', justifyContent: 'center' }} />
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => startOAuth('google')}
+                className="w-full gap-2 text-sm"
+                style={{ borderColor: 'var(--border)', color: 'var(--subtext)', background: 'transparent' }}
+                disabled
+                title="Google login — not configured"
+              >
+                <GoogleIcon />
+                Continue with Google
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"

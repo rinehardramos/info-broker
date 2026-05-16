@@ -215,6 +215,49 @@ async def google_callback(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Google One-Tap / Sign in with Google (GIS) — single-page experience
+# ---------------------------------------------------------------------------
+# Frontend uses Google Identity Services to render the "Sign in with
+# Google" button. The browser receives an ID token (JWT) and POSTs it
+# here. We verify against Google's public keys and run the same find-
+# or-create user flow as the redirect path — no round-trip needed.
+
+@router.post("/google/onetap")
+async def google_onetap(body: dict) -> dict:
+    """Exchange a Google ID token (JWT) for an info-broker JWT pair."""
+    id_token_str = body.get("id_token") or body.get("credential")
+    if not id_token_str or not isinstance(id_token_str, str):
+        raise HTTPException(status_code=400, detail="id_token is required")
+
+    client_id = _get_secret("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google login is not configured")
+
+    try:
+        from google.oauth2 import id_token as _g_id_token  # type: ignore
+        from google.auth.transport import requests as _g_requests  # type: ignore
+    except ImportError as exc:
+        log.error("google-auth not installed: %s", exc)
+        raise HTTPException(status_code=500, detail="server google-auth dep missing") from exc
+
+    try:
+        info = _g_id_token.verify_oauth2_token(
+            id_token_str, _g_requests.Request(), client_id,
+        )
+    except ValueError as exc:
+        log.warning("google one-tap token rejected: %s", exc)
+        raise HTTPException(status_code=401, detail=f"Invalid Google ID token: {exc}") from exc
+
+    sub = info.get("sub", "")
+    email = info.get("email", "")
+    name = info.get("name") or info.get("given_name") or None
+    picture = info.get("picture")
+
+    access, refresh = _complete_oauth_login("google", sub, email, name, picture)
+    return {"access_token": access, "refresh_token": refresh}
+
+
+# ---------------------------------------------------------------------------
 # GitHub
 # ---------------------------------------------------------------------------
 
@@ -306,8 +349,16 @@ async def github_callback(request: Request):
 
 @router.get("/providers")
 def providers_status() -> dict:
-    """Tell the frontend which SSO providers are configured."""
+    """Tell the frontend which SSO providers are configured.
+
+    The google_client_id is also returned (public-by-design — it's not a
+    secret) so the frontend can render the Google Identity Services
+    One-Tap button without round-tripping for the value.
+    """
+    g_id = _get_secret("GOOGLE_CLIENT_ID")
+    g_secret = _get_secret("GOOGLE_CLIENT_SECRET")
     return {
-        "google": bool(_get_secret("GOOGLE_CLIENT_ID") and _get_secret("GOOGLE_CLIENT_SECRET")),
+        "google": bool(g_id and g_secret),
         "github": bool(_get_secret("GITHUB_CLIENT_ID") and _get_secret("GITHUB_CLIENT_SECRET")),
+        "google_client_id": g_id if (g_id and g_secret) else None,
     }
