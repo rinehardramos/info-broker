@@ -30,6 +30,26 @@ function fmtPct(v: unknown, digits: number): string {
   const n = Number(v)
   return Number.isFinite(n) ? `${(n * 100).toFixed(digits)}%` : '—'
 }
+/** Use when the backend already returns a percentage in 0-100 range. */
+function fmtPctRaw(v: unknown, digits: number): string {
+  const n = Number(v)
+  return Number.isFinite(n) ? `${n.toFixed(digits)}%` : '—'
+}
+/** Extract a clean display name from a backend strategy field that may
+ *  be either a plain id like "person" or a JSONB-encoded grader dict
+ *  like {"Name": "Person", "Comment": "..."} */
+function strategyName(raw: unknown): string {
+  if (typeof raw !== 'string') return String(raw ?? '')
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('{')) {
+    try {
+      const obj = JSON.parse(trimmed)
+      const name = obj?.Name ?? obj?.name ?? obj?.strategy ?? ''
+      if (name) return humanize(String(name))
+    } catch { /* fall through */ }
+  }
+  return humanize(trimmed)
+}
 
 const SOURCE_COLORS: Record<string, string> = {
   A: '#22c55e', B: '#4ade80', C: '#facc15', D: '#fb923c', E: '#f87171', F: '#6b7280',
@@ -288,7 +308,7 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
         <StatCard label="Total Runs" value={data.runs.total ?? 0} />
         <StatCard
           label="Success Rate"
-          value={fmtPct(data.runs.success_rate, 1)}
+          value={fmtPctRaw(data.runs.success_rate, 1)}
           sub={`${data.runs.succeeded ?? 0} succeeded`}
         />
         <StatCard label="Failed" value={data.runs.failed ?? 0} />
@@ -353,7 +373,7 @@ function MetricsSummarySection({ data }: { data: MetricsSummary }) {
               <tbody>
                 {data.strategies.map((s, i) => (
                   <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'var(--panel)' : 'var(--panel2)' }}>
-                    <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{humanize(s.strategy)}</td>
+                    <td style={{ padding: '5px 10px', color: 'var(--text)' }}>{strategyName(s.strategy)}</td>
                     <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
                     <td style={{ padding: '5px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_score, 2)}</td>
                   </tr>
@@ -494,7 +514,7 @@ export default function PerformanceDashboard() {
               <tbody>
                 {(metricsSummary?.strategies ?? []).map((s, i) => (
                   <tr key={s.strategy} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--panel2)' }}>
-                    <td style={{ padding: '6px 10px', color: 'var(--text)', fontSize: 12 }}>{humanize(s.strategy)}</td>
+                    <td style={{ padding: '6px 10px', color: 'var(--text)', fontSize: 12 }}>{strategyName(s.strategy)}</td>
                     <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{s.uses}</td>
                     <td style={{ padding: '6px 10px', color: 'var(--subtext)' }}>{fmtNum(s.avg_score, 2)}</td>
                   </tr>
