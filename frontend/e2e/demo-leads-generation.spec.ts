@@ -182,7 +182,7 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await chatInput.press('Enter')
 
   // Preflight strategy picker
-  await page.getByText(/strateg|preflight|approach|select.*strateg/i).first()
+  await page.getByText(/intent|strateg|preflight|approach|hypothes|mode|detected/i).first()
     .waitFor({ timeout: 15_000 }).catch(() => {})
   await wait(1000)
   await subtitle(page,

@@ -269,7 +269,7 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await input.press('Enter')
 
   // Preflight panel appears
-  await page.getByText(/strateg|preflight|approach|select.*strateg/i).first().waitFor({ timeout: 15_000 })
+  await page.getByText(/intent|strateg|preflight|approach|hypothes|mode|detected/i).first().waitFor({ timeout: 15_000 })
   await wait(1000)
   await subtitle(page,
     'Preflight — the brain proposes investigation strategies.\n' +
