@@ -139,6 +139,21 @@ async function clearTitle(page: Page) {
   })
 }
 
+/** Wait for the main content area to actually paint (>= minBytes of text or
+ *  >= minNodes elements) before narrating. Prevents the demo from talking
+ *  over a still-loading blank page like /plugins or /knowledge. */
+async function waitForContent(page: Page, opts: { minNodes?: number; timeoutMs?: number } = {}) {
+  const { minNodes = 30, timeoutMs = 8000 } = opts
+  await page.waitForLoadState('networkidle', { timeout: timeoutMs }).catch(() => null)
+  await page.waitForFunction(
+    (min) => document.querySelectorAll('main *, [data-slot], button, [role]').length >= min,
+    minNodes,
+    { timeout: timeoutMs },
+  ).catch(() => null)
+  // Small settle for animations
+  await new Promise(r => setTimeout(r, 400))
+}
+
 /** Scroll the page (and the largest scrollable container inside the main
  *  content area) so off-screen tables / sections are revealed in the recording. */
 async function scrollThroughContent(page: Page, totalPx = 600, stepDelay = 800) {
@@ -233,11 +248,11 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   //  DASHBOARD (proper time, not a flyover)
   // ===========================================================
   await page.goto(`${BASE}/dashboard`).catch(() => {})
-  await wait(2500)
+  await waitForContent(page, { minNodes: 40 })
   await subtitle(page, 'Dashboard — at-a-glance metrics: runs today, success rate, live jobs, errors', 5500)
   await wait(2000)
   await subtitle(page, 'Recent runs table — click any row to inspect the full result', 4500)
-  await wait(3000)
+  await scrollThroughContent(page, 600, 900)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -334,6 +349,22 @@ test('demo feature tour — research + file upload + inference', async ({ page }
     5500,
   )
   await wait(2500)
+  // Scroll inside the modal so additional findings below the fold are
+  // visible to the viewer instead of staying off-screen.
+  await page.evaluate(async () => {
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement | null
+    if (!dialog) return
+    const scrollable = Array.from(dialog.querySelectorAll<HTMLElement>('*')).find(el => {
+      const s = getComputedStyle(el)
+      return (s.overflowY === 'auto' || s.overflowY === 'scroll') &&
+             el.scrollHeight > el.clientHeight + 50
+    }) ?? dialog
+    for (let i = 0; i < 4; i++) {
+      scrollable.scrollTop += 180
+      await new Promise(r => setTimeout(r, 700))
+    }
+    scrollable.scrollTop = 0
+  })
 
   const sourcesTab = page.getByRole('tab', { name: /sources/i }).first()
   if (await sourcesTab.isVisible({ timeout: 1500 }).catch(() => false)) {
@@ -348,7 +379,12 @@ test('demo feature tour — research + file upload + inference', async ({ page }
     await detailsTab.click()
     await wait(800)
     await subtitle(page, 'Details tab — query params, timing, raw payload (collapsed) for power users', 5000)
-    await wait(3500)
+    // Expand the collapsed Raw payload <details> so users see it's there.
+    await page.locator('[role="dialog"] summary:has-text("Raw payload")').first()
+      .click({ force: true }).catch(() => {})
+    await wait(2500)
+    await subtitle(page, 'Raw payload expanded — full JSON for debugging or programmatic consumers.', 4500)
+    await wait(2500)
   }
 
   // Close the modal
@@ -404,6 +440,41 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   await clearSubtitle(page)
 
+  // ----- Full investigation DAG: 3-layers-deep drill -----
+  const dagBtn = page.getByText('DAG', { exact: true }).first()
+  if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+    await dagBtn.scrollIntoViewIfNeeded()
+    await dagBtn.click({ force: true }).catch(() => {})
+    await wait(1500)
+    await subtitle(page,
+      'Full investigation DAG — layer 1: phases (signal extraction → broaden → red team → rank verify)',
+      5500,
+    )
+    await wait(3500)
+    // Pan/zoom — many DAG implementations have a "fit" button. Click it if present.
+    const fitBtn = page.locator('button:has-text("fit"), button[title*="fit" i]').first()
+    if (await fitBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await fitBtn.click().catch(() => {})
+      await wait(700)
+    }
+    await subtitle(page,
+      'Layer 2: each phase fans out into parallel tacticians (s0, s1, s2…)',
+      5000,
+    )
+    // Scroll the DAG canvas to reveal lower layers
+    await scrollThroughContent(page, 500, 700)
+    await subtitle(page,
+      'Layer 3: each tactician card is a tool call with a structured finding inside.\n' +
+      'Click any node to inspect the full payload.',
+      6000,
+    )
+    await wait(3500)
+    const liveBtn = page.getByText('Live', { exact: true }).first()
+    await liveBtn.click({ force: true }).catch(() => {})
+    await wait(800)
+    await clearSubtitle(page)
+  }
+
   // ===========================================================
   //  PART 2 — FILE UPLOAD + INFERENCE
   // ===========================================================
@@ -423,21 +494,22 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   // Locate the hidden file input and set our sample
   const fileInput = page.locator('input[type="file"]').first()
   await fileInput.setInputFiles(SAMPLE_FILE)
-  await wait(1500)
-  await subtitle(page, 'File uploading...', 2000)
+  await wait(1000)
+  await subtitle(page, 'File uploading…', 1800, 'top')
 
-  // Wait for processing → indexed
-  await page.waitForFunction(
-    () => /\bindexed|failed\b/i.test(document.body.textContent || '') ||
-          !!document.querySelector('[data-status="indexed"], .source-indexed'),
-    null,
-    { timeout: 90_000 },
-  ).catch(() => {})
-  await wait(1500)
-
+  // Wait up to 15s for indexed status; race it against a fixed cap so the
+  // demo doesn't dead-air for up to 90s on slow embedding runs.
+  await Promise.race([
+    page.waitForFunction(
+      () => /\bindexed|failed\b/i.test(document.body.textContent || ''),
+      null,
+      { timeout: 15_000 },
+    ).catch(() => null),
+    page.waitForTimeout(15_000),
+  ])
   await subtitle(page,
     'File parsed, chunked, embedded — ready for retrieval-augmented answers.',
-    4500,
+    3500,
   )
 
   // Ask a question about the file
@@ -468,12 +540,11 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await title(page, 'Performance', 'Strategies, tactics & techniques graded on Admiralty scale', 3500)
   await clearTitle(page)
   await page.goto(`${BASE}/performance`).catch(() => {})
-  await wait(2500)
+  await waitForContent(page, { minNodes: 50 })
   await subtitle(page, 'Every run is graded — letter grades (A-F) plus a numeric 1-6 credibility score.', 5500)
-  await wait(3000)
+  await wait(2500)
   await subtitle(page, 'Tools, tactics, and strategies are ranked so you can see which approaches converge.', 5500)
-  await scrollThroughContent(page, 800, 1000) // reveal lower tables (Strategy Usage, Run History)
-  await wait(2000)
+  await scrollThroughContent(page, 1000, 1100) // reveal Strategy Usage + Run History tables
   await clearSubtitle(page)
 
   // ===========================================================
@@ -482,11 +553,11 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await title(page, 'Plugins', 'Search engines, OSINT sources, social feeds — drop-in modules', 3500)
   await clearTitle(page)
   await page.goto(`${BASE}/plugins`).catch(() => {})
-  await wait(2500)
+  await waitForContent(page, { minNodes: 50 })
   await subtitle(page, 'Each plugin is a node the pipeline can use — install, configure, or build your own.', 5500)
   await wait(3000)
   await subtitle(page, '50+ MCP tools out of the box: SerpAPI, Brave, DDG, Wikipedia, Apify, SEC EDGAR, …', 5500)
-  await wait(3000)
+  await scrollThroughContent(page, 700, 900)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -495,12 +566,11 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await title(page, 'Wallet', 'Research Units (RU) — pay-per-run with hold-and-settle', 3500)
   await clearTitle(page)
   await page.goto(`${BASE}/wallet`).catch(() => {})
-  await wait(2500)
+  await waitForContent(page, { minNodes: 40 })
   await subtitle(page, 'Every run carries a cost estimate. The wallet holds RU at preflight; settles at completion.', 6000)
-  await wait(3500)
+  await wait(2500)
   await subtitle(page, 'Transparent ledger — every charge tied to a specific run, with refunds on cancel.', 5500)
-  await scrollThroughContent(page, 600, 900)
-  await wait(2000)
+  await scrollThroughContent(page, 700, 900)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -509,12 +579,11 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await title(page, 'Runs', 'All your investigations — filterable, exportable, replayable', 3500)
   await clearTitle(page)
   await page.goto(`${BASE}/runs`).catch(() => {})
-  await wait(2500)
+  await waitForContent(page, { minNodes: 40 })
   await subtitle(page, 'Unified view: every run, with cost, status, duration, and filters by date / status.', 6000)
-  await wait(3500)
+  await wait(2500)
   await subtitle(page, 'Click any row for the full result drawer — replay, download, or share.', 4500)
-  await scrollThroughContent(page, 600, 900)
-  await wait(2000)
+  await scrollThroughContent(page, 700, 900)
   await clearSubtitle(page)
 
   // ===========================================================
@@ -523,9 +592,9 @@ test('demo feature tour — research + file upload + inference', async ({ page }
   await title(page, 'Settings', 'Agent config, model picks, API keys, node health', 3500)
   await clearTitle(page)
   await page.goto(`${BASE}/settings`).catch(() => {})
-  await wait(2500)
+  await waitForContent(page, { minNodes: 50 })
   await subtitle(page, 'Pick your LLM provider, rotate API keys, monitor MCP server health from one place.', 6000)
-  await wait(3500)
+  await scrollThroughContent(page, 700, 900)
   await clearSubtitle(page)
 
   // ===========================================================
