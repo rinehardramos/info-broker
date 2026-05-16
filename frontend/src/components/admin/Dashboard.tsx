@@ -47,15 +47,14 @@ export default function Dashboard() {
     return () => clearInterval(interval)
   }, [fetchAll])
 
+  const errLastHour = metrics?.error_rate_last_hour
+  const elhTotal = Number(errLastHour?.total)
+  const elhErrors = Number(errLastHour?.errors)
   const errorRate =
-    metrics && metrics.error_rate_last_hour.total > 0
-      ? (metrics.error_rate_last_hour.errors / metrics.error_rate_last_hour.total) * 100
-      : 0
-
-  const errorRateStr =
-    metrics && metrics.error_rate_last_hour.total > 0
-      ? `${errorRate.toFixed(1)}%`
-      : '—'
+    Number.isFinite(elhTotal) && elhTotal > 0 && Number.isFinite(elhErrors)
+      ? (elhErrors / elhTotal) * 100
+      : null
+  const errorRateStr = errorRate != null ? `${errorRate.toFixed(1)}%` : '—'
 
   const avgDurationStr =
     metrics && metrics.avg_duration_ms != null
@@ -71,7 +70,7 @@ export default function Dashboard() {
         <MetricCard
           label="Error Rate (1h)"
           value={errorRateStr}
-          highlight={errorRate > 10}
+          highlight={(errorRate ?? 0) > 10}
         />
         <MetricCard label="Avg Duration" value={avgDurationStr} />
       </div>

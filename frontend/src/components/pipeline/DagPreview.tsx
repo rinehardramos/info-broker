@@ -23,10 +23,18 @@ const STATUS_COLORS: Record<string, string> = {
   pending: '#475569',
 }
 
+interface ExtraEdge {
+  from: string
+  to: string
+  kind: 'result' | 'injected'
+}
+
 interface Props {
   nodes: PipelineNodeOut[]
   edges: PipelineEdgeOut[]
   stepRuns?: PipelineStepRun[]
+  compact?: boolean
+  extraEdges?: ExtraEdge[]
 }
 
 function topoLayers(nodes: PipelineNodeOut[], edges: PipelineEdgeOut[]): PipelineNodeOut[][] {
@@ -61,7 +69,7 @@ function topoLayers(nodes: PipelineNodeOut[], edges: PipelineEdgeOut[]): Pipelin
   return layers
 }
 
-export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
+export function DagPreview({ nodes, edges, stepRuns = [], compact = false, extraEdges }: Props) {
   if (!nodes.length) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#475569' }}>
@@ -122,7 +130,11 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
       width="100%"
       height="100%"
       viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-      style={{ background: '#0a0e14' }}
+      style={{
+        background: '#0a0e14',
+        ...(compact ? { transform: 'scale(0.6)', transformOrigin: 'top left' } : {}),
+      }}
+      pointerEvents={compact ? 'none' : undefined}
     >
       <defs>
         <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
@@ -224,7 +236,7 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
               opacity={0.8}
               markerEnd={`url(#${markerId})`}
             />
-            {isTool && (
+            {isTool && !compact && (
               <text x={midX} y={midY - 6} textAnchor="middle" fill={TOOL_EDGE_COLOR} fontSize={8} fontWeight={600}>
                 TOOL
               </text>
@@ -253,16 +265,20 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
               stroke={borderColor}
               strokeWidth={2}
             />
-            <text x={pos.x + NODE_W / 2} y={pos.y + 18} textAnchor="middle" fill={color} fontSize={9} fontWeight={600}>
-              {node.category.toUpperCase()}
-            </text>
-            <text x={pos.x + NODE_W / 2} y={pos.y + 34} textAnchor="middle" fill="#e2e8f0" fontSize={12} fontWeight={700}>
-              {node.label}
-            </text>
-            {step && (
-              <text x={pos.x + NODE_W / 2} y={pos.y + 50} textAnchor="middle" fill={STATUS_COLORS[step.status] ?? '#94a3b8'} fontSize={9}>
-                {step.status}{step.item_count > 0 ? ` · ${step.item_count}` : ''}
-              </text>
+            {!compact && (
+              <>
+                <text x={pos.x + NODE_W / 2} y={pos.y + 18} textAnchor="middle" fill={color} fontSize={9} fontWeight={600}>
+                  {node.category.toUpperCase()}
+                </text>
+                <text x={pos.x + NODE_W / 2} y={pos.y + 34} textAnchor="middle" fill="#e2e8f0" fontSize={12} fontWeight={700}>
+                  {node.label}
+                </text>
+                {step && (
+                  <text x={pos.x + NODE_W / 2} y={pos.y + 50} textAnchor="middle" fill={STATUS_COLORS[step.status] ?? '#94a3b8'} fontSize={9}>
+                    {step.status}{step.item_count > 0 ? ` · ${step.item_count}` : ''}
+                  </text>
+                )}
+              </>
             )}
           </g>
         )
@@ -271,21 +287,46 @@ export function DagPreview({ nodes, edges, stepRuns = [] }: Props) {
       <g>
         <rect x={startX} y={startY} width={SENTINEL_W} height={SENTINEL_H} rx={SENTINEL_H / 2}
           fill="#1e293b" stroke={SENTINEL_COLOR} strokeWidth={1.5} strokeDasharray="3 2" opacity={0.8} />
-        <text x={startX + SENTINEL_W / 2} y={startY + SENTINEL_H / 2 + 4}
-          textAnchor="middle" fill={SENTINEL_COLOR} fontSize={9} fontWeight={700} letterSpacing="0.08em">
-          START
-        </text>
+        {!compact && (
+          <text x={startX + SENTINEL_W / 2} y={startY + SENTINEL_H / 2 + 4}
+            textAnchor="middle" fill={SENTINEL_COLOR} fontSize={9} fontWeight={700} letterSpacing="0.08em">
+            START
+          </text>
+        )}
       </g>
 
       {/* END sentinel */}
       <g>
         <rect x={endX} y={endY} width={SENTINEL_W} height={SENTINEL_H} rx={SENTINEL_H / 2}
           fill="#1e293b" stroke={SENTINEL_COLOR} strokeWidth={1.5} strokeDasharray="3 2" opacity={0.8} />
-        <text x={endX + SENTINEL_W / 2} y={endY + SENTINEL_H / 2 + 4}
-          textAnchor="middle" fill={SENTINEL_COLOR} fontSize={9} fontWeight={700} letterSpacing="0.08em">
-          END
-        </text>
+        {!compact && (
+          <text x={endX + SENTINEL_W / 2} y={endY + SENTINEL_H / 2 + 4}
+            textAnchor="middle" fill={SENTINEL_COLOR} fontSize={9} fontWeight={700} letterSpacing="0.08em">
+            END
+          </text>
+        )}
       </g>
+
+      {/* Extra edges — dashed violet overlay */}
+      {extraEdges?.map((ee, i) => {
+        const src = positions[ee.from]
+        const tgt = positions[ee.to]
+        if (!src || !tgt) return null
+        const x1 = src.x + NODE_W / 2
+        const y1 = src.y + NODE_H / 2
+        const x2 = tgt.x + NODE_W / 2
+        const y2 = tgt.y + NODE_H / 2
+        return (
+          <line
+            key={`extra-${i}`}
+            x1={x1} y1={y1}
+            x2={x2} y2={y2}
+            stroke="#7c3aed"
+            strokeWidth={1.5}
+            strokeDasharray="4,3"
+          />
+        )
+      })}
     </svg>
   )
 }

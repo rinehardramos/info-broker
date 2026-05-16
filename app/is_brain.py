@@ -89,7 +89,10 @@ async def run_research(
         session_context=session_context,
     )
 
-    # Resolve API key — DB first, then env. Skip expired OAuth tokens.
+    # Resolve API key — DB only. Subscription auth is used when no DB key is set.
+    # Intentionally does NOT fall back to ANTHROPIC_API_KEY env var: that var may
+    # be set for other SDK callers (ai_provider, intelligent_search) but the brain
+    # should use Claude subscription unless the operator explicitly stores a key in DB.
     api_key = ""
     try:
         from app.routers.v3.db import fetch_one
@@ -98,10 +101,6 @@ async def run_research(
             api_key = row["value"]
     except Exception:
         pass
-    if not api_key:
-        env_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if env_key.startswith("sk-ant-api"):
-            api_key = env_key
 
     # Use stream-json for real-time tool call events + checkpointing
     cmd = [_CLAUDE_BIN, "-p", prompt, "--output-format", "stream-json", "--verbose"]
@@ -118,12 +117,17 @@ async def run_research(
     log.info("IS Brain: spawning Claude Code (api_key=%s, bare=%s) for query: %s",
              "yes" if api_key else "subscription", "--bare" in cmd, query[:80])
 
-    # Build spawn env — strip any stale ANTHROPIC_API_KEY so Claude Code uses subscription auth
+    # Build spawn env — strip stale auth vars so Claude Code uses subscription auth
+    # via the credentials file at ~/.claude/.credentials.json (populated by `claude auth login`).
+    # Env vars take precedence over the credentials file, so they must be cleared unless
+    # an operator explicitly set an API key in core_settings.
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
     if api_key:
         spawn_env["ANTHROPIC_API_KEY"] = api_key
     else:
         spawn_env.pop("ANTHROPIC_API_KEY", None)
+        spawn_env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        spawn_env.pop("CLAUDE_CODE_OAUTH_REFRESH_TOKEN", None)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -153,8 +157,13 @@ async def run_research(
 
                     etype = event.get("type", "")
 
-                    # Capture tool call events for streaming
-                    if etype == "assistant":
+                    # Capture tool calls (in assistant events) and tool results
+                    # (in user events). Claude Code's stream-json puts tool_use
+                    # blocks on assistant turns and tool_result blocks on user
+                    # turns (the tool's response back to the model). Treating
+                    # both event types lets the frontend stream per-tool results
+                    # in real time instead of waiting for the whole run.
+                    if etype in ("assistant", "user"):
                         for content in event.get("message", {}).get("content", []):
                             if content.get("type") == "tool_use":
                                 tool_name = content.get("name", "")
@@ -164,8 +173,27 @@ async def run_research(
                                     await on_event(tc)
                             elif content.get("type") == "tool_result":
                                 tool_result_data = content.get("content", "")
-                                # Truncate large results for WS transport
-                                preview = str(tool_result_data)[:2000] if tool_result_data else ""
+                                # MCP tool results often arrive as a list of
+                                # {"type":"text","text":"..."} blocks. Pull the
+                                # actual text out so the WS preview is the
+                                # tool's real output, not a Python list repr.
+                                if isinstance(tool_result_data, list):
+                                    parts: list[str] = []
+                                    for block in tool_result_data:
+                                        if isinstance(block, dict):
+                                            t = block.get("text")
+                                            if isinstance(t, str):
+                                                parts.append(t)
+                                                continue
+                                        parts.append(json.dumps(block) if isinstance(block, (dict, list)) else str(block))
+                                    preview = "\n".join(parts)[:2000]
+                                elif isinstance(tool_result_data, (dict, list)):
+                                    try:
+                                        preview = json.dumps(tool_result_data)[:2000]
+                                    except Exception:
+                                        preview = str(tool_result_data)[:2000]
+                                else:
+                                    preview = str(tool_result_data)[:2000] if tool_result_data else ""
                                 tc = {
                                     "type": "tool_result",
                                     "tool_use_id": content.get("tool_use_id", ""),

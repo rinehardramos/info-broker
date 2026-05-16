@@ -7,6 +7,49 @@ from typing import Sequence
 
 from app.memory.models import MemoryResult
 
+# ---------------------------------------------------------------------------
+# Grade-boost integration (Enhancement 3.1)
+# ---------------------------------------------------------------------------
+
+_GRADE_MULTIPLIER: dict[str, float] = {
+    "A": 1.5,
+    "B": 1.2,
+    "C": 1.0,
+    "D": 0.4,
+}
+
+
+def apply_grade_boost(
+    results: list[MemoryResult],
+    grades_map: dict[str, str],
+) -> list[MemoryResult]:
+    """Apply per-finding grade multipliers to RRF scores.
+
+    Args:
+        results:    List of fused MemoryResult objects (scores already computed).
+        grades_map: Mapping of finding ref -> best grade letter ('A'–'D').
+                    Build this by querying findings_grades and taking the
+                    max-boost grade (A > B > C > D) from all available grades.
+                    Ungraded findings are not present in the map (neutral ×1.0).
+
+    Returns:
+        New list with scores adjusted and re-sorted descending.
+        The original list is not mutated.
+    """
+    if not grades_map:
+        return results
+
+    boosted: list[MemoryResult] = []
+    for r in results:
+        multiplier = _GRADE_MULTIPLIER.get(grades_map.get(r.ref, ""), 1.0)
+        if multiplier == 1.0:
+            boosted.append(r)
+        else:
+            boosted.append(replace(r, score=r.score * multiplier))
+
+    boosted.sort(key=lambda r: r.score, reverse=True)
+    return boosted
+
 
 def reciprocal_rank_fusion(
     signal_results: Sequence[Sequence[MemoryResult]],

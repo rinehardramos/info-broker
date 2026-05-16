@@ -11,6 +11,9 @@ import { AnalysisPanel } from './AnalysisPanel'
 import { ActionDrawer } from './ActionDrawer'
 import { InvestigationBreakdown } from './InvestigationBreakdown'
 import { Sparkles, ArrowDownToLine, Save, RefreshCw, RotateCcw, Layers, Loader2, Download, FileText, FileSpreadsheet } from 'lucide-react'
+import { RunResultsView } from './RunResultsView'
+import { RunningTabBadge } from './RunningTabBadge'
+import { useRunStreamStore } from '../../stores/runStreamStore'
 
 // Tab is either the static 'Pipeline' tab, the static 'Results' tab, or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | 'Results' | `run:${string}`
@@ -131,6 +134,16 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
   })
   const [goingDeeper, setGoingDeeper] = useState(false)
 
+  // v2 replay: if the runStreamStore has phases populated for this run (e.g.
+  // from a useReplay rehydrate), short-circuit straight to RunResultsView
+  // regardless of the legacy pipeline_runs.trigger_type/status — past v2
+  // runs need their cards + phase progress visible.
+  const v2Run = useRunStreamStore.getState().runsById[runId]
+  const isV2 = v2Run && Object.keys(v2Run.phases ?? {}).length > 0
+  if (isV2) {
+    return <RunResultsView runId={runId} />
+  }
+
   if (isLoading) {
     return <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>Loading…</p>
   }
@@ -142,22 +155,24 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
   // IS research run — completed with findings
   if (run.trigger_type === 'agent_is' && run.research) {
     return (
-      <ResearchResults
-        research={run.research}
-        status={run.status}
-        runId={runId}
-        goingDeeper={goingDeeper}
-        onGoDeeper={async (leads) => {
-          setGoingDeeper(true)
-          try {
-            const deeper = leads.join('; ')
-            const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
-            if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
-          } finally {
-            setGoingDeeper(false)
-          }
-        }}
-      />
+      <div className="h-full overflow-y-auto">
+        <ResearchResults
+          research={run.research}
+          status={run.status}
+          runId={runId}
+          goingDeeper={goingDeeper}
+          onGoDeeper={async (leads) => {
+            setGoingDeeper(true)
+            try {
+              const deeper = leads.join('; ')
+              const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
+              if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
+            } finally {
+              setGoingDeeper(false)
+            }
+          }}
+        />
+      </div>
     )
   }
 
@@ -241,25 +256,11 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
 
   // IS research run — still running, show live streaming view
   if (run.trigger_type === 'agent_is' && (run.status === 'queued' || run.status === 'running')) {
-    return (
-      <div className="p-3 flex flex-col h-full">
-        <div
-          className="rounded p-3 mb-3 text-xs"
-          style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}
-        >
-          <div className="flex items-center gap-2">
-            <span style={{ fontSize: 8, color: '#a78bfa' }}>◆</span>
-            <span style={{ color: '#a78bfa', fontWeight: 600 }}>IS Research — {run.status}</span>
-          </div>
-          <p style={{ color: 'var(--muted)', fontSize: 10, marginTop: 4 }}>
-            Brain is actively researching. Tool calls stream below in real-time.
-          </p>
-        </div>
-        <div className="flex-1 overflow-auto">
-          <ResearchFlow runId={runId ?? undefined} />
-        </div>
-      </div>
-    )
+    // While the brain is running, show the split window: live tool-call cards
+    // on top and the flow diagram on the bottom. Once `run.research` arrives
+    // (status transitions to succeeded), the branch above renders the rich
+    // finding cards via ResearchResults.
+    return <RunResultsView runId={runId} />
   }
 
   const totalItems = run.steps.reduce((sum, s) => sum + s.item_count, 0)
@@ -1937,10 +1938,10 @@ export default function ResultsPanel() {
                   }}
                   title={`${run.pipeline_name} — ${run.status}`}
                 >
-                  <span style={{ fontSize: 6, color: statusDot }}>●</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {run.pipeline_name?.slice(0, 14) ?? 'Run'}
-                  </span>
+                  <RunningTabBadge
+                    runId={run.id}
+                    label={run.pipeline_name?.slice(0, 14) ?? 'Run'}
+                  />
                   {run.id === sessionRunIds[0] && sessionRunIds.length > 1 && (
                     <span style={{
                       fontSize: 8, background: 'var(--accent)', color: 'var(--bg)',
@@ -1954,6 +1955,7 @@ export default function ResultsPanel() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation()
+                    useRunStreamStore.getState().clearRun(run.id)
                     setDismissedTabs(prev => new Set(prev).add(run.id))
                     if (isActive) setActiveTab('Pipeline')
                   }}
@@ -1986,36 +1988,47 @@ export default function ResultsPanel() {
         </button>
       </div>
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === 'Pipeline' && <PipelineTabContent />}
-
-        {activeTab === 'Results' && (
-          <RunsListTab
-            runs={runs}
-            onOpenRun={(runId) => {
-              setDismissedTabs(prev => { const n = new Set(prev); n.delete(runId); return n })
-              setActiveTab(`run:${runId}`)
-              setCol1Content({ type: 'pipeline_run', runId })
+      {/* Tab content — Pipeline/Results scroll; an active run fills the remaining
+          height as a flex column so RunResultsView's PanelGroup (percentages) gets
+          a defined parent height instead of collapsing to content size. */}
+      {activeRunId ? (
+        <div
+          key={activeRunId}
+          // No overflow on the wrapper — the running branch needs a fixed-height
+          // parent for its PanelGroup. PipelineRunResults's content-heavy branches
+          // (ResearchResults, failed, confirm_pending) wrap themselves in scroll.
+          className="flex-1 min-h-0 flex flex-col"
+        >
+          {/* PipelineRunResults internally branches on run status:
+              - running/queued  → RunResultsView (split window)
+              - succeeded       → ResearchResults (rich finding cards w/ branches, Analyze, Go Deeper)
+              - failed          → error card with Retry
+              - confirm_pending → confirmation gate UI */}
+          <PipelineRunResults
+            runId={activeRunId}
+            onNavigateRun={(newRunId) => {
+              setDismissedTabs(prev => { const n = new Set(prev); n.delete(newRunId); return n })
+              setActiveTab(`run:${newRunId}`)
+              setCol1Content({ type: 'pipeline_run', runId: newRunId })
             }}
           />
-        )}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          {activeTab === 'Pipeline' && <PipelineTabContent />}
 
-        {activeRunId && (
-          <div key={activeRunId} style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {sessionRunIds.length > 1 && sessionRunIds[0] === activeRunId ? (
-              // Session mode: show unified canvas across all session runs
-              <SessionCanvas runIds={sessionRunIds} />
-            ) : (
-              // Single run: existing behavior
-              <PipelineRunResults
-                runId={activeRunId}
-                onNavigateRun={(newRunId) => setActiveTab(`run:${newRunId}`)}
-              />
-            )}
-          </div>
-        )}
-      </div>
+          {activeTab === 'Results' && (
+            <RunsListTab
+              runs={runs}
+              onOpenRun={(runId) => {
+                setDismissedTabs(prev => { const n = new Set(prev); n.delete(runId); return n })
+                setActiveTab(`run:${runId}`)
+                setCol1Content({ type: 'pipeline_run', runId })
+              }}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }

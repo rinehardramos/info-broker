@@ -436,6 +436,14 @@ async def _run_is_research(
                     inp.get("q") or
                     ""
                 )[:120]
+                # Defensively JSON-encode the input so non-serializable values
+                # (e.g., bytes) never bubble up and abort the WS push, which
+                # would propagate out of on_tool_event and tear down the brain
+                # subprocess's stream reader.
+                try:
+                    safe_input = json.loads(json.dumps(inp, default=str))
+                except Exception:
+                    safe_input = {}
                 await push_event(uid, {
                     "type": "is.tool_call",
                     "job_id": run_id, "run_id": run_id,
@@ -443,6 +451,11 @@ async def _run_is_research(
                     "status": ev.get("status", ""),
                     "call_id": ev.get("id", ""),
                     "query_preview": query_preview,
+                    # Full input dict for the detail modal's Input tab.
+                    # query_preview is a 120-char truncation derived from this;
+                    # the modal needs the complete params to show the user
+                    # exactly what the tool was called with.
+                    "input": safe_input,
                 })
 
         # Only advertise healthy+enabled tools to the brain
@@ -604,13 +617,16 @@ async def _run_is_research(
             await push_event(uid, {"type": "research.fast.started", "run_id": run_id, "job_id": run_id})
             await push_event(uid, {"type": "research.thorough.started", "run_id": run_id, "job_id": run_id})
 
-            fast_result, thorough_result = await asyncio.gather(fast_task, thorough_task)
-
+            # Stream the fast preview the moment it lands so the user sees something
+            # within ~3 min instead of waiting the full ~5 min for thorough.
+            fast_result = await fast_task
             await push_event(uid, {
                 "type": "research.fast.completed", "run_id": run_id, "job_id": run_id,
                 "findings": fast_result.get("findings", []),
                 "count": len(fast_result.get("findings", [])),
             })
+
+            thorough_result = await thorough_task
 
             result = _merge(fast_result, thorough_result, query)
 
@@ -983,7 +999,21 @@ async def _run_is_research(
 async def send_message(
     body: AgentMessageIn,
     user: dict = Depends(require_analyst_user),
+    engine: str = "v1",
 ):
+    # engine=v2 guard: short-circuit the legacy run path and redirect to preflight.
+    # The frontend sends ?engine=v2 after the user confirms via PreflightPanel.
+    # All engine_v2 runs are started via POST /v3/preflight/confirm?start_run=true.
+    # This guard prevents accidental dual-launch if the legacy endpoint is also hit.
+    if engine == "v2":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "use_preflight",
+                "message": "engine=v2 runs must be started via POST /v3/preflight/confirm with start_run=true",
+            },
+        )
+
     from app.pipeline.workflow import NodeSpec, EdgeSpec
     from app.pipeline.runner import launch_pipeline_run
 
@@ -1034,7 +1064,16 @@ async def send_message(
 
         _reserved = reserve_budget(uid, user_org_id(user), _estimated_cost)
         if not _reserved:
-            raise HTTPException(status_code=402, detail="Insufficient budget — top up your wallet to run research")
+            _budget_error = "Insufficient budget — top up your wallet to run research"
+            try:
+                execute(
+                    "INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query, error_message, started_at, finished_at) "
+                    "VALUES (%s, %s, %s, %s, %s, 'failed', 'agent_is', %s, %s, NOW(), NOW())",
+                    (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message[:500], _budget_error),
+                )
+            except Exception:
+                pass  # Best-effort logging, don't block the error response
+            raise HTTPException(status_code=402, detail=_budget_error)
 
         fetch_one(
             """
@@ -1215,7 +1254,16 @@ async def send_message(
 
         _reserved = reserve_budget(uid, user_org_id(user), _estimated_cost)
         if not _reserved:
-            raise HTTPException(status_code=402, detail="Insufficient budget — top up your wallet to run research")
+            _budget_error = "Insufficient budget — top up your wallet to run research"
+            try:
+                execute(
+                    "INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query, error_message, started_at, finished_at) "
+                    "VALUES (%s, %s, %s, %s, %s, 'failed', 'agent', %s, %s, NOW(), NOW())",
+                    (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message[:500], _budget_error),
+                )
+            except Exception:
+                pass  # Best-effort logging, don't block the error response
+            raise HTTPException(status_code=402, detail=_budget_error)
 
         fetch_one(
             """

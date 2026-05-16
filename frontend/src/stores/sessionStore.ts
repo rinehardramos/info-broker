@@ -48,7 +48,7 @@ const storedToken = localStorage.getItem('access_token')
 const initialClaims = claimsFromToken(storedToken)
 
 export const useSessionStore = create<SessionState>((set) => ({
- [REDACTED:assigned-token:34ch:hash=9824825a]('access_token'),
+  accessToken: localStorage.getItem('access_token'),
   username: null,
   userId:   initialClaims.userId,
   isAdmin:  initialClaims.isAdmin,
@@ -84,3 +84,9 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({ accessToken: null, username: null, userId: null, activeJobId: null, col1Content: null, isAdmin: false, role: 'analyst' })
   },
 }))
+
+// Expose for E2E inspection / devtools.
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(window as any).useSessionStore = useSessionStore
+}

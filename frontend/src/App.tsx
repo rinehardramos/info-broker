@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AuthGuard from './components/AuthGuard'
 import Login from './pages/Login'
+import AuthCallback from './pages/AuthCallback'
 import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
 import { ResultDrawer } from './components/runs/ResultDrawer'
@@ -10,9 +11,7 @@ import { ResultDrawer } from './components/runs/ResultDrawer'
 // Lazy-load pages to keep initial bundle small
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Research = lazy(() => import('./pages/Research'))
-const Jobs      = lazy(() => import('./pages/Jobs'))
 const Monitors  = lazy(() => import('./pages/Monitors'))
-const History   = lazy(() => import('./pages/History'))
 const Settings    = lazy(() => import('./pages/Settings'))
 const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 const PluginsPage    = lazy(() => import('./pages/PluginsPage'))
@@ -22,6 +21,9 @@ const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
 const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
 const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
+const Wallet = lazy(() => import('./pages/Wallet'))
+const Runs = lazy(() => import('./pages/Runs'))
+const SharedRunPage = lazy(() => import('./pages/SharedRunPage'))
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
@@ -48,12 +50,16 @@ export default function App() {
         <Suspense fallback={<Spinner />}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
             <Route path="/dashboard" element={<AuthGuard><Dashboard /></AuthGuard>} />
             <Route path="/research" element={<AuthGuard><Research /></AuthGuard>} />
-            <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
+            {/* /jobs and /history redirect to the unified /runs page */}
+            <Route path="/jobs" element={<Navigate to="/runs" replace />} />
             <Route path="/monitors" element={<AuthGuard><Monitors /></AuthGuard>} />
-            <Route path="/history" element={<AuthGuard><History /></AuthGuard>} />
+            <Route path="/history" element={<Navigate to="/runs" replace />} />
+            <Route path="/runs" element={<AuthGuard><Runs /></AuthGuard>} />
+            <Route path="/wallet" element={<AuthGuard><Wallet /></AuthGuard>} />
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
             <Route path="/plugins" element={<AuthGuard><PluginsPage /></AuthGuard>} />
             <Route path="/plugins/node/:nodeType" element={<AuthGuard><NodePluginPage /></AuthGuard>} />
@@ -65,6 +71,8 @@ export default function App() {
             <Route path="/admin/users" element={<AuthGuard><AdminUsersPage /></AuthGuard>} />
             <Route path="/knowledge" element={<AuthGuard><KnowledgeGraphPage /></AuthGuard>} />
             <Route path="/performance" element={<AuthGuard><PerformanceDashboardPage /></AuthGuard>} />
+            {/* Public share route — NO auth guard */}
+            <Route path="/share/:token" element={<SharedRunPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>

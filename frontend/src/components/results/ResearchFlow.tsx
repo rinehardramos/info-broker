@@ -11,6 +11,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
 import { useChatStore } from '../../stores/chatStore'
+import { formatToolResult } from '../../lib/toolResultFormatter'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,12 +136,20 @@ const PIR_COLOR = '#f59e0b'
 // Module-level cache survives component unmount/remount
 const _flowCache = new Map<string, FlowState>()
 
+interface ExtraEdge {
+  from: string
+  to: string
+  kind: 'result' | 'injected'
+}
+
 interface Props {
   /** If provided, only show flow for this run. Otherwise show latest. */
   runId?: string
+  compact?: boolean
+  extraEdges?: ExtraEdge[]
 }
 
-export function ResearchFlow({ runId: filterRunId }: Props) {
+export function ResearchFlow({ runId: filterRunId, compact = false, extraEdges }: Props) {
   const sessionRunIds = useChatStore(s => s.sessionRunIds)
   const [flows, _setFlows] = useState<Map<string, FlowState>>(() => new Map(_flowCache))
 
@@ -353,6 +362,9 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
     }
 
     if (event.type === 'is.tool_result' && event.run_id && event.call_id) {
+      // Derive a result count from the (often nested-JSON-encoded) preview so
+      // the per-tool graph node shows the actual hit count instead of 0.
+      const fmt = formatToolResult(event.preview ?? event.result_preview ?? '')
       setFlows(prev => {
         const next = new Map(prev)
         const flow = next.get(event.run_id!)
@@ -361,7 +373,15 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
           ...flow,
           nodes: flow.nodes.map(n =>
             n.id === event.call_id
-              ? { ...n, status: 'succeeded' as const, resultPreview: event.preview ?? event.result_preview }
+              ? {
+                  ...n,
+                  status: 'succeeded' as const,
+                  resultPreview: event.preview ?? event.result_preview,
+                  // Fall back to a synthetic count of 1 when the result is
+                  // structured but no array shape matched, so we don't keep
+                  // the misleading '0 results' label.
+                  resultCount: fmt.count ?? (fmt.isStructured ? 1 : (n.resultCount ?? 0)),
+                }
               : n
           ),
         })
@@ -447,7 +467,11 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
           <div style={{ flex: 1, height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{
               height: '100%',
-              width: `${Math.min(100, (activeFlow.callCount / activeFlow.maxCalls) * 100)}%`,
+              // Once the run is terminal, the bar represents completion (100%),
+              // not the literal callCount/maxCalls ratio.
+              width: activeFlow.status === 'running'
+                ? `${Math.min(100, (activeFlow.callCount / activeFlow.maxCalls) * 100)}%`
+                : '100%',
               background: activeFlow.status === 'running' ? '#facc15' : '#4ade80',
               borderRadius: 2,
               transition: 'width 0.3s ease',
@@ -461,7 +485,7 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
 
       {/* Flow graph */}
       <div style={{ flex: 1, overflow: 'auto', padding: 8 }}>
-        <FlowGraph nodes={activeFlow.nodes} query={activeFlow.query} />
+        <FlowGraph nodes={activeFlow.nodes} query={activeFlow.query} compact={compact} extraEdges={extraEdges} />
       </div>
     </div>
   )
@@ -472,9 +496,9 @@ export function ResearchFlow({ runId: filterRunId }: Props) {
 // SVG Flow Graph
 // ---------------------------------------------------------------------------
 
-function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
-  // Dynamic sizing based on node count
-  const s = getScale(nodes.length)
+function FlowGraph({ nodes, query, compact = false, extraEdges }: { nodes: FlowNode[]; query: string; compact?: boolean; extraEdges?: ExtraEdge[] }) {
+  // Dynamic sizing based on node count; compact mode applies an additional 0.6x scale
+  const s = getScale(nodes.length) * (compact ? 0.6 : 1)
   const nw = Math.round(_BASE_NODE_W * s)
   const nh = Math.round(_BASE_NODE_H * s)
   const gx = Math.round(_BASE_GAP_X * s)
@@ -585,7 +609,18 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
   }
 
   return (
-    <svg width="100%" height="100%" viewBox={`0 0 ${svgW} ${svgH}`} style={{ background: '#0a0e14', borderRadius: 6, minHeight: 200 }}>
+    <svg
+      width="100%"
+      height="100%"
+      viewBox={`0 0 ${svgW} ${svgH}`}
+      preserveAspectRatio="xMidYMid meet"
+      style={{
+        background: '#0a0e14',
+        borderRadius: 6,
+        minHeight: 200,
+      }}
+      pointerEvents={compact ? 'none' : undefined}
+    >
       <defs>
         <marker id="flow-arrow" markerWidth="6" markerHeight="6" refX="6" refY="3" orient="auto">
           <path d="M0,0 L6,3 L0,6 Z" fill="#475569" opacity={0.8} />
@@ -635,10 +670,14 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
         return (
           <g>
             <rect x={pos.x} y={pos.y} width={rw} height={rh} rx={rh / 2} fill="#1e293b" stroke="#a78bfa" strokeWidth={1.5} />
-            <text x={pos.x + rw / 2} y={pos.y + rh * 0.4} textAnchor="middle" fill="#a78bfa" fontSize={fontSize} fontWeight={700}>IS BRAIN</text>
-            <text x={pos.x + rw / 2} y={pos.y + rh * 0.72} textAnchor="middle" fill="#94a3b8" fontSize={fontSizeSm}>
-              {query.slice(0, Math.round(14 * s))}{query.length > Math.round(14 * s) ? '...' : ''}
-            </text>
+            {!compact && (
+              <>
+                <text x={pos.x + rw / 2} y={pos.y + rh * 0.4} textAnchor="middle" fill="#a78bfa" fontSize={fontSize} fontWeight={700}>IS BRAIN</text>
+                <text x={pos.x + rw / 2} y={pos.y + rh * 0.72} textAnchor="middle" fill="#94a3b8" fontSize={fontSizeSm}>
+                  {query.slice(0, Math.round(14 * s))}{query.length > Math.round(14 * s) ? '...' : ''}
+                </text>
+              </>
+            )}
           </g>
         )
       })()}
@@ -669,20 +708,24 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
                 stroke={node.status === 'running' ? '#facc15' : PIR_COLOR}
                 strokeWidth={2}
               />
-              <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.25} fill={PIR_COLOR} fontSize={fontSize} fontWeight={700}>
-                PIR
-              </text>
-              <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.48} fill="#fcd34d" fontSize={fontSizeSm}>
-                {line1}
-              </text>
-              {line2 && (
-                <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.70} fill="#fcd34d" fontSize={fontSizeSm}>
-                  {line2}
-                </text>
+              {!compact && (
+                <>
+                  <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.25} fill={PIR_COLOR} fontSize={fontSize} fontWeight={700}>
+                    PIR
+                  </text>
+                  <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.48} fill="#fcd34d" fontSize={fontSizeSm}>
+                    {line1}
+                  </text>
+                  {line2 && (
+                    <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.70} fill="#fcd34d" fontSize={fontSizeSm}>
+                      {line2}
+                    </text>
+                  )}
+                  <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.90} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
+                    {node.status === 'running' ? '⏳ investigating...' : node.status === 'succeeded' ? '✓ done' : '✗ failed'}
+                  </text>
+                </>
               )}
-              <text x={pos.x + 6} y={pirYAdjusted + pirH * 0.90} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
-                {node.status === 'running' ? '⏳ investigating...' : node.status === 'succeeded' ? '✓ done' : '✗ failed'}
-              </text>
             </g>
           )
         }
@@ -706,16 +749,20 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
                 stroke={hColor}
                 strokeWidth={1.5}
               />
-              <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={hColor} fontSize={fontSize} fontWeight={600}>
-                H{(node.hypothesisIndex ?? 0) + 1}
-              </text>
-              <text x={pos.x + 6} y={pos.y + nh * 0.50} fill="#94a3b8" fontSize={fontSizeSm}>
-                {line1}
-              </text>
-              {line2 && (
-                <text x={pos.x + 6} y={pos.y + nh * 0.72} fill="#94a3b8" fontSize={fontSizeSm}>
-                  {line2}
-                </text>
+              {!compact && (
+                <>
+                  <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={hColor} fontSize={fontSize} fontWeight={600}>
+                    H{(node.hypothesisIndex ?? 0) + 1}
+                  </text>
+                  <text x={pos.x + 6} y={pos.y + nh * 0.50} fill="#94a3b8" fontSize={fontSizeSm}>
+                    {line1}
+                  </text>
+                  {line2 && (
+                    <text x={pos.x + 6} y={pos.y + nh * 0.72} fill="#94a3b8" fontSize={fontSizeSm}>
+                      {line2}
+                    </text>
+                  )}
+                </>
               )}
             </g>
           )
@@ -756,23 +803,50 @@ function FlowGraph({ nodes, query }: { nodes: FlowNode[]; query: string }) {
               stroke={node.status === 'running' ? '#facc15' : statusColor}
               strokeWidth={1}
             />
-            {/* Tool name */}
-            <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={color} fontSize={fontSize} fontWeight={700}>
-              {node.tool.replace(/^run_/, '').replace(/_/g, ' ').slice(0, Math.round(18 * s))}
-            </text>
-            {/* Description preview (query/URL/name being searched) */}
-            <text x={pos.x + 6} y={pos.y + nh * 0.55} fill="#94a3b8" fontSize={fontSizeSm}>
-              {descText.slice(0, Math.round(22 * s))}{descText.length > Math.round(22 * s) ? '…' : ''}
-            </text>
-            {/* Status + result count */}
-            <text x={pos.x + 6} y={pos.y + nh * 0.82} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
-              {node.status === 'running'
-                ? '⏳ running...'
-                : node.status === 'succeeded'
-                  ? `✓ ${node.resultCount ?? 0} results`
-                  : '✗ failed'}
-            </text>
+            {!compact && (
+              <>
+                {/* Tool name */}
+                <text x={pos.x + 6} y={pos.y + nh * 0.3} fill={color} fontSize={fontSize} fontWeight={700}>
+                  {node.tool.replace(/^run_/, '').replace(/_/g, ' ').slice(0, Math.round(18 * s))}
+                </text>
+                {/* Description preview (query/URL/name being searched) */}
+                <text x={pos.x + 6} y={pos.y + nh * 0.55} fill="#94a3b8" fontSize={fontSizeSm}>
+                  {descText.slice(0, Math.round(22 * s))}{descText.length > Math.round(22 * s) ? '…' : ''}
+                </text>
+                {/* Status + result count */}
+                <text x={pos.x + 6} y={pos.y + nh * 0.82} fill={statusColor} fontSize={fontSizeSm} fontWeight={600}>
+                  {node.status === 'running'
+                    ? '⏳ running...'
+                    : node.status === 'succeeded'
+                      ? `✓ ${node.resultCount ?? 0} results`
+                      : '✗ failed'}
+                </text>
+              </>
+            )}
           </g>
+        )
+      })}
+
+      {/* Extra edges — dashed violet overlay */}
+      {extraEdges?.map((ee, i) => {
+        const src = positions[ee.from]
+        const tgt = positions[ee.to]
+        if (!src || !tgt) return null
+        const srcNode = nodeById[ee.from]
+        const tgtNode = nodeById[ee.to]
+        const x1 = src.x + (srcNode?.nodeType === 'pir' ? pirW : nw) / 2
+        const y1 = src.y + nh / 2
+        const x2 = tgt.x + (tgtNode?.nodeType === 'pir' ? pirW : nw) / 2
+        const y2 = tgt.y + nh / 2
+        return (
+          <line
+            key={`extra-${i}`}
+            x1={x1} y1={y1}
+            x2={x2} y2={y2}
+            stroke="#7c3aed"
+            strokeWidth={1.5}
+            strokeDasharray="4,3"
+          />
         )
       })}
     </svg>

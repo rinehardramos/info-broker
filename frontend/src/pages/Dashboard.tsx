@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import IconRail from '@/components/layout/IconRail'
 import { StatCard } from '@/components/dashboard/StatCard'
 import { RunListTable } from '@/components/runs/RunListTable'
@@ -6,6 +7,7 @@ import { useResultDrawerStore } from '@/stores/resultDrawerStore'
 import { listRuns, getRunMetrics } from '@/api/v3'
 
 export default function Dashboard() {
+  const navigate = useNavigate()
   const openDrawer = useResultDrawerStore((s) => s.open)
 
   const { data: metrics } = useQuery({
@@ -48,7 +50,11 @@ export default function Dashboard() {
 
         <section className="space-y-2">
           <h2 className="text-sm font-semibold opacity-70">Recent runs</h2>
-          <RunListTable rows={recent} onShow={openDrawer} />
+          <RunListTable
+            rows={recent}
+            onShow={openDrawer}
+            onRerun={(query) => navigate(`/research?q=${encodeURIComponent(query)}`)}
+          />
         </section>
       </div>
       <IconRail />

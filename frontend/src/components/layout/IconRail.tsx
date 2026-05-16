@@ -15,6 +15,8 @@ import {
   BarChart3,
   Settings,
   Users,
+  Wallet,
+  List,
 } from 'lucide-react'
 import { listPluginRequests } from '../../api/pipelines'
 import { LogoMark } from '@/components/brand/LogoMark'
@@ -22,9 +24,11 @@ import { LogoMark } from '@/components/brand/LogoMark'
 const NAV = [
   { icon: <LayoutDashboard size={18} />, path: '/dashboard',       label: 'Dashboard' },
   { icon: <Search size={18} />,          path: '/research',         label: 'Research' },
-  { icon: <Briefcase size={18} />,       path: '/jobs',             label: 'Jobs' },
   { icon: <Radio size={18} />,           path: '/monitors',         label: 'Monitors' },
-  { icon: <Clock size={18} />,           path: '/history',          label: 'History' },
+  // Runs is the unified history (filters + cost column). /history and /jobs
+  // both redirect to /runs in App.tsx.
+  { icon: <List size={18} />,            path: '/runs',             label: 'Runs' },
+  { icon: <Wallet size={18} />,          path: '/wallet',           label: 'Wallet' },
   { icon: <Puzzle size={18} />,          path: '/plugins',          label: 'Plugins' },
   { icon: <Server size={18} />,          path: '/admin/processes',  label: 'Live Processes' },
   { icon: <Network size={18} />,         path: '/knowledge',        label: 'Knowledge Graph' },

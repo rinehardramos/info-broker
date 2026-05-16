@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from app.memory.models import MemoryResult
-from app.memory.rrf import reciprocal_rank_fusion
+from app.memory.rrf import reciprocal_rank_fusion, apply_grade_boost
 from app.memory.signals import (
     bm25_search,
     entity_search,
@@ -19,6 +19,34 @@ from app.memory.signals import (
 log = logging.getLogger(__name__)
 
 _SIGNAL_NAMES = ["semantic", "bm25", "entity", "temporal", "feedback"]
+
+
+_GRADE_PRIORITY = {"A": 4, "B": 3, "C": 2, "D": 1}
+
+
+def _load_grades_map(user_id: str) -> dict[str, str]:
+    """Return finding_id -> best-grade letter for findings graded by any user.
+
+    "Best" means the grade with the highest boost multiplier (A > B > C > D).
+    Uses a simple per-finding MAX based on priority ordering.
+    Returns an empty dict on any DB error so retrieval degrades gracefully.
+    """
+    try:
+        from app.routers.v3.db import fetch_all
+        rows = fetch_all(
+            "SELECT finding_id, grade FROM findings_grades",
+            (),
+        )
+        grades_map: dict[str, str] = {}
+        for row in rows:
+            fid = row["finding_id"]
+            g = row["grade"]
+            existing = grades_map.get(fid)
+            if existing is None or _GRADE_PRIORITY.get(g, 0) > _GRADE_PRIORITY.get(existing, 0):
+                grades_map[fid] = g
+        return grades_map
+    except Exception:
+        return {}
 
 
 def _track_access(run_ids: list[str]) -> None:
@@ -82,6 +110,11 @@ async def fused_retrieve(
         k=60,
         signal_names=_SIGNAL_NAMES,
     )
+    # Apply user grade boosts if a user_id was supplied
+    if user_id:
+        grades_map = _load_grades_map(user_id)
+        fused = apply_grade_boost(fused, grades_map)
+
     results = fused[:limit]
 
     # Track access for lifecycle management

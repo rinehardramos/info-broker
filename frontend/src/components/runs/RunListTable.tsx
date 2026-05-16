@@ -5,11 +5,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from './StatusBadge'
 import { DownloadMenu } from './DownloadMenu'
+import { RotateCcw } from 'lucide-react'
 import type { RunRow } from '@/api/v3'
 
 interface Props {
   rows: RunRow[]
   onShow: (runId: string) => void
+  onRerun?: (query: string) => void
 }
 
 const COMPLETED = new Set(['succeeded', 'failed', 'cancelled'])
@@ -30,7 +32,7 @@ function relativeTime(iso: string): string {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
-export function RunListTable({ rows, onShow }: Props) {
+export function RunListTable({ rows, onShow, onRerun }: Props) {
   if (rows.length === 0) {
     return (
       <div className="rounded border p-8 text-center text-sm opacity-70">
@@ -53,7 +55,9 @@ export function RunListTable({ rows, onShow }: Props) {
       <TableBody>
         {rows.map((row) => (
           <TableRow key={row.id}>
-            <TableCell className="max-w-[320px] truncate" title={row.query}>{row.query}</TableCell>
+            <TableCell className="max-w-[320px] truncate text-foreground" title={row.query || undefined}>
+              {row.query || <span className="opacity-40 italic">—</span>}
+            </TableCell>
             <TableCell>
               <Badge variant="outline">{row.pipeline_name ? 'pipeline' : 'IS'}</Badge>
             </TableCell>
@@ -61,6 +65,17 @@ export function RunListTable({ rows, onShow }: Props) {
             <TableCell title={row.created_at}>{relativeTime(row.created_at)}</TableCell>
             <TableCell>{durationLabel(row)}</TableCell>
             <TableCell className="text-right space-x-2">
+              {row.status === 'failed' && onRerun && row.query && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRerun(row.query)}
+                  title="Rerun this query"
+                >
+                  <RotateCcw size={12} className="mr-1" />
+                  Rerun
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => onShow(row.id)}>Show</Button>
               {COMPLETED.has(row.status) && <DownloadMenu runId={row.id} />}
             </TableCell>

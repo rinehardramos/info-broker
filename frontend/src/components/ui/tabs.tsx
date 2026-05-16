@@ -14,7 +14,11 @@ function Tabs({
       data-slot="tabs"
       data-orientation={orientation}
       className={cn(
-        "group/tabs flex gap-2 data-horizontal:flex-col",
+        // Horizontal orientation stacks list above content (flex-col).
+        // Previous selector `data-horizontal:flex-col` never matched
+        // (Radix sets data-orientation, not data-horizontal), leaving the
+        // container as a flex row → TabsList squashed TabsContent off-canvas.
+        "group/tabs flex gap-2 data-[orientation=horizontal]:flex-col",
         className
       )}
       {...props}
