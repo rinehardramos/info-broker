@@ -52,3 +52,6 @@ test-results/
 frontend/test-results/
 playwright-report/
 frontend/playwright-report/
+
+# Local demo recordings — re-recordable via `npx playwright test demo-feature-tour`
+docs/demos/
