@@ -285,7 +285,7 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   await subtitle(page, 'Research workspace — pipeline · agent chat · live stream', 4000, 'top')
   await subtitle(page,
-    "Let's ask: 'Who is the CEO of OpenAI in 2026?'\n" +
+    "Let's ask: 'Identify the K-pop idol-turned-actress with a mole on her cheek in the recent K-drama commercial.'\n" +
     'The agent will pick a strategy, run parallel hypotheses, stream live results.',
     5500,
     'top',
@@ -298,7 +298,14 @@ test('demo feature tour — research + file upload + inference', async ({ page }
     .first()
   await input.waitFor({ timeout: 5000 })
   await input.click()
-  await input.pressSequentially('Who is the CEO of OpenAI in 2026?', { delay: 18 })
+  // Complex multi-hypothesis query — triggers all 4 phases (signal_extraction,
+  // broaden, red_team, rank_verify) with parallel tacticians, so the flow
+  // diagram shows real depth instead of resolving immediately.
+  await input.pressSequentially(
+    'Identify the K-pop idol-turned-actress with a mole on her left cheek ' +
+    'in the recent K-drama commercial — likely a 2024 Netflix series.',
+    { delay: 18 },
+  )
   await wait(600)
   await subtitle(page, 'Submitting query...', 1800, 'top')
   await input.press('Enter')
@@ -458,30 +465,41 @@ test('demo feature tour — research + file upload + inference', async ({ page }
 
   await clearSubtitle(page)
 
-  // ----- DAG in bottom panel — 3 layers deep -----
-  // The full investigation DAG lives permanently in the bottom panel of the
-  // run-results view; no toolbar click needed. Scroll the bottom panel into
-  // view and pan through the layers.
+  // ----- Flow diagram in bottom panel + DAG drill via toolbar button -----
   await page.evaluate(() => window.scrollBy({ top: 400 }))
   await wait(1500)
   await subtitle(page,
-    'Bottom panel: full investigation DAG — phases (signal extraction → broaden → red team → rank verify).',
-    5500,
-  )
-  await wait(3500)
-  await subtitle(page,
-    'Each phase fans out into parallel tacticians (slot 0, 1, 2…) — layer 2.',
+    'Bottom panel: flow diagram — left-to-right view of the investigation graph.',
     5000,
   )
-  await scrollThroughContent(page, 500, 900)
-  await subtitle(page,
-    'Layer 3: each tactician runs tool calls; the findings hang off as leaves.\n' +
-    'Click any node to inspect the full payload.',
-    6000,
-  )
-  await wait(3500)
+  await wait(3000)
+  // Click the DAG toolbar button (top panel) to drill into the full
+  // investigation tree — 3 layers deep.
+  const dagBtn = page.getByText('DAG', { exact: true }).first()
+  if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+    await dagBtn.click({ force: true }).catch(() => {})
+    await wait(1500)
+    await subtitle(page,
+      'Click "DAG" in the toolbar — full investigation tree.\n' +
+      'Layer 1: phases (signal extraction → broaden → red team → rank verify).',
+      6000,
+    )
+    await wait(3500)
+    await subtitle(page,
+      'Layer 2: each phase fans into parallel tacticians (slot 0, 1, 2…).',
+      5000,
+    )
+    await scrollThroughContent(page, 500, 900)
+    await subtitle(page,
+      'Layer 3: each tactician runs tool calls; findings hang off as leaves.',
+      5500,
+    )
+    await wait(3000)
+    const liveBtn = page.getByText('Live', { exact: true }).first()
+    await liveBtn.click({ force: true }).catch(() => {})
+    await wait(800)
+  }
   await page.evaluate(() => window.scrollTo({ top: 0 }))
-  await wait(800)
   await clearSubtitle(page)
 
   // ===========================================================

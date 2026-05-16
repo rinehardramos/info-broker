@@ -293,18 +293,28 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await page.keyboard.press('Escape').catch(() => {})
   await wait(1000)
 
-  // ----- DAG in bottom panel — phase → tactician → tool-call → finding -----
+  // ----- Flow diagram in bottom + DAG drill via toolbar button -----
   await page.evaluate(() => window.scrollBy({ top: 400 }))
   await wait(1500)
   await subtitle(page,
-    'Bottom panel: full investigation DAG — phase → tactician → tool-call → finding.\n' +
-    'Four levels deep in a single graph.',
-    6000,
+    'Bottom panel: flow diagram — left-to-right investigation graph.',
+    5000,
   )
-  await wait(3500)
-  await scrollThroughContent(page, 500, 900)
+  await wait(3000)
+  const dagBtn = page.getByText('DAG', { exact: true }).first()
+  if (await dagBtn.isVisible({ timeout: 2500 }).catch(() => false)) {
+    await dagBtn.click({ force: true }).catch(() => {})
+    await wait(1500)
+    await subtitle(page,
+      'DAG toolbar — full investigation tree, phase → tactician → tool-call → finding.',
+      5500,
+    )
+    await scrollThroughContent(page, 500, 900)
+    const liveBtn = page.getByText('Live', { exact: true }).first()
+    await liveBtn.click({ force: true }).catch(() => {})
+    await wait(800)
+  }
   await page.evaluate(() => window.scrollTo({ top: 0 }))
-  await wait(800)
   await clearSubtitle(page)
 
   // ----- Go Deeper / Analyze / Save Pipeline -----
