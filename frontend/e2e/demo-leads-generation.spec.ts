@@ -230,6 +230,21 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await wait(1000)
 
   // ----- Go Deeper / Analyze / Save Pipeline -----
+  // These buttons live in ResultsPanel (the legacy analysis view), not the
+  // V2 LIVE VIEW the demo is currently on. Click a "Results" tab / panel
+  // header first to surface them.
+  for (const sel of [
+    'button:has-text("Results")',
+    '[role="tab"]:has-text("Results")',
+    'button:has-text("Analyze")',
+  ]) {
+    const tab = page.locator(sel).first()
+    if (await tab.isVisible({ timeout: 800 }).catch(() => false)) {
+      await tab.click().catch(() => {})
+      await wait(1000)
+      break
+    }
+  }
   const goDeepBtn = page.locator('button:has-text("Go Deep")').first()
   const analyzeBtn = page.locator('button:has-text("Analyze")').first()
   const saveBtn = page.locator('button:has-text("Save Pipeline"), button:has-text("Save as Pipeline")').first()
@@ -259,9 +274,10 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await clearSubtitle(page)
 
   // ----- Full investigation DAG (4-levels-deep flow diagram) -----
-  const dagTab = page.getByRole('tab', { name: /^dag$/i }).first()
-  if (await dagTab.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await dagTab.click()
+  // PhaseDAGView toolbar uses plain <button> elements, not [role="tab"].
+  const dagBtn = page.locator('button', { hasText: /^DAG$/ }).first()
+  if (await dagBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await dagBtn.click()
     await wait(1500)
     await subtitle(page,
       'Full investigation DAG — phase → tactician → tool-call → finding.\n' +
@@ -269,8 +285,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
       6000,
     )
     await wait(3500)
-    // back to Live tab so the next section starts clean
-    await page.getByRole('tab', { name: /^live$/i }).first().click().catch(() => {})
+    const liveBtn = page.locator('button', { hasText: /^Live$/ }).first()
+    await liveBtn.click().catch(() => {})
     await wait(800)
   }
   await clearSubtitle(page)
@@ -351,8 +367,15 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await subtitle(page, 'Runs page — every investigation, filterable + downloadable.', 4500)
   await wait(2500)
 
-  // Trigger DownloadMenu on the first row
-  const downloadBtn = page.locator('button:has-text("Download")').first()
+  // Open a run row (click "View" / first row action) → ResultDrawer
+  // has the DownloadMenu. (Runs.tsx itself doesn't render DownloadMenu
+  // inline after the History/Runs merge — see issue #95.)
+  const firstRowAction = page.locator('button:has-text("View"), tr td a').first()
+  if (await firstRowAction.isVisible({ timeout: 2000 }).catch(() => false)) {
+    await firstRowAction.click().catch(() => {})
+    await wait(1500)
+  }
+  const downloadBtn = page.locator('button:has-text("Download"), button[aria-label="Download"]').first()
   if (await downloadBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
     await downloadBtn.click()
     await wait(1000)
@@ -364,6 +387,14 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     await wait(3500)
     await page.keyboard.press('Escape').catch(() => {})
     await wait(500)
+  } else {
+    // Inline narration if the affordance isn't reachable from this page.
+    await subtitle(page,
+      'Open a run from this page to access the Download menu — CSV / XLSX / PDF.\n' +
+      'Reports include citations, confidence scores, and the ACH matrix.',
+      5500,
+    )
+    await wait(3500)
   }
   await clearSubtitle(page)
 
