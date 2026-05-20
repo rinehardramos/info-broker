@@ -23,6 +23,7 @@ from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 import httpx
 
 from app.pipeline.nodes.base import RunContext
+from app.cache import cached_tool_call_async
 
 log = logging.getLogger(__name__)
 
@@ -762,6 +763,7 @@ class MultiSearchNode:
     }
 
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
+        # Resolve query at the top so the cache key reflects the actual canonical args.
         query: str = (
             config.get("query")
             or next(
@@ -770,13 +772,35 @@ class MultiSearchNode:
             )
             or ""
         ).strip()
-
         if not query:
             return [{"error": "multi_search requires a 'query'", "source": "multi_search"}]
 
         engines: list[str] = config.get("engines") or ["ddg", "baidu", "yahoo", "serper", "brave"]
         max_results: int = int(config.get("max_results", 20))
         auto_translate: bool = config.get("translate", True)
+
+        # Multi-engine web search results are stable within ~1h. Cache cross-user
+        # (results are public). Same canonical (query, engines, max_results, translate)
+        # → same cached result.
+        return await cached_tool_call_async(
+            "multi_search",
+            {
+                "query": query,
+                "engines": sorted(engines),
+                "max_results": max_results,
+                "translate": auto_translate,
+            },
+            lambda: self._execute_uncached(query, engines, max_results, auto_translate),
+            ttl_seconds=3600,
+        )
+
+    async def _execute_uncached(
+        self,
+        query: str,
+        engines: list[str],
+        max_results: int,
+        auto_translate: bool,
+    ) -> list[dict]:
 
         loop = asyncio.get_running_loop()
         tasks: list = []

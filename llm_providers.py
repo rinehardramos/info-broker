@@ -68,9 +68,23 @@ def embedding_model(provider: str = DEFAULT_PROVIDER) -> str:
 def embed_text(text: str, provider: str | None = None) -> list[float]:
     """Return an embedding vector for ``text`` using the configured provider.
 
-    Provider resolution: explicit arg > EMBEDDING_PROVIDER env > DEFAULT_PROVIDER.
-    Supports: ollama (native API), google (Gemini REST), lmstudio (OpenAI-compat).
+    Content-addressed Redis cache wraps this call (infinite TTL — identical text
+    deterministically produces the same vector for a given model). Cache is a
+    transparent no-op when Redis is unreachable.
     """
+    if not text:
+        return [0.0] * 768
+
+    try:
+        from app.cache import cached_embed
+        return cached_embed(text, lambda t: _embed_text_uncached(t, provider))
+    except ImportError:
+        # Caching layer not available (e.g. running outside the app context).
+        return _embed_text_uncached(text, provider)
+
+
+def _embed_text_uncached(text: str, provider: str | None = None) -> list[float]:
+    """Direct provider call without caching. Use embed_text() in app code."""
     if not text:
         return [0.0] * 768
 

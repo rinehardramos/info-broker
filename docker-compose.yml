@@ -29,6 +29,24 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  # Redis — cache layer for tool results and embeddings.
+  # Volatile but persisted (AOF every-second) so a restart doesn't blow the
+  # embedding cache. ~30-40% LLM cost reduction at steady state expected.
+  redis:
+    image: redis:7-alpine
+    mem_limit: 512m
+    mem_reservation: 128m
+    command: redis-server --appendonly yes --appendfsync everysec --maxmemory 384mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   frontend:
     build:
       context: ./frontend
@@ -64,6 +82,7 @@ services:
       POSTGRES_PORT: 5432
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LLM_PROVIDER: ${LLM_PROVIDER:-google}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -186,6 +205,7 @@ services:
       POSTGRES_PORT: 5432
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LLM_PROVIDER: ${LLM_PROVIDER:-google}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -231,6 +251,7 @@ services:
       POSTGRES_PORT: 5432
       QDRANT_HOST: qdrant
       QDRANT_PORT: 6333
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       LLM_PROVIDER: ${LLM_PROVIDER:-google}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -279,3 +300,4 @@ volumes:
   postgres_data:
   claude_auth:
   neo4j_data:
+  redis_data:
