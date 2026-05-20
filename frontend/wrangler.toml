@@ -22,7 +22,7 @@ pages_build_output_dir = "dist"
 
 [vars]
 # Public build-time env vars. Sensitive values stay in the dashboard secrets UI.
-NODE_VERSION = "20"
+NODE_VERSION = "22"
 
 # Per-environment overrides — production uses tunneled api.infobroker.tech,
 # previews still hit the same prod API (preview gates are at Cloudflare Access).

@@ -46,10 +46,10 @@ jobs:
         with:
           version: 9
 
-      - name: Set up Node 20 (pinned to match wrangler.toml)
+      - name: Set up Node 22 (wrangler 4.x requires >=22)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 
