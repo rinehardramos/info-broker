@@ -613,10 +613,14 @@ def get_conn():
 
 
 _SEED = """
-INSERT INTO ui_users (username, password_hash)
+-- Deterministic personal org for the seeded admin. Without an org_id,
+-- user_org_id() returns "" and the tenancy clause "AND org_id = %s" in
+-- v3 routers either errors (UUID cast) or matches zero rows. See #96.
+INSERT INTO ui_users (username, password_hash, org_id)
 VALUES (
     'admin',
-    '$2b$12$3cjgCjbJ/MLj.H7vGH9xHOKDUtgo492x98IdWILFNnadN4NbLgmym'
+    '$2b$12$3cjgCjbJ/MLj.H7vGH9xHOKDUtgo492x98IdWILFNnadN4NbLgmym',
+    '00000000-0000-4000-8000-00000000ad00'
 )
 ON CONFLICT (username) DO NOTHING;
 
@@ -889,6 +893,48 @@ CREATE INDEX IF NOT EXISTS idx_finding_annotations_run
 """
 
 
+# Tenancy: every user-scoped table that participates in the
+# WHERE user_id = %s AND org_id = %s clause (see app/routers/v3/tenancy.py)
+# must carry an org_id column. The original tenancy refactor only added it
+# to ui_users and user_budget_wallets, leaving research_sources, pipeline_runs,
+# and agent_sessions broken. This block is idempotent — safe to re-run. See #96.
+_MIGRATION_ORG_TENANCY = """
+ALTER TABLE research_sources ADD COLUMN IF NOT EXISTS org_id UUID;
+ALTER TABLE pipeline_runs    ADD COLUMN IF NOT EXISTS org_id UUID;
+ALTER TABLE agent_sessions   ADD COLUMN IF NOT EXISTS org_id UUID;
+
+-- Backfill the seeded admin user's org_id on existing databases. (New installs
+-- get this from _SEED directly.) Without an org_id, user_org_id() returns ""
+-- and queries either UUID-cast-error or return zero rows.
+UPDATE ui_users
+   SET org_id = '00000000-0000-4000-8000-00000000ad00'
+ WHERE username = 'admin' AND org_id IS NULL;
+
+-- Backfill org_id on existing rows from the row owner's ui_users.org_id so
+-- pre-tenancy data is tagged with the correct org. Only touches rows that
+-- still have NULL org_id (idempotent).
+UPDATE research_sources rs
+   SET org_id = u.org_id
+  FROM ui_users u
+ WHERE rs.user_id = u.id AND rs.org_id IS NULL AND u.org_id IS NOT NULL;
+
+UPDATE pipeline_runs pr
+   SET org_id = u.org_id
+  FROM ui_users u
+ WHERE pr.user_id = u.id AND pr.org_id IS NULL AND u.org_id IS NOT NULL;
+
+UPDATE agent_sessions a
+   SET org_id = u.org_id
+  FROM ui_users u
+ WHERE a.user_id = u.id AND a.org_id IS NULL AND u.org_id IS NOT NULL;
+
+-- Composite indexes matching the (user_id, org_id) query pattern.
+CREATE INDEX IF NOT EXISTS ix_research_sources_user_org ON research_sources (user_id, org_id);
+CREATE INDEX IF NOT EXISTS ix_pipeline_runs_user_org    ON pipeline_runs (user_id, org_id);
+CREATE INDEX IF NOT EXISTS ix_agent_sessions_user_org   ON agent_sessions (user_id, org_id);
+"""
+
+
 def _split_sql_statements(sql: str) -> list[str]:
     """Split SQL on ';' but respect string literals and dollar-quoted blocks.
 
@@ -996,7 +1042,7 @@ def _split_sql_statements(sql: str) -> list[str]:
 def run_migrations() -> None:
     # Ensure each migration block ends with ';' so concatenation doesn't merge
     # the last statement of one block with the first of the next.
-    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY]
+    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY]
     all_sql = "\n".join(p.rstrip().rstrip(";") + ";\n" for p in parts)
     statements = _split_sql_statements(all_sql)
     with get_conn() as conn:
