@@ -4,10 +4,13 @@ import type { DialsIn, ModeEntry } from '../../hooks/usePreflight'
 import { ModePicker } from './ModePicker'
 import { DialPicker } from './DialPicker'
 import { EstimateBreakdown } from './EstimateBreakdown'
+import { EstimateBreakdownSkeleton } from './EstimateBreakdownSkeleton'
 import { TemplateDropdown } from './TemplateDropdown'
 import { SaveTemplateDialog } from './SaveTemplateDialog'
 import { useTemplates } from '../../hooks/useTemplates'
 import type { Template } from '../../hooks/useTemplates'
+import { InlineError } from '../ui/inline-error'
+import { useDebouncedLoading } from '../../hooks/useDebouncedLoading'
 
 // ---------------------------------------------------------------------------
 // Dial level constants — single source of truth for the UI
@@ -223,6 +226,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
   const disabledHypotheses = buildDisabledHypotheses(strategy)
   const est = estimate?.estimate
   const wal = estimate?.wallet
+  const showEstimateSkeleton = useDebouncedLoading(isLoading)
 
   // ---- confirm + run --------------------------------------------------------
   async function handleRun() {
@@ -356,8 +360,17 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
         )}
 
         {/* Estimate breakdown */}
-        {isLoading && (
-          <div style={{ color: 'var(--muted)', marginBottom: 8 }}>Estimating...</div>
+        {showEstimateSkeleton && !error && (
+          <EstimateBreakdownSkeleton />
+        )}
+
+        {error && !isLoading && (
+          <InlineError
+            title="Couldn't estimate cost"
+            message={error ?? undefined}
+            onRetry={() => preflight({ query, mode, dials: { speed, capability, resource, hypothesis_count: hypothesisCount, depth } })}
+            className="mb-3"
+          />
         )}
 
         {est && estimate && !isLoading && (

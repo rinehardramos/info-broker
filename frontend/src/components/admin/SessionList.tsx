@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { listMcpSessions, getMcpSession, McpSession, McpToolCall } from '../../api/v3'
 import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
+import { Skeleton } from '../ui/skeleton'
 
 const MCP_WS_EVENTS = new Set([
   'mcp.session.start',
@@ -176,7 +177,11 @@ export default function SessionList() {
           <div className="px-3 py-4 text-xs" style={{ color: 'var(--muted)' }}>Click a session to view its tool calls.</div>
         )}
         {selectedId && loadingCalls && (
-          <div className="px-3 py-4 text-xs" style={{ color: 'var(--muted)' }}>Loading…</div>
+          <div className="px-3 py-3 space-y-1.5" aria-busy="true">
+            <Skeleton className="h-5 w-full" />
+            <Skeleton className="h-5 w-11/12" />
+            <Skeleton className="h-5 w-10/12" />
+          </div>
         )}
         {selectedId && !loadingCalls && calls.length === 0 && (
           <div className="px-3 py-4 text-xs" style={{ color: 'var(--muted)' }}>No tool calls recorded.</div>

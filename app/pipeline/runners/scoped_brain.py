@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.pipeline.catalogs.schemas import Tactic
+from app.claude_auth_setup import ensure_claude_credentials
 
 log = logging.getLogger(__name__)
 
@@ -360,6 +361,7 @@ async def scoped_brain_runner(
         cmd.extend(["--mcp-config", str(_MCP_CONFIG)])
         cmd.extend(["--allowedTools", "mcp__info-broker-mcp__*"])
 
+    ensure_claude_credentials()
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
     if api_key:
         spawn_env["ANTHROPIC_API_KEY"] = api_key

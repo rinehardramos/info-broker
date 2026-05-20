@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from app.is_prompt import build_prompt
+from app.claude_auth_setup import ensure_claude_credentials
 
 log = logging.getLogger(__name__)
 
@@ -117,10 +118,13 @@ async def run_research(
     log.info("IS Brain: spawning Claude Code (api_key=%s, bare=%s) for query: %s",
              "yes" if api_key else "subscription", "--bare" in cmd, query[:80])
 
+    # Resolve credentials portably across macOS / WSL / cloud:
+    #   env API key  →  env OAuth token  →  host-mounted creds  →  pre-seeded volume
+    ensure_claude_credentials()
+
     # Build spawn env — strip stale auth vars so Claude Code uses subscription auth
-    # via the credentials file at ~/.claude/.credentials.json (populated by `claude auth login`).
-    # Env vars take precedence over the credentials file, so they must be cleared unless
-    # an operator explicitly set an API key in core_settings.
+    # via the credentials file at ~/.claude/.credentials.json (populated by `claude auth login`
+    # on the host and mounted in, or extracted from macOS keychain at setup time).
     spawn_env = {**os.environ, "CLAUDE_CODE_HEADLESS": "1"}
     if api_key:
         spawn_env["ANTHROPIC_API_KEY"] = api_key

@@ -3,6 +3,7 @@
  */
 import { useState } from 'react'
 import { useWalletTransactions } from '@/hooks/useWallet'
+import { Skeleton } from '@/components/ui/skeleton'
 
 const PAGE_SIZE = 20
 
@@ -68,7 +69,13 @@ export function TransactionHistory() {
       </div>
 
       {isLoading && (
-        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '12px 0' }}>Loading…</div>
+        <div className="py-3 space-y-1.5" aria-busy="true">
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-full" />
+          <Skeleton className="h-6 w-full" />
+        </div>
       )}
 
       {isError && (

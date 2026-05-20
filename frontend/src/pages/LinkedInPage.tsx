@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import IconRail from '../components/layout/IconRail'
 import TagInput from '../components/linkedin/TagInput'
+import { Skeleton } from '../components/ui/skeleton'
 import {
   getApifyConfig,
   saveApifyConfig,
@@ -155,7 +156,13 @@ function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: b
       <div className="flex-1 col-scroll p-3">
         {tab === 'profiles' && (
           <>
-            {profilesLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}
+            {profilesLoading && (
+              <div className="space-y-1.5" aria-busy="true">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+            )}
             {!profilesLoading && profiles.length === 0 && (
               <p className="text-xs" style={{ color: 'var(--muted)' }}>No profiles ingested yet.</p>
             )}
@@ -164,7 +171,13 @@ function RightPanel({ runs, runsLoading }: { runs: ApifyRunOut[]; runsLoading: b
         )}
         {tab === 'runs' && (
           <>
-            {runsLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}
+            {runsLoading && (
+              <div className="space-y-1.5" aria-busy="true">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            )}
             {!runsLoading && runs.length === 0 && (
               <p className="text-xs" style={{ color: 'var(--muted)' }}>No runs yet.</p>
             )}

@@ -8,6 +8,10 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { replayRunIntoStore } from '../../hooks/useReplay'
 import JobItem from './JobItem'
 import PipelineRunItem from './PipelineRunItem'
+import { Skeleton } from '../ui/skeleton'
+import { EmptyState } from '../ui/empty-state'
+import { InlineError } from '../ui/inline-error'
+import { useDebouncedLoading } from '../../hooks/useDebouncedLoading'
 
 function SessionHistoryItem({ session }: { session: AgentSession }) {
   const setSessionId = useChatStore(s => s.setSessionId)
@@ -108,17 +112,34 @@ export default function LiveStream() {
   })
   const retentionMs = Number(coreSettings?.settings['live_panel.retention_seconds'] ?? 600) * 1000
 
-  const { data: jobs = [] } = useQuery({ queryKey: ['jobs'], queryFn: listJobs, refetchInterval: 30_000 })
-  const { data: pipelineRuns = [] } = useQuery({
+  const {
+    data: jobs = [],
+    isLoading: jobsLoading,
+    isError: jobsError,
+    error: jobsErrorObj,
+    refetch: refetchJobs,
+  } = useQuery({ queryKey: ['jobs'], queryFn: listJobs, refetchInterval: 30_000 })
+  const {
+    data: pipelineRuns = [],
+    isLoading: pipelineRunsLoading,
+  } = useQuery({
     queryKey: ['pipeline-runs-all'],
     queryFn: listAllPipelineRuns,
     refetchInterval: 10_000,
   })
-  const { data: sessions = [] } = useQuery({
+  const {
+    data: sessions = [],
+    isLoading: sessionsLoading,
+    isError: sessionsError,
+    error: sessionsErrorObj,
+    refetch: refetchSessions,
+  } = useQuery({
     queryKey: ['agent-sessions'],
     queryFn: listSessions,
     refetchInterval: 30_000,
   })
+  const showLiveSkeleton = useDebouncedLoading(jobsLoading || pipelineRunsLoading)
+  const showSessionsSkeleton = useDebouncedLoading(sessionsLoading)
 
   const [liveEvents, setLiveEvents] = useState<JobOut[]>([])
   const [livePipelineEvents, setLivePipelineEvents] = useState<(Partial<PipelineRunSummary> & { id: string })[]>([])
@@ -242,8 +263,28 @@ export default function LiveStream() {
               {visibleRuns.map(run => <PipelineRunItem key={run.id} run={run} />)}
             </div>
           )}
-          {!hasLive && (
-            <p className="text-[10px] text-center mt-4" style={{ color: 'var(--muted)' }}>No active jobs</p>
+          {!hasLive && showLiveSkeleton && (
+            <div className="space-y-1.5 px-1 mt-2">
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          )}
+          {!hasLive && !showLiveSkeleton && jobsError && (
+            <InlineError
+              title="Couldn't load active jobs"
+              message={(jobsErrorObj as Error | undefined)?.message}
+              onRetry={() => refetchJobs()}
+              inline
+              className="mt-3 px-1 text-[10px]"
+            />
+          )}
+          {!hasLive && !showLiveSkeleton && !jobsError && (
+            <EmptyState
+              title="No active jobs"
+              hint="Research and pipelines you start will appear here while they run."
+              compact
+              className="text-[10px]"
+            />
           )}
         </div>
       </div>
@@ -266,11 +307,31 @@ export default function LiveStream() {
           )}
         </div>
         <div className="flex-1 overflow-y-auto px-2 py-2">
-          {sessions.length === 0 ? (
-            <p className="text-[10px] text-center mt-4" style={{ color: 'var(--muted)' }}>No sessions yet</p>
-          ) : (
-            sessions.map(s => <SessionHistoryItem key={s.id} session={s} />)
+          {sessions.length === 0 && showSessionsSkeleton && (
+            <div className="space-y-1.5 px-1 mt-2">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
           )}
+          {sessions.length === 0 && !showSessionsSkeleton && sessionsError && (
+            <InlineError
+              title="Couldn't load history"
+              message={(sessionsErrorObj as Error | undefined)?.message}
+              onRetry={() => refetchSessions()}
+              inline
+              className="mt-3 px-1 text-[10px]"
+            />
+          )}
+          {sessions.length === 0 && !showSessionsSkeleton && !sessionsError && (
+            <EmptyState
+              title="No sessions yet"
+              hint="Past investigations show up here."
+              compact
+              className="text-[10px]"
+            />
+          )}
+          {sessions.length > 0 && sessions.map(s => <SessionHistoryItem key={s.id} session={s} />)}
         </div>
       </div>
 
@@ -293,7 +354,12 @@ export default function LiveStream() {
         </div>
         <div className="flex-1 overflow-y-auto px-2 py-2">
           {reviewRuns.length === 0 ? (
-            <p className="text-[10px] text-center mt-4" style={{ color: 'var(--muted)' }}>No runs to review</p>
+            <EmptyState
+              title="No runs to review"
+              hint="Runs that need grading or follow-up land here."
+              compact
+              className="text-[10px]"
+            />
           ) : (
             reviewRuns.map(run => (
               <div

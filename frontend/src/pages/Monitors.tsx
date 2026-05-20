@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { listMonitors, createMonitor, deleteMonitor, type MonitorOut } from '../api/v3'
 import IconRail from '../components/layout/IconRail'
+import { Skeleton } from '../components/ui/skeleton'
 
 export default function Monitors() {
   const qc = useQueryClient()
@@ -62,7 +63,13 @@ export default function Monitors() {
           </div>
         </div>
 
-        {isLoading && <p className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</p>}
+        {isLoading && (
+          <div className="space-y-1.5" aria-busy="true">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        )}
         {monitors.map((m: MonitorOut) => (
           <div key={m.id} className="mb-2 p-3 rounded flex items-center justify-between text-xs"
             style={{ background: 'var(--panel2)', border: '1px solid var(--border)' }}>

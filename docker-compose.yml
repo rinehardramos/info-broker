@@ -3,6 +3,8 @@ version: '3.8'
 services:
   postgres:
     image: postgres:16-alpine
+    mem_limit: 1g
+    mem_reservation: 512m
     environment:
       POSTGRES_DB: info_broker
       POSTGRES_USER: user
@@ -19,6 +21,8 @@ services:
 
   qdrant:
     image: qdrant/qdrant
+    mem_limit: 1g
+    mem_reservation: 256m
     ports:
       - "6335:6333"
       - "6336:6334"
@@ -29,6 +33,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    mem_limit: 1g
+    mem_reservation: 256m
     ports:
       - "5173:5173"
     volumes:
@@ -43,6 +49,8 @@ services:
 
   info-broker-api:
     build: .
+    mem_limit: 1g
+    mem_reservation: 384m
     environment:
       INFO_BROKER_API_KEY: ${INFO_BROKER_API_KEY:-changeme}
       OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
@@ -85,8 +93,18 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      # Path B: orchestrated IS-brain loop is now the DEFAULT path. Set
+      # IS_USE_LOOP=false to fall back to the legacy single-shot brain only
+      # if explicitly needed (cheap one-off queries, debugging, etc.).
+      IS_USE_TEMPORAL: ${IS_USE_TEMPORAL:-true}
+      IS_USE_LOOP: ${IS_USE_LOOP:-true}
+      IS_LOOP_MAX_TURNS: ${IS_LOOP_MAX_TURNS:-8}
     volumes:
       - claude_auth:/root/.claude
+      # Mount host Claude Code credentials when present.
+      # On WSL/Linux: `claude auth login` writes to ~/.config/anthropic
+      # On macOS: keychain is read elsewhere via the existing fallback chain
+      - ${CLAUDE_CREDS_DIR:-/dev/null}:/root/.config/anthropic:ro
     ports:
       - "8000:8000"
     healthcheck:
@@ -100,11 +118,11 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_started
-      neo4j:
-        condition: service_healthy
 
   temporal:
     image: temporalio/auto-setup:1.24
+    mem_limit: 1g
+    mem_reservation: 512m
     environment:
       DB: postgres12
       DB_PORT: 5432
@@ -117,8 +135,13 @@ services:
       postgres:
         condition: service_healthy
 
+  # Temporal UI is optional — only useful for debugging workflows.
+  # Enable with: docker compose --profile ui up
   temporal-ui:
     image: temporalio/ui:2.26.2
+    profiles: ["ui"]
+    mem_limit: 256m
+    mem_reservation: 64m
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     ports:
@@ -126,8 +149,14 @@ services:
     depends_on:
       - temporal
 
+  # Neo4j is opt-in — required only for the knowledge-graph surface.
+  # Enable with: docker compose --profile graph up
+  # When absent, app/knowledge/* calls become no-ops at the client layer.
   neo4j:
     image: neo4j:5-community
+    profiles: ["graph"]
+    mem_limit: 1500m
+    mem_reservation: 768m
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -145,6 +174,8 @@ services:
   temporal-worker:
     build: .
     command: python -m app.pipeline.worker
+    mem_limit: 768m
+    mem_reservation: 256m
     environment:
       INFO_BROKER_API_KEY: ${INFO_BROKER_API_KEY:-changeme}
       APIFY_BASE_URL: ${APIFY_BASE_URL:-https://api.apify.com/v2}
@@ -183,6 +214,65 @@ services:
       - temporal
       - postgres
       - qdrant
+
+  # IS-run Temporal worker — hosts ISRunWorkflow (single-shot) and
+  # IsLoopRunWorkflow (Path B). Listens on the "is-run-tasks" queue.
+  # Only consumed when IS_USE_TEMPORAL=true on the API.
+  is-temporal-worker:
+    build: .
+    command: python -m app.temporal.worker
+    mem_limit: 3g
+    mem_reservation: 1500m
+    environment:
+      POSTGRES_DB: info_broker
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      LLM_PROVIDER: ${LLM_PROVIDER:-google}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      TEMPORAL_HOST: temporal
+      TEMPORAL_PORT: 7233
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-changeme}
+      IS_MCP_CONFIG: /app/config/is-mcp-config.docker.json
+      IS_BRAIN_TURN_TIMEOUT: ${IS_BRAIN_TURN_TIMEOUT:-180}
+      MCP_SIGNING_SECRET: ${MCP_SIGNING_SECRET:-}
+      INFO_BROKER_API_KEY: ${INFO_BROKER_API_KEY:-changeme}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      CLAUDE_CODE_OAUTH_REFRESH_TOKEN: ${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}
+      HOME: /root
+    volumes:
+      - claude_auth:/root/.claude
+      # Mount host Claude Code credentials when present.
+      # On WSL/Linux: `claude auth login` writes to ~/.config/anthropic
+      # On macOS: keychain is read elsewhere via the existing fallback chain
+      - ${CLAUDE_CREDS_DIR:-/dev/null}:/root/.config/anthropic:ro
+    depends_on:
+      - temporal
+      - postgres
+
+  # Cloudflare Tunnel — public ingress without port-forwarding.
+  # Enable with: docker compose --profile tunnel up
+  # Requires CLOUDFLARED_TOKEN in .env (created in Cloudflare Zero Trust dashboard).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    mem_limit: 128m
+    mem_reservation: 32m
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:-}
+    depends_on:
+      info-broker-api:
+        condition: service_healthy
 
 volumes:
   qdrant_data:

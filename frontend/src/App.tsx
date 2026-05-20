@@ -1,12 +1,14 @@
 import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import AuthGuard from './components/AuthGuard'
 import Login from './pages/Login'
 import AuthCallback from './pages/AuthCallback'
 import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
 import { ResultDrawer } from './components/runs/ResultDrawer'
+import { PageShellSkeleton } from './components/ui/page-shell-skeleton'
+import { createQueryClient } from './lib/queryClient'
 
 // Lazy-load pages to keep initial bundle small
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -25,17 +27,8 @@ const Wallet = lazy(() => import('./pages/Wallet'))
 const Runs = lazy(() => import('./pages/Runs'))
 const SharedRunPage = lazy(() => import('./pages/SharedRunPage'))
 
-const qc = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
-})
+const qc = createQueryClient()
 
-function Spinner() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)', color: 'var(--muted)', fontSize: 12 }}>
-      loading…
-    </div>
-  )
-}
 
 export default function App() {
   const theme = useLayoutStore(s => s.theme)
@@ -47,7 +40,7 @@ export default function App() {
   return (
     <QueryClientProvider client={qc}>
       <BrowserRouter>
-        <Suspense fallback={<Spinner />}>
+        <Suspense fallback={<PageShellSkeleton />}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />

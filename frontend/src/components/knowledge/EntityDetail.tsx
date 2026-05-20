@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getEntityDetail, getEntityObservations, EntityObservation } from '../../api/v3'
+import { Skeleton } from '../ui/skeleton'
 
 interface Props {
   entityRef: string
@@ -25,8 +26,11 @@ export default function EntityDetail({ entityRef }: Props) {
 
   if (loadingDetail) {
     return (
-      <div className="p-4 text-xs" style={{ color: 'var(--muted)' }}>
-        Loading...
+      <div className="p-4 space-y-2" aria-busy="true">
+        <Skeleton className="h-5 w-1/2" />
+        <Skeleton className="h-3 w-2/3" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-12 w-full" />
       </div>
     )
   }
@@ -175,8 +179,10 @@ function TimelineTab({
 }) {
   if (loading) {
     return (
-      <div className="p-4 text-xs" style={{ color: 'var(--muted)' }}>
-        Loading...
+      <div className="p-4 space-y-1.5" aria-busy="true">
+        <Skeleton className="h-5 w-full" />
+        <Skeleton className="h-5 w-11/12" />
+        <Skeleton className="h-5 w-10/12" />
       </div>
     )
   }

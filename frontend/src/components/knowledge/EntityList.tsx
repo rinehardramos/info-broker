@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { searchEntities, getEntityTypes, EntityOut } from '../../api/v3'
+import { Skeleton } from '../ui/skeleton'
 
 interface Props {
   onSelect: (ref: string) => void
@@ -75,8 +76,11 @@ export default function EntityList({ onSelect, selectedRef }: Props) {
       {/* Entity list */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
-          <div className="p-3 text-xs" style={{ color: 'var(--muted)' }}>
-            Loading...
+          <div className="p-3 space-y-1.5" aria-busy="true">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
           </div>
         )}
         {!isLoading && (!entities || entities.length === 0) && (

@@ -5,6 +5,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useChatStore } from '../../stores/chatStore'
 import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail, type ResearchFinding } from '../../api/pipelines'
 import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback, exportResearch } from '../../api/v3'
+import { Skeleton } from '../ui/skeleton'
 import { ResearchFlow } from './ResearchFlow'
 import { useWebSocket } from '../../hooks/useWebSocket'
 import { AnalysisPanel } from './AnalysisPanel'
@@ -145,7 +146,15 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
   }
 
   if (isLoading) {
-    return <p className="text-xs text-center mt-8" style={{ color: 'var(--muted)' }}>Loading…</p>
+    return (
+      <div className="px-5 py-6 space-y-3" aria-busy="true">
+        <Skeleton className="h-5 w-1/2" />
+        <Skeleton className="h-3 w-1/3" />
+        <Skeleton className="h-[88px] w-full rounded-md" />
+        <Skeleton className="h-[88px] w-full rounded-md" />
+        <Skeleton className="h-[88px] w-full rounded-md" />
+      </div>
+    )
   }
 
   if (!run) {
