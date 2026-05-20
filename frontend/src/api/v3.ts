@@ -107,13 +107,27 @@ export const sendMessage = (
   sessionId?: string | null,
   useIntelligentSearch?: boolean,
   parentRunId?: string,
+  mode?: string,
 ) =>
   api.post<AgentMessageOut>('/v3/agent/message', {
     message,
     session_id: sessionId ?? undefined,
     use_intelligent_search: useIntelligentSearch,
     parent_run_id: parentRunId,
+    mode,
   }).then(r => r.data)
+
+// --- Modes ---
+
+export interface ModeSummary {
+  id: string
+  label: string
+  description: string
+  version: number
+}
+
+export const listModes = (): Promise<ModeSummary[]> =>
+  api.get<ModeSummary[]>('/v3/modes').then(r => r.data)
 
 export const archiveSession = (sessionId: string): Promise<void> =>
   api.post(`/v3/agent/sessions/${sessionId}/archive`).then(() => undefined)

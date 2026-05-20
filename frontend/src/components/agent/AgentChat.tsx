@@ -8,6 +8,8 @@ import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useChatStore, type Message } from '../../stores/chatStore'
+import { useModeStore } from '../../stores/modeStore'
+import { ModePicker } from './ModePicker'
 import FileUploadZone, { type FileUploadZoneHandle } from '../chat/FileUploadZone'
 import { useRunStreamStore } from '@/stores/runStreamStore'
 import { brainApi } from '@/api/brain'
@@ -338,6 +340,8 @@ export default function AgentChat() {
         messageToSend,
         sessionId ?? undefined,
         useIntelligentSearch,
+        undefined,
+        useModeStore.getState().modeId ?? undefined,
       )
 
       // Store session_id from first response
@@ -868,6 +872,11 @@ export default function AgentChat() {
               }}
             />
           </div>
+        )}
+
+        {/* Mode picker — drives prompt persona + evidence rules on the next run */}
+        {!hasActiveRun && (
+          <ModePicker className="mb-2" />
         )}
 
         {/* Change 1: injection hint ring when a pipeline run is active */}

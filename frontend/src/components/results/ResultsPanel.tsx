@@ -5,6 +5,7 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useChatStore } from '../../stores/chatStore'
 import { listPipelines, startPipelineRun, cancelPipelineRun, deletePipeline, listAllPipelineRuns, getPipelineRun, createPipeline, type ResearchTrail, type ResearchFinding } from '../../api/pipelines'
 import { sendMessage, runAnalyzer, submitFindingFeedback, getRunFeedback, exportResearch } from '../../api/v3'
+import { useModeStore } from '../../stores/modeStore'
 import { Skeleton } from '../ui/skeleton'
 import { ResearchFlow } from './ResearchFlow'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -174,7 +175,7 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
             setGoingDeeper(true)
             try {
               const deeper = leads.join('; ')
-              const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined)
+              const resp = await sendMessage(`Go deeper: ${deeper}`, undefined, true, runId ?? undefined, useModeStore.getState().modeId ?? undefined)
               if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
             } finally {
               setGoingDeeper(false)
@@ -223,7 +224,7 @@ function PipelineRunResults({ runId, onNavigateRun }: { runId: string; onNavigat
               onClick={async () => {
                 try {
                   const query = run.query || 'Retry research'
-                  const resp = await sendMessage(query, undefined, true)
+                  const resp = await sendMessage(query, undefined, true, undefined, useModeStore.getState().modeId ?? undefined)
                   if (resp?.job_id && onNavigateRun) onNavigateRun(resp.job_id)
                 } catch {}
               }}
