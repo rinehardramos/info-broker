@@ -291,6 +291,10 @@ _CORS_ORIGINS = [
     "http://localhost:8000",
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8000",
+    # Production frontend on Cloudflare Pages + custom domain
+    "https://info-broker.pages.dev",
+    "https://infobroker.net",
+    "https://www.infobroker.net",
 ]
 # Allow additional origins from env (comma-separated)
 _extra = _cors_os.getenv("CORS_ALLOWED_ORIGINS", "")
@@ -300,7 +304,9 @@ if _extra:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
-    allow_origin_regex=r"https://.*\.ngrok-free\.(app|dev)",
+    # ngrok-free for legacy demos + Cloudflare Pages preview deploys (any
+    # branch deploy lives at <hash>.info-broker.pages.dev).
+    allow_origin_regex=r"https://.*\.(ngrok-free\.(app|dev)|info-broker\.pages\.dev)",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Session-Id",
