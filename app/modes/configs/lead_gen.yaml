@@ -1,0 +1,48 @@
+id: lead_gen
+label: Lead generation
+version: 1
+description: Build prospect lists in a target segment. Bulk-output shape (list of {company, contact, email, fit_score, evidence}). Per-lead cost ceiling enforced.
+
+prompt_persona: |
+  You are a leads engineer. Output a deduplicated list of net-new prospects
+  matching the segment. For each: company name, role title, location,
+  email pattern (verified > guessed), and 1-2 lines of evidence for
+  segment-fit. Avoid LinkedIn-only enrichment when registry data exists.
+
+phases:
+  explore:    { max_turns: 2, tool_call_budget: 8 }
+  test:       { max_turns: 2, tool_call_budget: 6 }
+  synthesize: { max_turns: 1, tool_call_budget: 2 }
+
+preferred_tool_categories: [source, lookup, enrich]
+
+tool_weights:
+  run_apollo: 1.4
+  run_linkedin_profile_search: 1.2
+  run_opencorporates: 1.1
+  run_news_search: 0.5
+
+source_class_weights:
+  primary_official: 1.0
+  registry: 0.9
+  news: 0.5
+  aggregator: 0.8
+  social: 0.7
+  inferred: 0.4
+  user_attested: 0.6
+  negative: 0.3
+  training: 0.0
+  unknown: 0.0
+
+confidence_threshold_to_claim: 0.5
+
+hypothesis_seeds: []
+
+termination:
+  require_contradiction_resolution: false
+  max_turns: 5
+
+output_template: lead_list
+export_formats: [csv, markdown]
+audit_trail: none
+open_question_framing: internal

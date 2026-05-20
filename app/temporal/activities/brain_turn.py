@@ -46,6 +46,7 @@ class InitWorkingMemoryInput:
     user_id: str
     query: str
     past_research: list[dict] | None = field(default_factory=list)
+    mode_id: str = "general"
 
 
 @dataclass
@@ -75,9 +76,21 @@ async def init_working_memory(inp: InitWorkingMemoryInput) -> str:
       · cross_run_priors (this activity) — semantic + entity + temporal +
         feedback retrieval across the user's full research history
     """
-    from app.pipeline.runners.working_memory import Fact
+    from app.pipeline.runners.working_memory import Fact, OpenQ
+    from app.modes.loader import get_mode
 
-    wm = WorkingMemory(run_id=UUID(inp.run_id), question=inp.query)
+    mode = get_mode(inp.mode_id)
+    log.info("init_working_memory run=%s mode=%s", inp.run_id, mode.id)
+
+    wm = WorkingMemory(run_id=UUID(inp.run_id), question=inp.query, mode_id=mode.id)
+
+    # ── (0) Seed open_questions from the Mode's hypothesis_seeds ─────────────
+    # These give the explore phase a non-cold-start. Each seed is the *question*
+    # form ("Is the subject a nominee structure?") of the corresponding seed
+    # hypothesis statement. The brain converts them into testable hypotheses
+    # in turn 1.
+    for seed in mode.hypothesis_seeds[:5]:
+        wm.open_questions.append(OpenQ(question=seed, opened_at_turn=0))
 
     # ── (1) Seed from dispatcher-provided past_research (A-graded only) ──────
     seeded: list[Fact] = []

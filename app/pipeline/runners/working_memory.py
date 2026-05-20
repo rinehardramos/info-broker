@@ -428,6 +428,7 @@ class WorkingMemory(BaseModel):
     decomposed: list[str] = Field(default_factory=list)
     turn: int = 0
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    mode_id: str = "general"
 
     # Ledgers
     hypotheses: list[Hypothesis] = Field(default_factory=list)

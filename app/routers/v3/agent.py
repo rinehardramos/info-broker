@@ -1264,6 +1264,7 @@ async def send_message(
                             callback_url=getattr(body, "callback_url", None),
                             preflight_prior_slots=dict(_SESSION_SLOTS.get(sid or "", {}) or {}),
                             max_turns=IS_LOOP_MAX_TURNS,
+                            mode_id=(body.mode or "general").strip().lower(),
                         ),
                         id=f"is-loop-run-{run_id}",
                         task_queue="is-run-tasks",

@@ -62,6 +62,7 @@ class ISLoopRunInput:
     callback_url: str | None = None
     preflight_prior_slots: dict = field(default_factory=dict)
     max_turns: int = MAX_TURNS_DEFAULT
+    mode_id: str = "general"
 
 
 @workflow.defn(name="IsLoopRunWorkflow")
@@ -189,6 +190,7 @@ class IsLoopRunWorkflow:
             InitWorkingMemoryInput(
                 run_id=inp.run_id, user_id=inp.user_id,
                 query=inp.query, past_research=inp.past_research or [],
+                mode_id=inp.mode_id,
             ),
             schedule_to_close_timeout=timedelta(seconds=60),
             retry_policy=_STANDARD_RETRY,

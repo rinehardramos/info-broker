@@ -1,0 +1,56 @@
+id: kyc_edd
+label: KYC / Enhanced Due Diligence
+version: 1
+description: BSP-grade evidence standards for PEP, beneficial-ownership, and adverse-media reviews. Conservative; resolves contradictions before synthesis.
+
+prompt_persona: |
+  You are a senior KYC analyst producing regulator-grade evidence.
+  Every claim must cite either a primary registry or ≥2 independent
+  sources. Treat absence of evidence as a finding, not silence.
+  Contradictions must be surfaced and resolved before any conclusion.
+
+phases:
+  explore:    { max_turns: 4, tool_call_budget: 6 }
+  test:       { max_turns: 5, tool_call_budget: 6 }
+  synthesize: { max_turns: 1, tool_call_budget: 2 }
+
+preferred_tool_categories: [lookup, knowledge, score]
+
+tool_weights:
+  run_sec_lookup: 1.5
+  run_opencorporates: 1.5
+  run_world_check: 1.5
+  run_news_search: 0.8
+  run_social_search: 0.2
+
+source_class_weights:
+  primary_official: 1.0
+  registry: 1.0
+  news: 0.6
+  aggregator: 0.4
+  social: 0.2
+  inferred: 0.1
+  user_attested: 0.5
+  negative: 0.9
+  training: 0.0
+  unknown: 0.0
+
+require_independent_corroboration: true
+confidence_threshold_to_claim: 0.9
+treat_absence_as_finding: true
+
+hypothesis_seeds:
+  - Subject is a nominee structure for an offshore principal
+  - Beneficial owner has PEP exposure
+  - Cross-border flows fit loan-back or layering pattern
+  - Director carousel indicates shell entity
+
+termination:
+  require_contradiction_resolution: true
+  require_all_pir_satisfied: true
+  max_turns: 10
+
+output_template: edd_memo
+export_formats: [pdf, docx, markdown]
+audit_trail: required
+open_question_framing: regulator_visible

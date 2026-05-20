@@ -1,0 +1,52 @@
+id: competitive_intel
+label: Competitive intelligence
+version: 1
+description: Track competitor positioning, pricing, hiring, and product moves. Recency- and news-weighted. Time-windowed analysis preferred.
+
+prompt_persona: |
+  You are a competitive intelligence analyst. Find what changed recently
+  about the subject (positioning, pricing, hires, product launches,
+  funding). Distinguish primary statements (press release, official blog,
+  earnings) from secondary commentary. Time-window every finding.
+
+phases:
+  explore:    { max_turns: 3, tool_call_budget: 6 }
+  test:       { max_turns: 3, tool_call_budget: 6 }
+  synthesize: { max_turns: 1, tool_call_budget: 2 }
+
+preferred_tool_categories: [source, lookup, enrich]
+
+tool_weights:
+  run_news_search: 1.5
+  run_web_search: 1.3
+  run_linkedin_profile_search: 1.2
+  run_opencorporates: 0.8
+
+source_class_weights:
+  primary_official: 1.0
+  registry: 0.6
+  news: 1.0
+  aggregator: 0.7
+  social: 0.6
+  inferred: 0.3
+  user_attested: 0.5
+  negative: 0.4
+  training: 0.1
+  unknown: 0.0
+
+confidence_threshold_to_claim: 0.6
+
+hypothesis_seeds:
+  - Competitor is repositioning to a new segment
+  - Competitor pricing or packaging changed
+  - Competitor is hiring against a new function
+  - Competitor lost or gained a notable customer
+
+termination:
+  require_contradiction_resolution: false
+  max_turns: 7
+
+output_template: competitive_brief
+export_formats: [markdown, docx]
+audit_trail: optional
+open_question_framing: strategic

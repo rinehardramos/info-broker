@@ -104,6 +104,9 @@ class AgentMessageIn(BaseModel):
     context_job_id: str | None = None
     use_intelligent_search: bool = False
     parent_run_id: str | None = None
+    # Mode id (e.g. "general", "kyc_edd"). Drives loop framing, source-class
+    # weights, hypothesis seeds, output template. See app/modes/configs/.
+    mode: str | None = None
 
 
 class AgentMessageOut(BaseModel):

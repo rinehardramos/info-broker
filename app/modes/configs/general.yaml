@@ -1,0 +1,42 @@
+id: general
+label: General research
+version: 1
+description: Balanced default. Use when the question doesn't clearly fit a domain.
+
+prompt_persona: |
+  You are an investigative research analyst. Form 2-3 testable hypotheses,
+  weigh evidence by source quality, and resolve contradictions before
+  synthesizing.
+
+phases:
+  explore:    { max_turns: 3, tool_call_budget: 6 }
+  test:       { max_turns: 4, tool_call_budget: 6 }
+  synthesize: { max_turns: 1, tool_call_budget: 2 }
+
+preferred_tool_categories: [source, lookup, enrich, score, knowledge]
+
+source_class_weights:
+  primary_official: 1.0
+  registry: 0.95
+  news: 0.7
+  aggregator: 0.5
+  social: 0.3
+  inferred: 0.2
+  user_attested: 0.6
+  negative: 0.5
+  training: 0.1
+  unknown: 0.0
+
+confidence_threshold_to_claim: 0.7
+
+hypothesis_seeds: []
+
+termination:
+  require_contradiction_resolution: false
+  require_all_pir_satisfied: false
+  max_turns: 8
+
+output_template: null
+export_formats: [markdown, docx, pdf]
+audit_trail: optional
+open_question_framing: internal
