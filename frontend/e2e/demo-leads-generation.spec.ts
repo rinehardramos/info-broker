@@ -192,7 +192,7 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   })
 
   await page.goto(BASE)
-  await title(page, 'Leads generation', 'Two paths to qualified leads — chat & file upload', 4500)
+  await title(page, 'Leads generation', 'Chat & file flows · entity profiles · enriched DAG · resilient runs', 4500)
   await clearTitle(page)
 
   await login(page)
@@ -259,6 +259,11 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     "Click for the full evidence: domain, funding history, key people.",
     6000,
   )
+  await subtitle(page,
+    "New: evidence modals now render an entity profile card —\n" +
+    "Wikipedia summary, OG images, maps (for places), social oEmbeds.",
+    5500,
+  )
 
   // Click the first result-bearing card
   const cards = page.locator('[data-slot="node-result-card"]')
@@ -307,6 +312,11 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
     await wait(1500)
     await subtitle(page,
       'DAG toolbar — full investigation tree, phase → tactician → tool-call → finding.',
+      5500,
+    )
+    await subtitle(page,
+      'Enriched edges: pass / fail / ask_user labels show why each branch closed.\n' +
+      'Pruned candidates are dimmed with a one-line reason — toggle off to hide.',
       5500,
     )
     await scrollThroughContent(page, 500, 900)
@@ -459,6 +469,13 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await wait(2500)
   await subtitle(page, 'Runs page — every investigation, filterable + downloadable.', 4500)
   await wait(2500)
+  await subtitle(page,
+    'New status labels: "needs input" when the agent paused for you,\n' +
+    '"budget out" when RU ran low. Stuck runs (>5m) get a ⚠ badge + Cancel button;\n' +
+    'an orphan watchdog reconciles them against Temporal every 5 minutes.',
+    7000,
+  )
+  await wait(2000)
 
   // DownloadMenu is rendered inline next to View on each completed row
   // (issue #95 fix). Click it directly — no View-navigate first.
@@ -493,13 +510,17 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   await clearTitle(page)
 
   for (const [path, msg] of [
-    ['/dashboard',   'Dashboard — runs today, success rate, live jobs, errors at a glance.'],
+    ['/dashboard',   'Dashboard — quick research input, KPI strip with live worker-health badge,\n' +
+                     'summary cards for Plugins / Wallet / Performance, and 10 most-recent runs.'],
     ['/monitors',    'Monitors — scheduled / recurring research jobs and watchers.'],
-    ['/performance', 'Performance — strategies, tactics, techniques graded on the Admiralty scale.'],
+    ['/performance', 'Performance — strategies, tactics, techniques graded on the Admiralty scale\n' +
+                     '(scoped to your account; admins see global).'],
     ['/wallet',      'Wallet — Research Units (RU) held at preflight, settled at completion.'],
-    ['/plugins',     'Plugins — 50+ OSINT modules: search engines, social feeds, SEC EDGAR, Apify, etc.'],
+    ['/plugins',     'Plugins — 50+ OSINT modules with public / private visibility tags;\n' +
+                     'private plugins stay inside your org.'],
     ['/knowledge',   'Knowledge Graph — entities and relationships extracted across all runs.'],
-    ['/settings',    'Settings — LLM provider, API keys, MCP server health, OAuth providers.'],
+    ['/settings',    'Settings — LLM provider, API keys, MCP server health, OAuth providers,\n' +
+                     'plus personalization (display name, avatar, timezone, locale) and password change.'],
   ] as const) {
     await page.goto(`${BASE}${path}`).catch(() => {})
     await waitForContent(page, { minNodes: 40 })
@@ -545,7 +566,8 @@ test('demo leads generation — chat + file upload flows', async ({ page }) => {
   }
   await clearSubtitle(page)
 
-  await title(page, "That's it", "Lead-gen end-to-end · chat & file · export · all in one workspace", 4500)
+  await title(page, "That's it",
+    "Lead-gen end-to-end · entity-rich evidence · enriched DAG · self-healing runs", 4500)
   await clearTitle(page)
 
   // Write SRT sidecar

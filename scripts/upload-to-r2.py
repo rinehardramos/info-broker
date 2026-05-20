@@ -71,7 +71,7 @@ def main() -> int:
 
     suffix = sys.argv[2] if len(sys.argv) >= 3 else src.name
     # Hard-prefix with infobroker/ — don't double-prefix if caller already added it.
-    key = suffix if suffix.startswith("infobroker/") else f"infobroker/{suffix}"
+    key = suffix if suffix.startswith("demos/") else f"demos/{suffix}"
 
     content_type = mimetypes.guess_type(src.name)[0] or "application/octet-stream"
 
