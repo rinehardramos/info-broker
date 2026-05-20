@@ -69,8 +69,6 @@ export default function AdminUsersPage() {
       className="flex"
       style={{ height: '100vh', background: 'var(--bg)', color: 'var(--text)' }}
     >
-      <IconRail />
-
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Header */}
         <div
@@ -212,6 +210,8 @@ export default function AdminUsersPage() {
           )}
         </div>
       </div>
+
+      <IconRail />
     </div>
   )
 }
