@@ -169,10 +169,6 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
 );
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS error_message TEXT;
 ALTER TABLE pipeline_runs ADD COLUMN IF NOT EXISTS query TEXT;
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS analysis JSONB;
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS plan JSONB;
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS clarification JSONB DEFAULT '[]';
-ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32);
 
 CREATE TABLE IF NOT EXISTS pipeline_step_runs (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -217,6 +213,10 @@ CREATE TABLE IF NOT EXISTS research_trails (
     suggested_pipeline JSONB,
     created_at    TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS analysis JSONB;
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS plan JSONB;
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS clarification JSONB DEFAULT '[]';
+ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS verification_status VARCHAR(32);
 ALTER TABLE research_trails ADD COLUMN IF NOT EXISTS scorecard JSONB;
 
 CREATE TABLE IF NOT EXISTS finding_feedback (
