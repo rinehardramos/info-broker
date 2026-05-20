@@ -55,3 +55,8 @@ frontend/playwright-report/
 
 # Local demo recordings — re-recordable via `npx playwright test demo-feature-tour`
 docs/demos/
+
+# Cloudflare / Wrangler
+**/.wrangler/
+**/wrangler.local.toml
+**/.dev.vars

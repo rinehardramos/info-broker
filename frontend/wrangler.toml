@@ -1,0 +1,33 @@
+# Cloudflare Pages configuration for infobroker.net frontend.
+#
+# Project name: info-broker (chosen at create time).
+# Build settings (also configured in Pages dashboard for git-connected deploys):
+#   - Framework preset: Vite
+#   - Build command:    pnpm install && pnpm build
+#   - Build output:     dist
+#   - Root directory:   frontend
+#   - Node version:     20
+#
+# Two ways to deploy:
+#   (a) Git-connected (preferred): every push to main builds + deploys via
+#       Cloudflare's CI. Configured in dash; this file is metadata only.
+#   (b) Direct upload: `pnpm wrangler pages deploy dist` from frontend/
+#       after `pnpm build` locally — useful for emergencies.
+#
+# Custom domain: infobroker.net → connected via dashboard after first deploy.
+
+name = "info-broker"
+compatibility_date = "2026-05-20"
+pages_build_output_dir = "dist"
+
+[vars]
+# Public build-time env vars. Sensitive values stay in the dashboard secrets UI.
+NODE_VERSION = "20"
+
+# Per-environment overrides — production uses tunneled api.infobroker.net,
+# previews still hit the same prod API (preview gates are at Cloudflare Access).
+[env.production.vars]
+VITE_API_URL = "https://api.infobroker.net"
+
+[env.preview.vars]
+VITE_API_URL = "https://api.infobroker.net"

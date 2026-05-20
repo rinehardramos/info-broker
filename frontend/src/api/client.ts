@@ -1,6 +1,9 @@
 import axios from 'axios'
 
-const BASE = '/api'
+// Same-origin /api is proxied by Vite in dev. Production builds on Cloudflare
+// Pages set VITE_API_URL=https://api.infobroker.net so requests cross the
+// tunnel directly. Override via env at build time.
+const BASE = import.meta.env.VITE_API_URL || "/api"
 
 export const api = axios.create({ baseURL: BASE })
 
