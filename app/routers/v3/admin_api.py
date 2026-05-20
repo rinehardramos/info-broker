@@ -12,38 +12,55 @@ router = APIRouter(prefix="/v3/admin", tags=["v3-admin"])
 log = logging.getLogger(__name__)
 
 
+def _user_scope(user: dict) -> tuple[str, tuple]:
+    """Return (sql_fragment, params) restricting to this user's rows.
+
+    Admins see everything; everyone else sees only mcp_sessions /
+    mcp_tool_calls where user_id matches theirs. This is the privacy fix
+    for Live Processes — previously non-admin users saw global activity.
+    """
+    if user.get("is_admin"):
+        return ("", ())
+    return ("AND user_id = %s", (str(user["id"]),))
+
+
 @router.get("/sessions")
 def list_sessions(
     status: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     user: dict = Depends(get_current_user),
 ):
+    scope_sql, scope_params = _user_scope(user)
     if status:
         rows = fetch_all(
-            """SELECT id, caller_identity, session_type, status, tool_call_count,
+            f"""SELECT id, caller_identity, session_type, status, tool_call_count,
                   context, started_at, finished_at
-            FROM mcp_sessions WHERE status = %s
+            FROM mcp_sessions
+            WHERE status = %s {scope_sql}
             ORDER BY started_at DESC LIMIT %s""",
-            (status, limit),
+            (status, *scope_params, limit),
         )
     else:
         rows = fetch_all(
-            """SELECT id, caller_identity, session_type, status, tool_call_count,
+            f"""SELECT id, caller_identity, session_type, status, tool_call_count,
                   context, started_at, finished_at
             FROM mcp_sessions
+            WHERE 1=1 {scope_sql}
             ORDER BY started_at DESC LIMIT %s""",
-            (limit,),
+            (*scope_params, limit),
         )
     return [dict(r) for r in rows]
 
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, user: dict = Depends(get_current_user)):
+    scope_sql, scope_params = _user_scope(user)
     session = fetch_one(
-        """SELECT id, caller_identity, session_type, status, tool_call_count,
-              context, started_at, finished_at
-        FROM mcp_sessions WHERE id = %s""",
-        (session_id,),
+        f"""SELECT id, caller_identity, session_type, status, tool_call_count,
+              context, started_at, finished_at, user_id
+        FROM mcp_sessions
+        WHERE id = %s {scope_sql}""",
+        (session_id, *scope_params),
     )
     if not session:
         return {"error": "Session not found"}
@@ -60,25 +77,36 @@ def get_session(session_id: str, user: dict = Depends(get_current_user)):
 
 @router.get("/dashboard")
 def get_dashboard(user: dict = Depends(get_current_user)):
-    active = fetch_one("SELECT COUNT(*) AS cnt FROM mcp_sessions WHERE status = 'active'")
-    total_calls = fetch_one("SELECT COUNT(*) AS cnt FROM mcp_tool_calls")
+    scope_sql, scope_params = _user_scope(user)
+    active = fetch_one(
+        f"SELECT COUNT(*) AS cnt FROM mcp_sessions WHERE status = 'active' {scope_sql}",
+        scope_params,
+    )
+    total_calls = fetch_one(
+        f"SELECT COUNT(*) AS cnt FROM mcp_tool_calls WHERE 1=1 {scope_sql}",
+        scope_params,
+    )
     error_rate = fetch_one(
-        """SELECT
+        f"""SELECT
             COUNT(*) FILTER (WHERE status = 'failed') AS errors,
             COUNT(*) AS total
         FROM mcp_tool_calls
-        WHERE created_at > now() - interval '1 hour'"""
+        WHERE created_at > now() - interval '1 hour' {scope_sql}""",
+        scope_params,
     )
     avg_duration = fetch_one(
-        """SELECT AVG(duration_ms) AS avg_ms
+        f"""SELECT AVG(duration_ms) AS avg_ms
         FROM mcp_tool_calls
-        WHERE status = 'succeeded' AND created_at > now() - interval '1 hour'"""
+        WHERE status = 'succeeded'
+          AND created_at > now() - interval '1 hour' {scope_sql}""",
+        scope_params,
     )
     top_tools = fetch_all(
-        """SELECT tool_name, COUNT(*) AS call_count, AVG(duration_ms) AS avg_ms
+        f"""SELECT tool_name, COUNT(*) AS call_count, AVG(duration_ms) AS avg_ms
         FROM mcp_tool_calls
-        WHERE created_at > now() - interval '24 hours'
-        GROUP BY tool_name ORDER BY call_count DESC LIMIT 10"""
+        WHERE created_at > now() - interval '24 hours' {scope_sql}
+        GROUP BY tool_name ORDER BY call_count DESC LIMIT 10""",
+        scope_params,
     )
     return {
         "active_sessions": active["cnt"] if active else 0,
@@ -94,14 +122,17 @@ def get_dashboard(user: dict = Depends(get_current_user)):
 
 @router.get("/tools/stats")
 def get_tool_stats(user: dict = Depends(get_current_user)):
+    scope_sql, scope_params = _user_scope(user)
     rows = fetch_all(
-        """SELECT tool_name,
+        f"""SELECT tool_name,
             COUNT(*) AS total_calls,
             COUNT(*) FILTER (WHERE status = 'succeeded') AS succeeded,
             COUNT(*) FILTER (WHERE status = 'failed') AS failed,
             AVG(duration_ms) FILTER (WHERE status = 'succeeded') AS avg_duration_ms,
             MAX(created_at) AS last_used
         FROM mcp_tool_calls
-        GROUP BY tool_name ORDER BY total_calls DESC"""
+        WHERE 1=1 {scope_sql}
+        GROUP BY tool_name ORDER BY total_calls DESC""",
+        scope_params,
     )
     return [dict(r) for r in rows]

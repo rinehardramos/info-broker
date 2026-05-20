@@ -499,8 +499,68 @@ async def run_engine_v2(
     }
     if serialized_ach_matrix is not None:
         run_complete_payload["ach_matrix"] = serialized_ach_matrix
+    # If the run halted at an ask_user gate, surface the question text so the
+    # chat panel can render it. Without this the run is shown as "ask_user"
+    # in the right-rail but the user has nothing to answer. Emit a
+    # `brain.question` event for AgentChat in addition to the question on
+    # the run_complete payload so existing consumers keep working.
+    if result.status == "ask_user" and getattr(result, "user_question", None):
+        run_complete_payload["user_question"] = result.user_question
+        await _emit(event_emit, {
+            "type": "brain.question",
+            "run_id": run_id,
+            "job_id": run_id,
+            "question": result.user_question,
+            "options": [],
+        })
 
     await _emit(event_emit, run_complete_payload)
+
+    # Pre-warm entity-profile cache for the top candidates so the user gets
+    # an instant evidence modal. Fire-and-forget — never blocks completion,
+    # never raises. Skipped for runs with <2 candidates (no comparison view).
+    if result.status == "completed" and len(result.ranked_candidates) >= 2:
+        try:
+            from app.services.entity_enrichment import build_profile
+            from app.routers.v3.db import execute as _execute, fetch_one as _fetch_one
+            import hashlib as _hashlib
+            import json as _json
+            ctx_hash = _hashlib.sha256(
+                (query or "").strip().lower().encode("utf-8"),
+            ).hexdigest()[:32]
+
+            async def _prefetch(cand_name: str, evidence_urls: list[str]) -> None:
+                try:
+                    if _fetch_one(
+                        "SELECT 1 FROM entity_profiles WHERE name = %s AND context_hash = %s",
+                        (cand_name, ctx_hash),
+                    ):
+                        return
+                    payload = await build_profile(
+                        name=cand_name, context=query, evidence_urls=evidence_urls,
+                    )
+                    _execute(
+                        """INSERT INTO entity_profiles (name, context_hash, entity_type, payload)
+                           VALUES (%s, %s, %s, %s)
+                           ON CONFLICT (name, context_hash) DO NOTHING""",
+                        (cand_name, ctx_hash, payload.get("entity_type"), _json.dumps(payload)),
+                    )
+                except Exception as exc:
+                    log.debug("prefetch entity-profile for %s failed: %s", cand_name, exc)
+
+            for c in result.ranked_candidates[:3]:
+                if not isinstance(c, dict):
+                    continue
+                name = (c.get("name") or "").strip()
+                if not name:
+                    continue
+                evidence_urls = [
+                    e.get("source_url") for e in (c.get("evidence") or [])
+                    if isinstance(e, dict) and e.get("source_url")
+                ][:6]
+                asyncio.create_task(_prefetch(name, evidence_urls))
+        except Exception as exc:  # pragma: no cover
+            log.debug("prefetch dispatch failed: %s", exc)
 
     log.info(
         "engine_v2: run_id=%s finished status=%s consumed=%d released=%d",

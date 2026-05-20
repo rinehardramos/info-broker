@@ -29,7 +29,7 @@ _USER_AGENTS = [
 class WebCrawlNode:
     node_type = "web_crawl"
     display_name = "Web Crawl"
-    category = "datastore"
+    category = "source"
     config_schema = {
         "type": "object",
         "properties": {

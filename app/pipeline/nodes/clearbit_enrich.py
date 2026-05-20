@@ -43,7 +43,7 @@ def _resolve_api_key(config_key: str | None = None) -> str | None:
 class ClearbitEnrichNode:
     node_type = "clearbit_enrich"
     display_name = "Clearbit Enrichment"
-    category = "datastore"
+    category = "enrich"
 
     config_schema = {
         "type": "object",

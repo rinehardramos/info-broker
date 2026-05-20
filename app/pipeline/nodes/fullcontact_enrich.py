@@ -43,7 +43,7 @@ def _resolve_api_key(config_key: str | None = None) -> str | None:
 class FullContactEnrichNode:
     node_type = "fullcontact_enrich"
     display_name = "FullContact Identity Resolution"
-    category = "datastore"
+    category = "enrich"
 
     config_schema = {
         "type": "object",

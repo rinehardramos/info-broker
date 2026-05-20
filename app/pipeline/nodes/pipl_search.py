@@ -43,7 +43,7 @@ def _resolve_api_key(config_key: str | None = None) -> str | None:
 class PiplSearchNode:
     node_type = "pipl_search"
     display_name = "Pipl People Search"
-    category = "datastore"
+    category = "lookup"
 
     config_schema = {
         "type": "object",

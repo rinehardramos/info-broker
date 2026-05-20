@@ -383,9 +383,15 @@ async def analyze_findings(body: dict, background_tasks: "BackgroundTasks", user
 
 @router.get("/dashboard/technique-performance")
 def get_technique_performance_dashboard(user: dict = Depends(get_current_user)):
-    """Global technique/tactic performance dashboard."""
+    """Technique/tactic performance dashboard.
+
+    Scoped to the requesting user's runs. Admins (is_admin=true) see the
+    global aggregate across all users — useful for ops review.
+    """
     from app.pipeline.fusion.dashboard import build_dashboard
-    return build_dashboard()
+    if user.get("is_admin"):
+        return build_dashboard(user_id=None)
+    return build_dashboard(user_id=str(user["id"]))
 
 
 # ---------------------------------------------------------------------------

@@ -528,6 +528,35 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_ui_users_oauth_identity
 CREATE UNIQUE INDEX IF NOT EXISTS ix_ui_users_email_unique
     ON ui_users(LOWER(email)) WHERE email IS NOT NULL;
 
+-- Email verification (Resend-backed):
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+    user_id    UUID NOT NULL REFERENCES ui_users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (user_id, token_hash)
+);
+CREATE INDEX IF NOT EXISTS ix_evt_expires ON email_verification_tokens(expires_at);
+
+-- User personalization fields:
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS timezone TEXT;
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS locale TEXT;
+
+-- Entity profile cache (physical-evidence enrichment per candidate name + run context):
+CREATE TABLE IF NOT EXISTS entity_profiles (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name         TEXT NOT NULL,
+    context_hash TEXT NOT NULL,
+    entity_type  VARCHAR(16),
+    payload      JSONB NOT NULL,
+    created_at   TIMESTAMPTZ DEFAULT now(),
+    UNIQUE (name, context_hash)
+);
+CREATE INDEX IF NOT EXISTS ix_entity_profiles_name ON entity_profiles(name);
+
 -- Session-scoped file uploads: research_sources now optionally tracks the
 -- agent_session it was uploaded into. NULL session_id = library item
 -- (re-attachable to any new session via /v3/sources/attach).
@@ -812,6 +841,51 @@ CREATE TABLE IF NOT EXISTS user_defaults (
 )
 """
 
+# Per-turn snapshot of the orchestrated IS-brain loop (Path B). One row per
+# brain turn; the latest row for a run is the authoritative working memory.
+_MIGRATION_WORKING_MEMORY = """
+CREATE TABLE IF NOT EXISTS working_memory_snapshots (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id          uuid NOT NULL,
+    turn            int  NOT NULL,
+    phase           varchar(32) NOT NULL,
+    working_memory  jsonb NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (run_id, turn)
+);
+CREATE INDEX IF NOT EXISTS idx_wm_snapshots_run ON working_memory_snapshots(run_id, turn);
+
+-- Hypothesis comments — analyst-grade collaboration on a specific hypothesis
+-- within a loop run. hypothesis_id is the brain-assigned UUID stored in the
+-- working memory; one row per (run, hypothesis, user, comment).
+CREATE TABLE IF NOT EXISTS hypothesis_comments (
+    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id         uuid NOT NULL,
+    hypothesis_id  text NOT NULL,
+    user_id        uuid NOT NULL,
+    body           text NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_hyp_comments_run_hyp
+  ON hypothesis_comments(run_id, hypothesis_id, created_at);
+
+-- Per-finding analyst annotations. Persisted notes that also feed cross-run
+-- priors (annotated findings get a confidence boost in fused_retrieve via the
+-- existing user_score=+1 mechanism if grade='A' is set alongside).
+CREATE TABLE IF NOT EXISTS finding_annotations (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id      uuid NOT NULL,
+    finding_id  text NOT NULL,
+    user_id     uuid NOT NULL,
+    body        text NOT NULL,
+    color       varchar(16) DEFAULT 'yellow',
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (run_id, finding_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_finding_annotations_run
+  ON finding_annotations(run_id, finding_id);
+"""
+
 
 def _split_sql_statements(sql: str) -> list[str]:
     """Split SQL on ';' but respect string literals and dollar-quoted blocks.
@@ -920,7 +994,7 @@ def _split_sql_statements(sql: str) -> list[str]:
 def run_migrations() -> None:
     # Ensure each migration block ends with ';' so concatenation doesn't merge
     # the last statement of one block with the first of the next.
-    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES]
+    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY]
     all_sql = "\n".join(p.rstrip().rstrip(";") + ";\n" for p in parts)
     statements = _split_sql_statements(all_sql)
     with get_conn() as conn:

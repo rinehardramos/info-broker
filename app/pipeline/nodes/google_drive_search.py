@@ -46,7 +46,7 @@ def _resolve_api_key(config_key: str | None = None) -> str | None:
 class GoogleDriveSearchNode:
     node_type = "google_drive_search"
     display_name = "Google Drive File Search"
-    category = "datastore"
+    category = "source"
 
     config_schema = {
         "type": "object",

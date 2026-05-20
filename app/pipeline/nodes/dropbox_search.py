@@ -38,7 +38,7 @@ def _resolve_token(config_token: str | None = None) -> str | None:
 class DropboxSearchNode:
     node_type = "dropbox_search"
     display_name = "Dropbox File Search"
-    category = "datastore"
+    category = "source"
 
     config_schema = {
         "type": "object",

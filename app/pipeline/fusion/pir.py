@@ -122,6 +122,30 @@ _PIR_TEMPLATES: dict[str, list[dict]] = {
     "company": COMPANY_PIRS,
 }
 
+def infer_entity_type(query: str) -> str:
+    """Cheap heuristic — pick a PIR template by query shape.
+
+    Looks for company indicators (Inc/Ltd/Corp/Holdings/etc.) before person
+    indicators (CEO/founder/profile/who is) so a query about a person's
+    employer doesn't get mis-classified as a personal investigation.
+    """
+    q = query.lower()
+    company_markers = (
+        " inc.", " inc ", " inc,", " ltd", " corp", " holdings",
+        " company", " corporation", "nasdaq:", "nyse:", "sec edgar",
+        "20-f", "10-k", "8-k", " sa ", " plc",
+    )
+    if any(m in q for m in company_markers):
+        return "company"
+    person_markers = (
+        "ceo of", "founder of", "who is ", "biography of",
+        "profile of", "background check", "kyc on", "due diligence on",
+    )
+    if any(m in q for m in person_markers):
+        return "person"
+    return "generic"
+
+
 _GENERIC_PIRS = [
     {
         "name": "Core Research Question",

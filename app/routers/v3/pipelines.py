@@ -818,10 +818,21 @@ async def start_pipeline_run(
         )
     except HTTPException:
         execute(
-            "UPDATE pipeline_runs SET status = 'failed', finished_at = now() WHERE id = %s",
+            "UPDATE pipeline_runs SET status = 'failed', finished_at = now(),"
+            " error_message = COALESCE(error_message, 'dispatch failed') WHERE id = %s",
             (run_id,),
         )
         raise
+    except Exception as exc:
+        # Temporal unreachable / start_workflow crash. Don't leave the row
+        # in queued — caller needs to know dispatch failed so they can retry.
+        execute(
+            "UPDATE pipeline_runs SET status = 'failed', finished_at = now(),"
+            " error_message = %s WHERE id = %s",
+            (f"dispatch failed: {type(exc).__name__}: {str(exc)[:160]}", run_id),
+        )
+        log.exception("pipeline dispatch failed for run %s: %s", run_id, exc)
+        raise HTTPException(status_code=503, detail="Pipeline worker unavailable. Try again shortly.")
     return PipelineRunOut(**dict(run_row))
 
 

@@ -44,7 +44,7 @@ def _resolve_api_key(config_key: str | None = None) -> str | None:
 class IntelligenceXNode:
     node_type = "intelligence_x"
     display_name = "Intelligence X Dark Web Search"
-    category = "datastore"
+    category = "source"
 
     config_schema = {
         "type": "object",

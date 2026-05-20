@@ -27,6 +27,20 @@ class UserOut(BaseModel):
     is_active: bool
     is_admin: bool = False
     created_at: datetime
+    password_set: bool = True
+    oauth_provider: str | None = None
+    avatar_url: str | None = None
+    display_name: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
+
+
+class UserProfileIn(BaseModel):
+    """PATCH /v3/users/me — non-admin self-service personalization."""
+    display_name: str | None = None
+    avatar_url: str | None = None
+    timezone: str | None = None
+    locale: str | None = None
 
 
 class PreferencesIn(BaseModel):

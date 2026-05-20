@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 class ObsidianVaultNode:
     node_type = "obsidian_vault"
     display_name = "Obsidian Vault"
-    category = "datastore"
+    category = "source"
     config_schema = {
         "type": "object",
         "properties": {

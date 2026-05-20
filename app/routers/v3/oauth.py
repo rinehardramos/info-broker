@@ -92,7 +92,12 @@ def _complete_oauth_login(
         if row:
             user_id = str(row["id"])
             execute(
-                "UPDATE ui_users SET oauth_provider = %s, oauth_sub = %s, avatar_url = COALESCE(%s, avatar_url) WHERE id = %s",
+                """UPDATE ui_users SET
+                        oauth_provider = %s,
+                        oauth_sub = %s,
+                        avatar_url = COALESCE(%s, avatar_url),
+                        email_verified_at = COALESCE(email_verified_at, now())
+                   WHERE id = %s""",
                 (provider, sub, avatar_url, user_id),
             )
 
@@ -119,8 +124,9 @@ def _complete_oauth_login(
             INSERT INTO ui_users (
                 id, username, email, password_hash,
                 is_active, is_admin, role,
-                org_id, oauth_provider, oauth_sub, avatar_url
-            ) VALUES (%s, %s, %s, NULL, true, false, 'admin', %s, %s, %s, %s)
+                org_id, oauth_provider, oauth_sub, avatar_url,
+                email_verified_at
+            ) VALUES (%s, %s, %s, NULL, true, false, 'admin', %s, %s, %s, %s, now())
             """,
             (user_id, username, email, personal_org_id, provider, sub, avatar_url),
         )

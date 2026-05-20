@@ -31,17 +31,31 @@ def _numeric_to_grade(src_val: float, cred_val: float | None = None) -> str:
     return src + cred
 
 
-def build_dashboard() -> dict:
-    """Build the global performance dashboard from scorecard data + overlays."""
+def build_dashboard(user_id: str | None = None) -> dict:
+    """Build the performance dashboard from scorecard data.
+
+    Pass `user_id` to scope the dashboard to a single user's runs (default
+    behavior for non-admin callers). `None` returns the global aggregate —
+    only safe to expose to admin callers.
+    """
     try:
         from app.routers.v3.db import fetch_all
     except ImportError:
         return {"techniques": [], "tactics": [], "error": "DB not available"}
 
-    # Get all scorecards
-    rows = fetch_all(
-        "SELECT scorecard FROM research_trails WHERE scorecard IS NOT NULL ORDER BY created_at DESC LIMIT 100"
-    ) or []
+    if user_id is None:
+        rows = fetch_all(
+            "SELECT scorecard FROM research_trails "
+            "WHERE scorecard IS NOT NULL "
+            "ORDER BY created_at DESC LIMIT 100"
+        ) or []
+    else:
+        rows = fetch_all(
+            "SELECT scorecard FROM research_trails "
+            "WHERE scorecard IS NOT NULL AND user_id = %s "
+            "ORDER BY created_at DESC LIMIT 100",
+            (user_id,),
+        ) or []
 
     # Aggregate technique grades
     technique_stats: dict[str, dict] = defaultdict(

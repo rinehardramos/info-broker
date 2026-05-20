@@ -19,7 +19,7 @@ _MAX_SNIPPET = 500        # chars of context around match
 class LocalFilesNode:
     node_type = "local_files"
     display_name = "Local Files"
-    category = "datastore"
+    category = "source"
     config_schema = {
         "type": "object",
         "properties": {

@@ -51,6 +51,30 @@ from app.memory.models import MemoryResult  # noqa: E402
 _RESEARCH_MEMORY_COLLECTION = "research_memory"
 
 
+def _derive_ref(payload: dict[str, Any]) -> str:
+    """Build a unique ref for a Qdrant payload.
+
+    The writer never stored a `ref` field, so historical payloads have no
+    explicit ref. RRF dedups by ref — empty refs collapse every result into
+    one. Derive a stable ref from (run_id, finding_index) when available,
+    else fall back to the title or a content prefix.
+    """
+    explicit = payload.get("ref")
+    if explicit:
+        return str(explicit)
+    run_id = payload.get("run_id") or ""
+    idx = payload.get("finding_index")
+    if run_id and idx is not None:
+        return f"{run_id}:{idx}"
+    title = (payload.get("title") or "").strip()
+    if title:
+        return f"t:{title[:120]}"
+    content = (payload.get("content") or "").strip()
+    if content:
+        return f"c:{content[:120]}"
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # 1. Semantic search — Qdrant dense vector
 # ---------------------------------------------------------------------------
@@ -71,7 +95,7 @@ async def semantic_search(query: str, limit: int = 50) -> list[MemoryResult]:
             payload: dict[str, Any] = hit.payload or {}
             results.append(
                 MemoryResult(
-                    ref=payload.get("ref", ""),
+                    ref=_derive_ref(payload),
                     title=payload.get("title", ""),
                     content=payload.get("content", ""),
                     source="semantic",

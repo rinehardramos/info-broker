@@ -73,92 +73,6 @@ async def run_qdrant_search(
 
 
 @mcp.tool()
-async def run_rss_monitor(feed_url: str, max_items: int = 20) -> str:
-    """Fetch and parse an RSS/Atom feed. Returns recent items with title, url, and summary."""
-    result = await api_call(
-        "POST",
-        "/v3/nodes/rss_monitor/execute",
-        json={"feed_url": feed_url, "max_items": max_items},
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def run_apify_actor(
-    actor_id: str = "harvestapi~linkedin-profile-search",
-    search_url: str = "",
-    max_items: int = 50,
-) -> str:
-    """Run an Apify actor (e.g. LinkedIn scraper). Returns structured profile results."""
-    result = await api_call(
-        "POST",
-        "/v3/nodes/apify_actor/execute",
-        json={"actor_id": actor_id, "searchUrl": search_url, "max_items": max_items},
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def run_ai_scoring(
-    items: str,
-    criteria: str,
-    score_field: str = "ai_score",
-    model: str = "claude-haiku-4-5-20251001",
-    threshold: int = 50,
-) -> str:
-    """Score a list of research items against given criteria using an LLM.
-
-    items: JSON array of item objects.
-    criteria: description of what makes an item high-quality.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/nodes/ai_scoring/execute",
-        json={
-            "items": json.loads(items),
-            "criteria": criteria,
-            "score_field": score_field,
-            "model": model,
-            "threshold": threshold,
-        },
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def run_ai_provider(
-    prompt: str,
-    model: str = "claude-haiku-4-5-20251001",
-    system_prompt: str = "",
-) -> str:
-    """Send a prompt to an LLM provider and return the response text."""
-    result = await api_call(
-        "POST",
-        "/v3/nodes/ai_provider/execute",
-        json={"prompt": prompt, "model": model, "system_prompt": system_prompt},
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def run_summarizer(
-    items: str,
-    instructions: str = "Summarize the key findings.",
-    model: str = "claude-haiku-4-5-20251001",
-) -> str:
-    """Condense a list of research items into a structured summary.
-
-    items: JSON array of item objects.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/nodes/summarizer/execute",
-        json={"items": json.loads(items), "instructions": instructions, "model": model},
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
 async def export_research(run_id: str, format: str = "pdf") -> str:
     """Export research results as PDF, CSV, or Excel file. Returns download URL."""
     result = await api_call("POST", f"/v3/exports/research/{run_id}", json={"format": format, "include_analysis": True})
@@ -216,25 +130,6 @@ async def search_local_files(
 
 
 @mcp.tool()
-async def run_manual_scoring(items: str, criteria: str = "") -> str:
-    """Queue items for manual human scoring. Returns items tagged with a pending_review flag.
-
-    items: JSON array of item objects.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/nodes/manual_scoring/execute",
-        json={"items": json.loads(items), "criteria": criteria},
-    )
-    return json.dumps(result)
-
-
-# ---------------------------------------------------------------------------
-# New plugin tools (from IS brain suggestions)
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
 async def run_wikipedia_api(title: str, language: str = "en") -> str:
     """Fetch a structured Wikipedia article summary and content by title.
 
@@ -274,25 +169,6 @@ async def run_ph_sec_dti(company_name: str) -> str:
         "POST",
         "/v3/nodes/ph_sec_dti/execute",
         json={"query": company_name},
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def run_linkedin_lookup(
-    linkedin_url: str = "",
-    query: str = "",
-    lookup_type: str = "person",
-) -> str:
-    """Look up a LinkedIn profile or search for people/companies via Proxycurl.
-
-    Provide linkedin_url for direct lookup, or query for search.
-    lookup_type: 'person' or 'company'
-    """
-    result = await api_call(
-        "POST",
-        "/v3/nodes/linkedin_navigator/execute",
-        json={"query": query, "linkedin_url": linkedin_url, "lookup_type": lookup_type},
     )
     return json.dumps(result)
 
@@ -474,25 +350,6 @@ async def run_shodan_search(query: str = "", target: str = "", max_results: int 
         "POST",
         "/v3/nodes/shodan_search/execute",
         json={"query": query, "target": target, "max_results": max_results},
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def run_clutch_buyer(
-    company_url: str = "",
-    location: str = "Philippines",
-    max_results: int = 20,
-) -> str:
-    """Scrape buyer-side reviews from a Clutch company profile.
-
-    Extracts reviewer (client/buyer) info: name, title, company, industry, and project summary.
-    Provide company_url for a specific profile, or leave blank to scrape top companies by location.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/nodes/clutch_buyer/execute",
-        json={"company_url": company_url, "location": location, "max_results": max_results},
     )
     return json.dumps(result)
 
@@ -727,22 +584,6 @@ async def run_glassdoor_reviews(company: str, max_results: int = 10) -> str:
 
 
 @mcp.tool()
-async def run_maven_gumroad(
-    query: str, platform: str = "both", max_results: int = 10
-) -> str:
-    """Search Maven and/or Gumroad for courses and digital products.
-
-    platform: 'maven', 'gumroad', or 'both'.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/nodes/maven_gumroad/execute",
-        json={"query": query, "platform": platform, "max_results": max_results},
-    )
-    return json.dumps(result, default=str)
-
-
-@mcp.tool()
 async def run_github_search(
     query: str, search_type: str = "repositories", max_results: int = 10
 ) -> str:
@@ -890,42 +731,6 @@ async def run_icij_search(query: str, jurisdiction: str = "", dataset: str = "")
 
 
 @mcp.tool()
-async def run_intelligent_search(
-    query: str,
-    max_depth: int = 3,
-    max_branches: int = 12,
-) -> str:
-    """Run the full Intelligent Search (IS) brain on a query.
-
-    This executes the complete recursive investigation loop with:
-    - Multi-engine web search + past research retrieval
-    - Entity-type detection and strategy selection
-    - Meta-strategy injection (geographic widening, financial trail, ACH, etc.)
-    - Recursive branch exploration up to max_depth
-    - Findings fusion and confidence scoring
-
-    Returns a structured JSON result with summary, findings, investigation tree,
-    suggested pipeline, and gaps.
-
-    This is the highest-capability research tool — use it for complex queries
-    that require multi-step investigation rather than single-tool lookups.
-    For simple factual lookups, prefer run_web_search + run_web_crawl.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/agent/research/sync",
-        json={"query": query, "max_depth": max_depth, "max_branches": max_branches},
-        timeout=300.0,
-    )
-    return json.dumps(result, default=str)
-
-
-# ---------------------------------------------------------------------------
-# Research run access (knowledge base reference)
-# ---------------------------------------------------------------------------
-
-
-@mcp.tool()
 async def search_memory(query: str, limit: int = 10) -> str:
     """Search info-broker's memory using multi-signal fusion.
 
@@ -933,24 +738,6 @@ async def search_memory(query: str, limit: int = 10) -> str:
     entities, temporal awareness, and user feedback scores.
     """
     result = await api_call("POST", "/v3/knowledge/memory/search", json={"query": query, "limit": limit})
-    return json.dumps(result, default=str)
-
-
-@mcp.tool()
-async def curate_knowledge() -> str:
-    """Get knowledge graph curation status -- contradictions and stale observations.
-
-    Returns total counts, unresolved contradictions, and active stale flags.
-    Use this to assess knowledge graph quality before research.
-    """
-    stats = await api_call("GET", "/v3/knowledge/curation/stats")
-    contradictions = await api_call("GET", "/v3/knowledge/contradictions", params={"status": "needs_review", "limit": 10})
-    stale = await api_call("GET", "/v3/knowledge/stale", params={"status": "stale", "limit": 10})
-    result = {
-        **(stats if isinstance(stats, dict) else {}),
-        "recent_contradictions": contradictions[:10] if isinstance(contradictions, list) else [],
-        "recent_stale": stale[:10] if isinstance(stale, list) else [],
-    }
     return json.dumps(result, default=str)
 
 
@@ -1039,51 +826,6 @@ async def list_recent_runs(limit: int = 10) -> str:
 
 
 @mcp.tool()
-async def save_pipeline(name: str, description: str, nodes: str, edges: str) -> str:
-    """Save a reusable pipeline definition to the database.
-
-    nodes: JSON array of pipeline node objects.
-    edges: JSON array of pipeline edge objects.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/pipelines",
-        json={
-            "name": name,
-            "description": description,
-            "nodes": json.loads(nodes),
-            "edges": json.loads(edges),
-        },
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
-async def save_research_trail(
-    query: str,
-    entity_type: str,
-    findings: str,
-    trail: str,
-) -> str:
-    """Persist research findings and the reasoning trail to the database.
-
-    findings: JSON array of result items.
-    trail: JSON object describing the research steps taken.
-    """
-    result = await api_call(
-        "POST",
-        "/v3/research-trails",
-        json={
-            "query": query,
-            "entity_type": entity_type,
-            "findings": json.loads(findings),
-            "trail": json.loads(trail),
-        },
-    )
-    return json.dumps(result)
-
-
-@mcp.tool()
 async def get_past_research(query: str, limit: int = 5) -> str:
     """Find related prior research by semantic similarity to the given query."""
     result = await api_call(
@@ -1095,104 +837,181 @@ async def get_past_research(query: str, limit: int = 5) -> str:
 
 
 @mcp.tool()
-async def suggest_plugin(name: str, description: str, reason: str) -> str:
-    """Suggest a new plugin or tool that should be built into info-broker.
+async def get_loop_working_memory(run_id: str) -> str:
+    """Return the orchestrated-loop working memory for a run.
 
-    IMPORTANT: Before calling this, verify the capability doesn't already exist.
-    This tool will check for duplicates automatically and return guidance.
-    - If an exact match exists: returns the existing tool name to use instead.
-    - If a partial match exists: flags it as an enhancement request.
-    - Only truly unique capabilities create a new plugin request.
+    Surfaces every analytical artifact the loop produces:
+      - synthesis_summary (the brain's final natural-language answer)
+      - per-turn snapshots (phase, counts, source-class mix, ACH ranking)
+      - hypotheses with falsification_condition and status
+      - findings with source_class + deception_risk + deception_flags
+      - ACH evidence_matrix (consistent/inconsistent/neutral cells)
+      - PIR coverage (entity_type, EEIs resolved, gaps)
+      - decay info on cross-run priors
+      - cost breakdown per phase
+
+    Use this AFTER triggering a loop run via run_intelligent_search to read
+    the analytical output. Returns 404 if the run has no working-memory
+    snapshots (i.e. was the legacy single-shot path).
     """
-    # Pre-check: fetch existing node types and check for overlap
-    try:
-        health_data = await api_call("GET", "/v3/pipelines/nodes/types/health")
-        existing_nodes = {n["node_type"]: n["display_name"] for n in health_data}
-    except Exception:
-        existing_nodes = {}
-
-    normalized = name.lower().replace("-", "_").replace(" ", "_")
-
-    # Exact match — tell brain to use existing tool
-    if normalized in existing_nodes:
-        return json.dumps({
-            "status": "duplicate",
-            "message": f"Tool '{normalized}' already exists as '{existing_nodes[normalized]}'. Use run_{normalized}() instead.",
-            "existing_tool": f"run_{normalized}",
-        })
-
-    # Partial match — auto-flag as enhancement
-    for et, display in existing_nodes.items():
-        if normalized in et or et in normalized:
-            # Auto-prefix reason with ENHANCE
-            enhanced_reason = reason if reason.startswith("ENHANCE:") else f"ENHANCE ({et}): {reason}"
-            result = await api_call(
-                "POST",
-                "/v3/plugin-requests",
-                json={"name": et, "description": description, "reason": enhanced_reason},
-            )
-            return json.dumps({
-                "status": "enhancement",
-                "message": f"Existing tool '{et}' ({display}) partially covers this. Flagged as enhancement request.",
-                "existing_tool": f"run_{et}",
-                **result,
-            })
-
-    # Keyword overlap check — compare description words against existing display names
-    desc_words = set(description.lower().split())
-    for et, display in existing_nodes.items():
-        display_words = set(display.lower().split())
-        overlap = desc_words & display_words - {"the", "and", "for", "a", "an", "of", "in", "to"}
-        if len(overlap) >= 2:
-            enhanced_reason = f"ENHANCE ({et}): {reason}" if not reason.startswith("ENHANCE:") else reason
-            result = await api_call(
-                "POST",
-                "/v3/plugin-requests",
-                json={"name": et, "description": description, "reason": enhanced_reason},
-            )
-            return json.dumps({
-                "status": "enhancement",
-                "message": f"Existing tool '{et}' ({display}) may cover this (overlap: {overlap}). Flagged as enhancement.",
-                "existing_tool": f"run_{et}",
-                **result,
-            })
-
-    # Try auto-create if enabled
-    try:
-        from app.pipeline.auto_create import auto_create_plugin
-        auto_result = await auto_create_plugin(normalized, description, reason)
-        if auto_result.get("status") == "auto_created":
-            return json.dumps({
-                "status": "auto_created",
-                "tool_name": auto_result["tool_name"],
-                "message": f"Plugin '{normalized}' was auto-created and is now available as {auto_result['tool_name']}. You can call it immediately.",
-            })
-    except Exception as exc:
-        log.warning("Auto-create attempt failed (non-fatal): %s", exc)
-        # Fall through to standard "new" flow
-
-    # Truly unique — create new request
-    result = await api_call(
-        "POST",
-        "/v3/plugin-requests",
-        json={"name": name, "description": description, "reason": reason},
-    )
-    return json.dumps({"status": "new", "message": "New plugin request created.", **result})
+    result = await api_call("GET", f"/v3/runs/{run_id}/working-memory")
+    return json.dumps(result, default=str)
 
 
 @mcp.tool()
-async def log_cycle(
-    pir: str,
-    hypotheses: list[str],
-    cycle_id: str = "cycle_1",
-    parent_cycle_id: str = "",
-) -> str:
-    """
-    Declare the start of an INVESTIGATE cycle. Call this before any BROADEN searches.
+async def list_investigation_templates() -> str:
+    """List built-in investigation templates (KYC, KYB, VC DD, competitor mapping, etc.).
 
-    pir: The specific question this cycle answers (one sentence).
-    hypotheses: Competing hypotheses for this PIR, e.g. ["H1: PH-based person", "H2: EU-migrant", "H3: alias abroad", "H_last: no public trace"].
-    cycle_id: Unique ID for this cycle, e.g. "cycle_1", "cycle_2", "cycle_1_child_1".
-    parent_cycle_id: ID of the parent cycle if this is a child PIR, else empty string.
+    Returns 6 first-party templates with id, name, description, category
+    (kyc | due-diligence | market | finance | identity), and a parameter
+    schema (which variables the template expects).
+
+    Use this to discover available investigation patterns; then call
+    render_investigation_template with chosen parameters to get a ready-to-fire
+    research query.
     """
-    return json.dumps({"logged": True, "cycle_id": cycle_id or "cycle_1"})
+    result = await api_call("GET", "/v3/investigation-templates")
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def render_investigation_template(template_id: str, params: dict) -> str:
+    """Render a built-in investigation template with parameters.
+
+    template_id: One of the ids returned by list_investigation_templates
+                 (e.g. "kyc-individual", "kyb-company", "vc-due-diligence").
+    params:      Dict mapping parameter names to values, per the template's
+                 parameter schema. Missing params render as "(not specified)".
+
+    Returns the rendered query string ready to pass to run_intelligent_search.
+    """
+    # The renderer is pure server-side; fetch the template + substitute locally.
+    tpl = await api_call("GET", f"/v3/investigation-templates/{template_id}")
+    if not isinstance(tpl, dict):
+        return json.dumps({"error": "template_not_found"})
+    rendered = tpl.get("query_template", "")
+    for p in tpl.get("parameters", []):
+        key = p["name"]
+        val = str(params.get(key) or "").strip() or "(not specified)"
+        rendered = rendered.replace("{{" + key + "}}", val)
+    return json.dumps({"template_id": template_id, "rendered_query": rendered})
+
+
+@mcp.tool()
+async def grade_finding(
+    run_id: str,
+    finding_id: str,
+    grade: str,
+    note: str = "",
+) -> str:
+    """Grade a finding A / B / C / D for the cross-run learning feedback loop.
+
+    A-graded findings get auto-seeded as established_facts in future loop runs
+    whose semantic search hits this finding. Grading is how the analyst tells
+    the system "this fact is verified — treat it as gospel for similar future
+    questions."
+
+    grade: One of "A", "B", "C", "D".
+    note:  Optional rationale (≤500 chars).
+    """
+    result = await api_call("POST", f"/v3/findings/{finding_id}/grade",
+                            json={"run_id": run_id, "grade": grade, "note": note})
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def share_run(run_id: str, ttl_days: int = 7) -> str:
+    """Generate a read-only share link for a run.
+
+    Returns {token, url, expires_at}. The share URL exposes the loop's
+    analytical artifacts (synthesis, hypotheses, findings, ACH summary) to
+    anyone with the link — no auth required. Max TTL is 30 days.
+
+    Use revoke_share_link to invalidate the link before it expires.
+    """
+    result = await api_call("POST", f"/v3/runs/{run_id}/share",
+                            json={"ttl_days": ttl_days})
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def comment_on_hypothesis(
+    run_id: str,
+    hypothesis_id: str,
+    body: str,
+) -> str:
+    """Post a comment on a hypothesis within a loop run.
+
+    Comments persist alongside the working memory for analyst collaboration —
+    teammates can leave notes, dispute the brain's conclusion, or annotate
+    additional context.
+    """
+    result = await api_call(
+        "POST",
+        f"/v3/runs/{run_id}/hypotheses/{hypothesis_id}/comments",
+        json={"body": body},
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def list_hypothesis_comments(run_id: str, hypothesis_id: str) -> str:
+    """List all comments on a specific hypothesis (oldest first)."""
+    result = await api_call(
+        "GET",
+        f"/v3/runs/{run_id}/hypotheses/{hypothesis_id}/comments",
+    )
+    return json.dumps(result, default=str)
+
+
+@mcp.tool()
+async def get_run_cost_breakdown(run_id: str) -> str:
+    """Return per-phase RU consumption for a loop run.
+
+    Includes total_ru and by_phase breakdown (explore / test / synthesize)
+    plus wallet_operations rows for auditing. Use this to track research cost
+    or to debug a run that consumed unexpectedly large RU.
+    """
+    result = await api_call("GET", f"/v3/runs/{run_id}/cost_breakdown")
+    return json.dumps(result, default=str)
+
+
+# ── Replacement for the legacy run_intelligent_search ─────────────────────────
+
+@mcp.tool()
+async def run_research(query: str, max_turns: int = 6) -> str:
+    """Trigger an orchestrated multi-turn research run (the loop substrate).
+
+    Dispatches to IsLoopRunWorkflow — the same path the web UI uses. Returns
+    immediately with a run_id; the loop runs asynchronously through explore →
+    test → synthesize phases. Each turn has hard tool-gating enforced; the
+    final turn produces a synthesis_summary, hypotheses with falsification
+    conditions, an ACH evidence matrix, source-class tagging, deception flags,
+    and PIR coverage.
+
+    Workflow for the caller:
+      1. response = run_research(query="...")  →  {run_id, status: "queued"}
+      2. Poll get_run_status(run_id) until status="succeeded" (~1-3 min)
+      3. Read the full analytical output via get_loop_working_memory(run_id)
+      4. (Optional) Grade key findings with grade_finding(...) to seed
+         cross-run priors for future runs on related queries.
+
+    max_turns caps the loop length (default 6, max 12). The synthesize phase
+    always runs at least once if the loop reaches it.
+    """
+    capped = max(2, min(12, max_turns))
+    result = await api_call(
+        "POST", "/v3/agent/message",
+        json={"message": query, "loop_max_turns": capped},
+        timeout=30.0,
+    )
+    run_id = result.get("job_id") or result.get("run_id") or ""
+    return json.dumps({
+        "run_id": run_id,
+        "status": result.get("status", "queued"),
+        "next_steps": [
+            f"poll: get_run_status('{run_id}')",
+            f"read: get_loop_working_memory('{run_id}')",
+        ],
+        "raw": result,
+    }, default=str)

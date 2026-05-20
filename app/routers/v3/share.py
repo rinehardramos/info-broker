@@ -199,6 +199,59 @@ def get_shared_run(token: str):
 
     expires_in_hours = max(0, math.ceil((expires_at - now).total_seconds() / 3600))
 
+    # Loop-run augmentation: if this run has working_memory_snapshots (it was
+    # an orchestrated-loop run), expose the analytical artifacts read-only —
+    # synthesis, hypotheses, findings, ACH matrix counts. No personal/admin
+    # data; safe for public link sharing.
+    loop_view: dict | None = None
+    try:
+        from app.routers.v3.db import fetch_all as _fetch_all
+        snaps = _fetch_all(
+            """SELECT turn, phase, working_memory FROM working_memory_snapshots
+                WHERE run_id = %s ORDER BY turn DESC LIMIT 1""",
+            (run_id,),
+        )
+        if snaps:
+            final_wm = snaps[0]["working_memory"]
+            hypotheses = final_wm.get("hypotheses") or []
+            findings = final_wm.get("findings") or []
+            matrix = final_wm.get("evidence_matrix") or []
+            inc = sum(1 for s in matrix if s.get("consistency") == "inconsistent")
+            con = sum(1 for s in matrix if s.get("consistency") == "consistent")
+            loop_view = {
+                "kind": "loop",
+                "total_turns": snaps[0]["turn"],
+                "final_phase": snaps[0]["phase"],
+                "synthesis_summary": (final_wm.get("synthesis_summary") or "").strip(),
+                "hypotheses": [
+                    {
+                        "id": h.get("id", "")[:8],
+                        "statement": h.get("statement", ""),
+                        "status": h.get("status", "open"),
+                        "confidence": h.get("confidence", 0.0),
+                        "falsification_condition": h.get("falsification_condition", ""),
+                    }
+                    for h in hypotheses
+                ],
+                "findings_count": len(findings),
+                "findings": [
+                    {
+                        "title": f.get("title", ""),
+                        "source_url": f.get("source_url"),
+                        "source_class": f.get("source_class", "unknown"),
+                        "confidence": f.get("confidence", 0.0),
+                    }
+                    for f in findings[:30]   # cap for public payload sanity
+                ],
+                "ach_summary": {
+                    "consistent": con, "inconsistent": inc,
+                    "total_scores": len(matrix),
+                },
+            }
+    except Exception:
+        # If loop augmentation fails, fall back to the legacy fields only.
+        loop_view = None
+
     return {
         "run_id": run_id,
         "query": run.get("query", ""),
@@ -207,6 +260,7 @@ def get_shared_run(token: str):
         "status": run.get("status", ""),
         "ranked_candidates": ranked_candidates,
         "phases": phases,
+        "loop": loop_view,
         "shared_at": link["created_at"].isoformat() if link.get("created_at") else None,
         "expires_at": expires_at.isoformat(),
         "expires_in_hours": expires_in_hours,
