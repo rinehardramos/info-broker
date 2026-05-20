@@ -1,0 +1,99 @@
+# Cloudflare Pages deploy via GitHub Actions.
+#
+# Triggers:
+#   - push to main           → production deploy to infobroker.tech
+#   - pull_request           → preview deploy at <hash>.info-broker.pages.dev
+#                              (URL posted as a PR comment)
+#
+# Required GitHub secrets (Repo Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN     — token with Pages:Edit + Account:Read scopes
+#                              (create at https://dash.cloudflare.com/profile/api-tokens)
+#   CLOUDFLARE_ACCOUNT_ID    — your account ID (see Cloudflare dashboard home)
+
+name: Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write     # so wrangler-action can post the preview URL as a PR comment
+  deployments: write       # surfaces deploy status on the PR
+
+# Cancel superseded runs — if you push twice quickly, only the latest deploys.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build + Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node 20 (pinned to match wrangler.toml)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: TypeScript check
+        run: pnpm tsc --noEmit
+
+      - name: Build production bundle
+        env:
+          # Same baked-in API URL the manual deploy uses. Override via repo var
+          # VITE_API_URL_OVERRIDE if a branch needs to point elsewhere.
+          VITE_API_URL: ${{ vars.VITE_API_URL_OVERRIDE || 'https://api.infobroker.tech' }}
+        run: pnpm build
+
+      - name: Verify API URL baked into bundle
+        run: |
+          # Catches the silent "forgot to set VITE_API_URL" failure mode.
+          if ! grep -rq "api\.infobroker\.tech" dist/assets/ ; then
+            echo "::error::VITE_API_URL was not baked into the build. Check env wiring."
+            exit 1
+          fi
+          # And confirm the SPA fallback + headers files ship.
+          test -f dist/_headers   || { echo "::error::dist/_headers missing"; exit 1; }
+          test -f dist/_redirects || { echo "::error::dist/_redirects missing"; exit 1; }
+
+      - name: Deploy to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: frontend
+          # main → production; PR / other branches → preview deploy with branch name.
+          command: pages deploy dist --project-name=info-broker --branch=${{ github.head_ref || github.ref_name }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          {
+            echo "### Cloudflare Pages deploy"
+            echo ""
+            echo "- Branch: \`${{ github.head_ref || github.ref_name }}\`"
+            echo "- Commit: \`${{ github.sha }}\`"
+            echo "- Deployment URL: ${{ steps.deploy.outputs.deployment-url || 'see PR comment' }}"
+          } >> $GITHUB_STEP_SUMMARY
