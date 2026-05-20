@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import date
 
 from app.is_prompt import render_past_research_blocks
+from app.modes.loader import get_mode
+from app.modes.schema import Mode
 from app.pipeline.runners.working_memory import WorkingMemory, PHASE_TOOL_ALLOWLIST
 
 TURN_TOOL_CALL_BUDGET = 6
@@ -23,10 +25,16 @@ def build_turn_prompt(
     past_block_text = "\n\n".join(past_blocks) if past_blocks else "No prior research."
 
     tools_text = _render_tools(available_tools, wm.phase)
-    rb_seconds = TURN_REASONING_BUDGET_SECONDS
+
+    # Mode-aware framing — persona + per-phase budget + rule overrides.
+    mode = get_mode(wm.mode_id)
+    role_block = _render_role(mode)
+    mode_rules = _render_mode_rules(mode)
+    tool_call_budget = _phase_tool_call_budget(mode, wm.phase)
 
     return _TEMPLATE.format(
         today=today,
+        role=role_block,
         question=wm.question,
         turn=wm.turn,
         current_phase=sections["current_phase"],
@@ -39,10 +47,89 @@ def build_turn_prompt(
         cross_run_priors=sections["cross_run_priors"],
         past_research=past_block_text,
         tools=tools_text,
-        tool_call_budget=TURN_TOOL_CALL_BUDGET,
-        reasoning_budget=rb_seconds,
+        tool_call_budget=tool_call_budget,
+        reasoning_budget=TURN_REASONING_BUDGET_SECONDS,
         delta_schema=_DELTA_SCHEMA,
+        mode_rules=mode_rules,
     )
+
+
+def _render_role(mode: Mode) -> str:
+    """ROLE block — only emitted when the Mode actually has a persona. The
+    general Mode ships an empty persona so this is a no-op for it, preserving
+    the prior prompt shape exactly."""
+    persona = (mode.prompt_persona or "").strip()
+    if not persona:
+        return ""
+    return f"\nROLE ({mode.label})\n{persona}\n"
+
+
+def _phase_tool_call_budget(mode: Mode, phase: str) -> int:
+    """Per-Mode per-phase tool-call cap. Falls back to the constant if the
+    phase isn't recognized (defensive — should never happen)."""
+    phase_cfg = getattr(mode.phases, phase, None)
+    if phase_cfg is None:
+        return TURN_TOOL_CALL_BUDGET
+    return phase_cfg.tool_call_budget
+
+
+def _render_mode_rules(mode: Mode) -> str:
+    """MODE-SPECIFIC RULES block — appended at the end of the rules list. Only
+    emitted when at least one Mode-driven rule differs from default behavior;
+    the general Mode renders an empty string here."""
+    lines: list[str] = []
+
+    if mode.id != "general":
+        lines.append(f"MODE: {mode.label} (id={mode.id})")
+
+    # Confidence threshold — drives when facts/findings can be promoted.
+    # Default in the schema is 0.7; any other value is worth surfacing.
+    if mode.confidence_threshold_to_claim != 0.7:
+        lines.append(
+            f"- Minimum confidence to claim or promote to established_facts: "
+            f"{mode.confidence_threshold_to_claim:.2f}."
+        )
+
+    if mode.require_independent_corroboration:
+        lines.append(
+            "- A finding only becomes an established_fact when ≥2 independent "
+            "sources agree. Single-source claims stay in findings."
+        )
+
+    if mode.treat_absence_as_finding:
+        lines.append(
+            "- If you checked a source and the subject was NOT present, emit a "
+            'finding with source_class="negative" and note "checked, not found". '
+            "Absence is itself a finding."
+        )
+
+    # Source-class weighting — give the brain the top tier so it knows what
+    # to prioritize when multiple sources offer the same claim.
+    if mode.source_class_weights:
+        ranked = sorted(
+            mode.source_class_weights.items(), key=lambda kv: kv[1], reverse=True
+        )
+        top = ", ".join(f"{cls}({w:.1f})" for cls, w in ranked[:3] if w > 0)
+        if top:
+            lines.append(f"- Prefer higher-weighted source classes: {top}.")
+
+    # Termination tightening for KYC-shaped modes.
+    if mode.termination.require_contradiction_resolution:
+        lines.append(
+            "- Every new_contradiction MUST be resolved (winner + resolution_note) "
+            "before the run can enter SYNTHESIZE. Don't leave open contradictions."
+        )
+
+    if mode.termination.require_all_pir_satisfied:
+        lines.append(
+            "- All Priority Intelligence Requirements (PIR EEIs) must be resolved "
+            "before SYNTHESIZE. If any remain unresolved, return to TEST."
+        )
+
+    if not lines:
+        return ""
+    body = "\n".join(lines)
+    return f"\nMODE-SPECIFIC RULES\n{body}\n"
 
 
 def _render_tools(tools: list[str] | None, phase: str) -> str:
@@ -110,7 +197,7 @@ _DELTA_SCHEMA = """{
 
 _TEMPLATE = """You are the info-broker IS research brain, running TURN {turn} of an orchestrated loop.
 Today is {today}.
-
+{role}
 THE QUESTION
 {question}
 
@@ -178,4 +265,4 @@ Rules:
    diagnostic than consistencies. Hypotheses are ranked by fewest inconsistencies.
 8. Respect the current phase. EXPLORE forms hypotheses; TEST resolves them
    one target at a time + scores evidence; SYNTHESIZE produces the final answer.
-"""
+{mode_rules}"""

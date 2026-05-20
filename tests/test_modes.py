@@ -50,3 +50,65 @@ def test_lead_gen_is_bulk_oriented():
     mode = get_mode("lead_gen")
     assert "csv" in mode.export_formats
     assert mode.confidence_threshold_to_claim < 0.7  # bulk leads tolerate lower confidence
+
+
+# ── A2: prompt-persona injection ─────────────────────────────────────────────
+def test_turn_prompt_includes_general_persona():
+    from uuid import uuid4
+    from app.pipeline.runners.working_memory import WorkingMemory
+    from app.is_prompt_turn import build_turn_prompt
+
+    wm = WorkingMemory(run_id=uuid4(), question="Q", mode_id="general")
+    p = build_turn_prompt(wm)
+    assert "ROLE (General research)" in p
+    assert "investigative research analyst" in p
+
+
+def test_turn_prompt_kyc_carries_strict_rules():
+    from uuid import uuid4
+    from app.pipeline.runners.working_memory import WorkingMemory
+    from app.is_prompt_turn import build_turn_prompt
+
+    wm = WorkingMemory(run_id=uuid4(), question="Q", mode_id="kyc_edd")
+    p = build_turn_prompt(wm)
+    assert "ROLE (KYC / Enhanced Due Diligence)" in p
+    assert "senior KYC analyst" in p
+    assert "MODE-SPECIFIC RULES" in p
+    assert "0.90" in p                                # confidence threshold
+    assert "≥2 independent sources" in p              # corroboration rule
+    assert "Absence is itself a finding" in p         # negative-evidence rule
+    assert "Every new_contradiction MUST be resolved" in p
+    assert "PIR EEIs" in p
+
+
+def test_turn_prompt_competitive_intel_has_news_bias():
+    from uuid import uuid4
+    from app.pipeline.runners.working_memory import WorkingMemory
+    from app.is_prompt_turn import build_turn_prompt
+
+    wm = WorkingMemory(run_id=uuid4(), question="Q", mode_id="competitive_intel")
+    p = build_turn_prompt(wm)
+    assert "competitive intelligence analyst" in p
+    assert "news(1.0)" in p
+
+
+def test_turn_prompt_unknown_mode_falls_back_silently():
+    from uuid import uuid4
+    from app.pipeline.runners.working_memory import WorkingMemory
+    from app.is_prompt_turn import build_turn_prompt
+
+    wm = WorkingMemory(run_id=uuid4(), question="Q", mode_id="nonexistent")
+    p = build_turn_prompt(wm)
+    # Falls back to general — no exception
+    assert "ROLE (General research)" in p
+
+
+def test_turn_prompt_phase_budget_from_mode():
+    from uuid import uuid4
+    from app.pipeline.runners.working_memory import WorkingMemory
+    from app.is_prompt_turn import build_turn_prompt
+
+    # lead_gen has explore.tool_call_budget=8 (vs default 6)
+    wm = WorkingMemory(run_id=uuid4(), question="Q", mode_id="lead_gen")
+    p = build_turn_prompt(wm)
+    assert "AT MOST 8 tool calls" in p
