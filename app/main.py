@@ -293,8 +293,8 @@ _CORS_ORIGINS = [
     "http://127.0.0.1:8000",
     # Production frontend on Cloudflare Pages + custom domain
     "https://info-broker.pages.dev",
-    "https://infobroker.net",
-    "https://www.infobroker.net",
+    "https://infobroker.tech",
+    "https://www.infobroker.tech",
 ]
 # Allow additional origins from env (comma-separated)
 _extra = _cors_os.getenv("CORS_ALLOWED_ORIGINS", "")

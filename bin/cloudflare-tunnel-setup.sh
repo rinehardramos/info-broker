@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Cloudflare Tunnel scripted setup, after `cloudflared tunnel login` is done.
 #
-# Creates the tunnel, routes api.infobroker.net DNS to it, and writes the
+# Creates the tunnel, routes api.infobroker.tech DNS to it, and writes the
 # connector token into .env for the docker-compose `cloudflared` service.
 
 set -euo pipefail
 
 TUNNEL_NAME="${TUNNEL_NAME:-info-broker}"
-ZONE="${ZONE:-infobroker.net}"
+ZONE="${ZONE:-infobroker.tech}"
 API_SUB="${API_SUB:-api.${ZONE}}"
 MCP_SUB="${MCP_SUB:-mcp.${ZONE}}"
 

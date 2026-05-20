@@ -43,7 +43,7 @@ test('production pages.dev URL serves the frontend', async ({ page }) => {
   }
 
   // Hard-fail only on pageerrors that crash the app — console errors about
-  // CORS / 401 against the API are expected on first load (api.infobroker.net
+  // CORS / 401 against the API are expected on first load (api.infobroker.tech
   // isn't tunneled yet).
   const crashes = errors.filter(e => e.startsWith('pageerror:'))
   expect(crashes).toEqual([])

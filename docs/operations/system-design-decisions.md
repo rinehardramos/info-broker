@@ -33,7 +33,7 @@ Three-tier design (`docs/operations/cloud-infrastructure.md`): Fly Tier 1 → GC
 Legion 5, 16 GB RAM, Docker Desktop. Constraints: memory binding, Claude Code OAuth (no macOS keychain), filesystem placement (repo in WSL, not `/mnt/c`), three Compose profiles (`lean / default / full`).
 
 ### 1.8 Targeted improvements
-- **Cloudflare Tunnel + `infobroker.net`** chosen over ngrok. Free, persistent, integrated with Access + Pages + R2.
+- **Cloudflare Tunnel + `infobroker.tech`** chosen over ngrok. Free, persistent, integrated with Access + Pages + R2.
 - **Embedding model stays Gemini** — no perf win observed from local; revisit when monthly spend >$30 *or* PKG re-embed window arrives.
 - **Neo4j moves to opt-in `--profile graph`** — saves ~1.5 GB on default `up`. PKG covers absorption needs without graph DB.
 - **Multi-machine: Split B** — Legion + optional secondary Linux box on Tailscale, when/if available.
@@ -41,7 +41,7 @@ Legion 5, 16 GB RAM, Docker Desktop. Constraints: memory binding, Claude Code OA
 ### 1.9 Hybrid architecture confirmed
 Cloudflare absorbs the public internet (DNS, TLS, WAF, Pages, Access, R2, Workers). Postgres / Qdrant / Temporal / brain workers stay home. Hetzner CX22 (~$5/mo) provisioned **only when a queue-depth wall is hit**. Documented at `docs/operations/hybrid-architecture.md`.
 
-Subdomain plan: `infobroker.net` (Pages), `api.` / `mcp.` / `temporal.` / `admin.` (tunneled, some Access-gated). `dev.*` dropped — Pages preview deploys cover staging/blue-green.
+Subdomain plan: `infobroker.tech` (Pages), `api.` / `mcp.` / `temporal.` / `admin.` (tunneled, some Access-gated). `dev.*` dropped — Pages preview deploys cover staging/blue-green.
 
 ### 1.10 Wall analysis (where load lands first)
 1. Brain worker concurrency
@@ -332,7 +332,7 @@ Notification will arrive when done. You can close this tab.
 ```
 Subject: Maridel Holdings investigation ready (12 min, 6 findings)
 
-View the result: https://infobroker.net/runs/abc123
+View the result: https://infobroker.tech/runs/abc123
 
 3 hypotheses tested
 1 contradiction surfaced
@@ -346,8 +346,8 @@ This is what 10 concurrent users get on a 2-slot subscription pool — and it wo
 
 ## 5. Resolved questions from prior turns
 
-- **Domain**: `infobroker.net` registered at `domain.com`, point nameservers to Cloudflare.
-- **Frontend**: Cloudflare Pages on `infobroker.net`. No `dev.*`. Preview deploys cover branches.
+- **Domain**: `infobroker.tech` registered at `domain.com`, point nameservers to Cloudflare.
+- **Frontend**: Cloudflare Pages on `infobroker.tech`. No `dev.*`. Preview deploys cover branches.
 - **Cloudflare account**: Gmail-based; free plan + free Zero Trust + R2 (already provisioned).
 - **Embedding model**: stay on Gemini; revisit when monthly spend >$30 *or* PKG re-embed window.
 - **Neo4j**: opt-in `--profile graph`. Default `up` skips it.

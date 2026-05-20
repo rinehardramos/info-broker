@@ -1,4 +1,4 @@
-# Cloudflare Pages configuration for infobroker.net frontend.
+# Cloudflare Pages configuration for infobroker.tech frontend.
 #
 # Project name: info-broker (chosen at create time).
 # Build settings (also configured in Pages dashboard for git-connected deploys):
@@ -14,7 +14,7 @@
 #   (b) Direct upload: `pnpm wrangler pages deploy dist` from frontend/
 #       after `pnpm build` locally — useful for emergencies.
 #
-# Custom domain: infobroker.net → connected via dashboard after first deploy.
+# Custom domain: infobroker.tech → connected via dashboard after first deploy.
 
 name = "info-broker"
 compatibility_date = "2026-05-20"
@@ -24,10 +24,10 @@ pages_build_output_dir = "dist"
 # Public build-time env vars. Sensitive values stay in the dashboard secrets UI.
 NODE_VERSION = "20"
 
-# Per-environment overrides — production uses tunneled api.infobroker.net,
+# Per-environment overrides — production uses tunneled api.infobroker.tech,
 # previews still hit the same prod API (preview gates are at Cloudflare Access).
 [env.production.vars]
-VITE_API_URL = "https://api.infobroker.net"
+VITE_API_URL = "https://api.infobroker.tech"
 
 [env.preview.vars]
-VITE_API_URL = "https://api.infobroker.net"
+VITE_API_URL = "https://api.infobroker.tech"

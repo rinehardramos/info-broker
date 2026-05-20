@@ -1,7 +1,7 @@
 /**
  * Verify the production Pages frontend can reach the tunneled API.
  *
- * Pre-req: api.infobroker.net is tunneled to the local FastAPI.
+ * Pre-req: api.infobroker.tech is tunneled to the local FastAPI.
  *
  * Pass criteria:
  *   - GET https://info-broker.pages.dev returns 200.

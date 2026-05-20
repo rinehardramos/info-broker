@@ -6,7 +6,7 @@ Canonical deployment model. Supersedes the tier-based cloud design in `cloud-inf
 
 ```
                       ┌──────────────────────────────────────┐
-                      │  Cloudflare — infobroker.net         │
+                      │  Cloudflare — infobroker.tech         │
                       │  DNS · TLS · WAF · DDoS · CDN        │
                       │  Pages (frontend static)             │
                       │  Access (zero-trust auth)            │
@@ -51,16 +51,16 @@ Canonical deployment model. Supersedes the tier-based cloud design in `cloud-inf
 | Burst capacity | Hetzner CX22 joined to Tailscale becomes a Temporal worker; queue depth + Temporal handle distribution natively — no orchestration glue |
 | Cost discipline | Edge is free, home is sunk cost, burst is $5/mo *only if used* |
 
-## Subdomain layout (`infobroker.net`)
+## Subdomain layout (`infobroker.tech`)
 
 | Host | Backed by | Public? |
 |---|---|---|
-| `infobroker.net`, `www.infobroker.net` | Cloudflare Pages → built frontend | Public |
-| `api.infobroker.net` | Tunnel → FastAPI on home | Public (app-layer JWT) |
-| `mcp.infobroker.net` | Tunnel → MCP server | Access-gated initially; API-key-gated later |
-| `temporal.infobroker.net` | Tunnel → Temporal UI | **Access-gated** (you only) |
-| `admin.infobroker.net` | Tunnel → admin app (when shipped) | **Access-gated** |
-| `webhooks.infobroker.net` | Cloudflare Workers → tunnel forward | Public, HMAC-verified |
+| `infobroker.tech`, `www.infobroker.tech` | Cloudflare Pages → built frontend | Public |
+| `api.infobroker.tech` | Tunnel → FastAPI on home | Public (app-layer JWT) |
+| `mcp.infobroker.tech` | Tunnel → MCP server | Access-gated initially; API-key-gated later |
+| `temporal.infobroker.tech` | Tunnel → Temporal UI | **Access-gated** (you only) |
+| `admin.infobroker.tech` | Tunnel → admin app (when shipped) | **Access-gated** |
+| `webhooks.infobroker.tech` | Cloudflare Workers → tunnel forward | Public, HMAC-verified |
 
 Reserve subdomains in DNS even before they're used. Cheap, prevents squatting friction later.
 
@@ -148,11 +148,11 @@ cloudflared:
 ```yaml
 # Cloudflare dashboard or cloudflared config.yml
 ingress:
-  - hostname: api.infobroker.net
+  - hostname: api.infobroker.tech
     service: http://info-broker-api:8000
-  - hostname: mcp.infobroker.net
+  - hostname: mcp.infobroker.tech
     service: http://mcp-server:8765
-  - hostname: temporal.infobroker.net
+  - hostname: temporal.infobroker.tech
     service: http://temporal-ui:8080
   - service: http_status:404
 ```
@@ -165,7 +165,7 @@ ingress:
 |---|---|
 | Edge | Cloudflare WAF rules (OWASP CRS + custom rate-limits on `/research`, `/agent/message`) |
 | Public auth | Cloudflare Access on temporal-ui, admin, MCP. Email OTP, free, 1-click |
-| App auth | Existing JWT (`python-jose`) on api.infobroker.net |
+| App auth | Existing JWT (`python-jose`) on api.infobroker.tech |
 | Webhook integrity | HMAC signature verification at the Worker layer before tunnel |
 | Secrets at rest | Local: `.env` outside repo + `chmod 600`. Burst worker: secrets via Hetzner project env. R2 access keys: rotate annually |
 | Egress from home | Outbound-only; tunnel breaks if compromised but does not expose inbound surface |
@@ -180,8 +180,8 @@ ingress:
 
 | Path | Latency budget |
 |---|---|
-| Browser → `infobroker.net` (Pages, edge-cached) | <100ms p95 from PH |
-| Browser → `api.infobroker.net` (edge → tunnel → home) | 50–150ms p95 from PH (extra hop through Cloudflare) |
+| Browser → `infobroker.tech` (Pages, edge-cached) | <100ms p95 from PH |
+| Browser → `api.infobroker.tech` (edge → tunnel → home) | 50–150ms p95 from PH (extra hop through Cloudflare) |
 | API → Postgres (local) | <2ms |
 | API → Postgres from burst worker (Tailscale over WAN) | 30–100ms — **avoid chatty endpoints from burst** |
 | Brain turn (subprocess + LLM + tools) | 30–180s — dominates; network overhead negligible |
@@ -196,13 +196,13 @@ The tunnel adds ~30–50ms vs naked port-forward, which is invisible against an 
 - **Home stack** — Prometheus + Grafana running locally (own container), no cloud cost. Optional Grafana Cloud forwarding if you want off-site dashboards.
 - **Burst worker** — same Temporal worker metrics; surfaces in the same dashboard as home worker, distinguishable by `worker_identity` label.
 
-**Heartbeat alert** — Cloudflare Health Checks (free) ping `/healthz` on `api.infobroker.net` every minute, email on 3 consecutive failures. Covers the "is my home box up" question with zero infrastructure.
+**Heartbeat alert** — Cloudflare Health Checks (free) ping `/healthz` on `api.infobroker.tech` every minute, email on 3 consecutive failures. Covers the "is my home box up" question with zero infrastructure.
 
 ## What this costs
 
 | Line item | Monthly |
 |---|---:|
-| Domain (`infobroker.net`, amortized) | ~$1 |
+| Domain (`infobroker.tech`, amortized) | ~$1 |
 | Cloudflare (DNS + Tunnel + Pages + Access + Workers free tier) | $0 |
 | R2 storage (10–50 GB) | $0.15–0.75 |
 | Tailscale Personal | $0 |
@@ -217,13 +217,13 @@ Compare to Tier 2 hyperscaler ($800–1300/mo) and the case for staying hybrid i
 
 Numbered, dependency-ordered, with rough effort:
 
-1. **Register / confirm `infobroker.net`** — Cloudflare Registrar if not already there. *15 min*
+1. **Register / confirm `infobroker.tech`** — Cloudflare Registrar if not already there. *15 min*
 2. **DNS up at Cloudflare** — point nameservers. *15 min*
 3. **Create Cloudflare Tunnel** in dashboard, get token, add `cloudflared` to compose. *30 min*
-4. **Map first ingress: `api.infobroker.net` → local FastAPI.** Verify externally. *20 min*
+4. **Map first ingress: `api.infobroker.tech` → local FastAPI.** Verify externally. *20 min*
 5. **Cloudflare Pages connected to repo** — auto-deploy frontend on push to main. *30 min*
-6. **Map `infobroker.net` → Pages** + `api.infobroker.net` already from step 4. *10 min*
-7. **Cloudflare Access policies** on `temporal.infobroker.net` + `admin.infobroker.net` (when admin exists). *30 min*
+6. **Map `infobroker.tech` → Pages** + `api.infobroker.tech` already from step 4. *10 min*
+7. **Cloudflare Access policies** on `temporal.infobroker.tech` + `admin.infobroker.tech` (when admin exists). *30 min*
 8. **R2 bucket** for backups + exports. Wire nightly pg_dump cron at home. *1 hour*
 9. **Tailscale on Legion** + tailnet ACL stub. *20 min*
 10. **WSL2 baseline complete** (separate brainstorm doc — neo4j off, memory caps). *2–3 hours*
@@ -234,8 +234,8 @@ Steps 1–10 are pure setup and unblock everything else. Step 11 waits for an ac
 
 ## Decisions to confirm before I cut config
 
-1. **Is `infobroker.net` already registered, and where?** If at Cloudflare already, easier. If elsewhere, transfer recommended (free, takes 5 days).
-2. **Cloudflare Pages or tunnel for the frontend?** Pages is cheaper and faster (edge-served, no home dependency). Tunnel-to-frontend lets you dev in real time but routes every static request through home. **My pick: Pages, with a `dev.infobroker.net` tunneled for live-reload dev.**
+1. **Is `infobroker.tech` already registered, and where?** If at Cloudflare already, easier. If elsewhere, transfer recommended (free, takes 5 days).
+2. **Cloudflare Pages or tunnel for the frontend?** Pages is cheaper and faster (edge-served, no home dependency). Tunnel-to-frontend lets you dev in real time but routes every static request through home. **My pick: Pages, with a `dev.infobroker.tech` tunneled for live-reload dev.**
 3. **Email for Cloudflare Access OTP** — what address should be the "you" account? (Personal Gmail vs project-dedicated.)
 4. **Cloudflare account: free or Pro ($20/mo)?** Free covers everything in this doc. Pro adds image optimization, more page rules, lossless image compression — none load-bearing here.
 5. **Burst worker timing — provision now or defer?** My pick: defer. Provisioning before there's queue depth is wasted $5/mo and adds an unused attack surface.

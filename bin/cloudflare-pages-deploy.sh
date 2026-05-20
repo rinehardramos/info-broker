@@ -48,8 +48,8 @@ if [[ $CREATE -eq 1 ]]; then
 fi
 
 # Build
-echo "▶ Building production bundle (VITE_API_URL=https://api.infobroker.net)…"
-VITE_API_URL=https://api.infobroker.net pnpm build
+echo "▶ Building production bundle (VITE_API_URL=https://api.infobroker.tech)…"
+VITE_API_URL=https://api.infobroker.tech pnpm build
 
 # Deploy
 if [[ $PROD -eq 1 ]]; then

@@ -1,7 +1,7 @@
-# Cloudflare Tunnel — `api.infobroker.net` → local FastAPI
+# Cloudflare Tunnel — `api.infobroker.tech` → local FastAPI
 
 End-to-end: turn the home Docker stack into a tunneled origin for the
-Cloudflare Pages frontend, so requests to `api.infobroker.net` reach
+Cloudflare Pages frontend, so requests to `api.infobroker.tech` reach
 `http://info-broker-api:8000` over an outbound-only mTLS tunnel.
 
 ## Why this is not fully Playwright-driven
@@ -23,7 +23,7 @@ cloudflared tunnel login
 
 Your default browser opens to `dash.cloudflare.com/argotunnel`. Cloudflare
 sees your existing dashboard session, no Turnstile challenge fires. Pick the
-`infobroker.net` zone, click **Authorize**.
+`infobroker.tech` zone, click **Authorize**.
 
 cloudflared writes `~/.cloudflared/cert.pem`. The rest of the setup uses
 this cert and no further browser interaction.
@@ -38,7 +38,7 @@ What that script does (all via cloudflared CLI):
 
 1. `cloudflared tunnel create info-broker` — provisions a tunnel, gets a UUID.
 2. Writes the tunnel credentials JSON to `~/.cloudflared/<uuid>.json`.
-3. `cloudflared tunnel route dns info-broker api.infobroker.net` — creates a
+3. `cloudflared tunnel route dns info-broker api.infobroker.tech` — creates a
    CNAME from `api` → `<uuid>.cfargotunnel.com`. Survives without your laptop online.
 4. Reads the connector token via `cloudflared tunnel token <name>` and writes
    it into `.env` as `CLOUDFLARED_TOKEN=<token>`.
@@ -51,13 +51,13 @@ docker compose logs --tail 20 cloudflared
 ```
 
 Look for `Registered tunnel connection` in the logs (usually within 5s).
-At that point `api.infobroker.net` resolves at the Cloudflare edge and
+At that point `api.infobroker.tech` resolves at the Cloudflare edge and
 proxies to your local FastAPI.
 
 ## Step 4 — verify end-to-end (scripted)
 
 ```bash
-curl -fsS https://api.infobroker.net/healthz
+curl -fsS https://api.infobroker.tech/healthz
 # → {"status":"ok"} from local FastAPI
 
 # Verify via the Pages frontend
@@ -72,12 +72,12 @@ pnpm --prefix frontend playwright test e2e/verify-pages-live.spec.ts
   info-broker → Public Hostnames):
   | Hostname | Service | Path |
   |---|---|---|
-  | `api.infobroker.net` | `http://info-broker-api:8000` | / |
-  | `mcp.infobroker.net` | `http://info-broker-api:8000` | /mcp |
-  | `temporal.infobroker.net` | `http://temporal-ui:8080` | / (Access-gated) |
+  | `api.infobroker.tech` | `http://info-broker-api:8000` | / |
+  | `mcp.infobroker.tech` | `http://info-broker-api:8000` | /mcp |
+  | `temporal.infobroker.tech` | `http://temporal-ui:8080` | / (Access-gated) |
 - CORS allow-list updated in `app/main.py:289` to include
-  `https://info-broker.pages.dev`, `https://infobroker.net`,
-  `https://www.infobroker.net`, and a regex for preview deploys
+  `https://info-broker.pages.dev`, `https://infobroker.tech`,
+  `https://www.infobroker.tech`, and a regex for preview deploys
   (`*.info-broker.pages.dev`).
 
 ## Rollback

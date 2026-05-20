@@ -1,12 +1,12 @@
 # Cloudflare Pages — Frontend Deploy
 
-Step-by-step to get `infobroker.net` serving the React frontend off Cloudflare Pages.
+Step-by-step to get `infobroker.tech` serving the React frontend off Cloudflare Pages.
 Time budget: ~25 minutes the first time.
 
 ## Prerequisites
 
 - Cloudflare account (the same one that owns the existing R2 bucket).
-- Domain `infobroker.net` nameservers delegated to Cloudflare (see
+- Domain `infobroker.tech` nameservers delegated to Cloudflare (see
   `[REDACTED:high-entropy-base64:35ch:hash=b6b9f4d6].md` § "Pointing domain.com at Cloudflare").
 - `wrangler` installed (already done; `pnpm exec wrangler --version` works from `frontend/`).
 
@@ -30,7 +30,7 @@ Cloudflare's CI. Preview deploys auto-spawn for every other branch.
    - Build output: `frontend/dist`
    - Root directory: `/` (leave default)
 6. Environment variables (production scope):
-   - `VITE_API_URL=https://api.infobroker.net`
+   - `VITE_API_URL=https://api.infobroker.tech`
    - `NODE_VERSION=20`
 7. **Save and Deploy**. First build takes ~3 minutes.
 8. After it goes green, visit the `<project>.pages.dev` URL Cloudflare provides
@@ -38,7 +38,7 @@ Cloudflare's CI. Preview deploys auto-spawn for every other branch.
 
 **Custom domain:**
 9. In the Pages project → **Custom domains → Set up a domain** → enter
-   `infobroker.net`. Repeat for `www.infobroker.net`.
+   `infobroker.tech`. Repeat for `www.infobroker.tech`.
 10. Cloudflare wires DNS automatically because the zone is already managed.
 
 **Pros:** zero local-machine dependency, every push deploys, preview URLs for
@@ -64,15 +64,15 @@ cd frontend && pnpm exec wrangler login
 ```
 
 The first deploy auto-creates the project if it doesn't exist. The script
-bakes `VITE_API_URL=https://api.infobroker.net` into the build.
+bakes `VITE_API_URL=https://api.infobroker.tech` into the build.
 
 ## Verifying
 
 After either path completes:
 1. Visit the `<project>.pages.dev` URL. Should show the login screen.
-2. Once `api.infobroker.net` is tunneled (separate setup — see hybrid-architecture
+2. Once `api.infobroker.tech` is tunneled (separate setup — see hybrid-architecture
    doc), confirm a login round-trips correctly.
-3. Custom domain check: `https://infobroker.net/` should now serve the same
+3. Custom domain check: `https://infobroker.tech/` should now serve the same
    frontend, but proxied through Cloudflare's edge with TLS.
 
 ## Headers + redirects
@@ -92,13 +92,13 @@ Edit these in `frontend/public/`, redeploy.
 - **TypeScript fails the build with `import.meta.env` errors** — `src/vite-env.d.ts`
   declares the type. If you add new `VITE_*` vars, add them to that file too.
 - **API requests 404 in production** — `VITE_API_URL` wasn't set at build time.
-  Confirm via `grep api.infobroker.net frontend/dist/assets/*.js` after build.
-- **Pages preview deploy can't reach api.infobroker.net** — preview deploys hit
+  Confirm via `grep api.infobroker.tech frontend/dist/assets/*.js` after build.
+- **Pages preview deploy can't reach api.infobroker.tech** — preview deploys hit
   the same prod API. If you want preview-only API, set per-environment
   `VITE_API_URL` in the dashboard.
-- **CORS errors on first request** — `api.infobroker.net` (FastAPI) must allow
-  the Pages domain. Verify `[REDACTED:high-entropy-base64:33ch:hash=72fa00be]` allows `infobroker.net`,
-  `www.infobroker.net`, and `*.pages.dev`.
+- **CORS errors on first request** — `api.infobroker.tech` (FastAPI) must allow
+  the Pages domain. Verify `[REDACTED:high-entropy-base64:33ch:hash=72fa00be]` allows `infobroker.tech`,
+  `www.infobroker.tech`, and `*.pages.dev`.
 
 ## What this gives you
 

@@ -213,7 +213,7 @@ See `docs/operations/hybrid-architecture.md` for the full setup. Short version:
 1. Cloudflare Zero Trust → Networks → Tunnels → Create. Copy the token.
 2. Add to `.env`: `CLOUDFLARED_TOKEN=<token>`.
 3. Configure ingress in the Cloudflare dashboard:
-   - `api.infobroker.net` → `http://info-broker-api:8000`
-   - `temporal.infobroker.net` → `http://temporal-ui:8080`
+   - `api.infobroker.tech` → `http://info-broker-api:8000`
+   - `temporal.infobroker.tech` → `http://temporal-ui:8080`
 4. Run: `./bin/wsl-bootstrap.sh --with tunnel --with ui`
 5. Verify in dashboard the tunnel shows as healthy.
