@@ -1035,8 +1035,28 @@ async def send_message(
 
     from app.pipeline.workflow import NodeSpec, EdgeSpec
     from app.pipeline.runner import launch_pipeline_run
+    from app.services.admission_gate import check_admission
 
     uid = str(user["id"])
+
+    # Pre-run admission gate — bounded concurrency + per-user daily cap.
+    # Fails open on DB errors so transient infra issues don't block users.
+    decision = check_admission(uid)
+    if not decision.admitted:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "admission_rejected",
+                "reason": decision.reason,
+                "message": decision.message,
+                "retry_after_seconds": decision.retry_after_seconds,
+                "global_active": decision.global_active,
+                "user_active": decision.user_active,
+                "user_runs_today": decision.user_runs_today,
+            },
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+
     pipeline_row = _get_active_pipeline(uid)
     pipeline_id = str(pipeline_row["id"])
 

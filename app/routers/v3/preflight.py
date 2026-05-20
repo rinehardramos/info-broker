@@ -460,6 +460,27 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
     # Only fires when the caller explicitly sets start_run=True (the frontend
     # sets this on the ?engine=v2 path after preflight confirm).
     if body.start_run:
+        # Pre-run admission gate — same checks as POST /v3/agent/message.
+        # The wallet hold is already in place at this point; if rejected,
+        # the caller should NOT consume the hold (returned hold_id remains
+        # valid for a retry once capacity opens).
+        from app.services.admission_gate import check_admission
+        decision = check_admission(uid)
+        if not decision.admitted:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "admission_rejected",
+                    "reason": decision.reason,
+                    "message": decision.message,
+                    "retry_after_seconds": decision.retry_after_seconds,
+                    "global_active": decision.global_active,
+                    "user_active": decision.user_active,
+                    "user_runs_today": decision.user_runs_today,
+                    "hold_id": result.hold_id,
+                },
+                headers={"Retry-After": str(decision.retry_after_seconds)},
+            )
         try:
             import asyncio as _asyncio
             from app.pipeline.engine_v2 import run_engine_v2
