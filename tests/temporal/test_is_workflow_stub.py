@@ -15,10 +15,12 @@ def test_is_run_input_defaults():
     assert inp.preflight_prior_slots == {}
 
 
-def test_is_use_temporal_defaults_false():
-    # Verify the env var evaluation logic independently of module import order
-    assert os.getenv("IS_USE_TEMPORAL", "false").lower() == "false"
-    # When the env var is absent the flag must be falsy
+def test_is_use_temporal_defaults_false_when_unset():
+    # Test the evaluation logic with the env var absent.
+    # NOTE: This test no longer asserts the live env value (which may be set
+    # to 'true' in docker-compose) — only that the *default* when unset is
+    # falsy. The dispatcher's behavior under various env values is covered
+    # by the integration tests, not here.
     saved = os.environ.pop("IS_USE_TEMPORAL", None)
     try:
         result = os.getenv("IS_USE_TEMPORAL", "false").lower() == "true"

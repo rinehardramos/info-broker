@@ -17,7 +17,7 @@ import pytest
 sys.modules.setdefault("qdrant_client", MagicMock())
 sys.modules.setdefault("qdrant_client.models", MagicMock())
 
-os.environ.setdefault("INFO_BROKER_API_KEY", "test-secret-key")
+os.environ["INFO_BROKER_API_KEY"] = "test-secret-key"  # force-override; live env may set a real key
 os.environ.setdefault("POSTGRES_DB", "info_broker")
 os.environ.setdefault("POSTGRES_USER", "user")
 os.environ.setdefault("POSTGRES_PASSWORD", "password")

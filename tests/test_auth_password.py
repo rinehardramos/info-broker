@@ -15,6 +15,12 @@ def _make_request():
     return Request(scope)
 
 
+def _make_response():
+    """Empty fastapi Response — slowapi's rate-limit decorator requires one."""
+    from fastapi import Response
+    return Response()
+
+
 @contextmanager
 def _noop_rate_limit():
     from app.lib.rate_limit import limiter
@@ -86,7 +92,7 @@ def test_change_password_rejects_wrong_current(monkeypatch):
     body = ChangePasswordIn(current_password="WrongCurrent9!", new_password="NewPass9!Strong")
     with _noop_rate_limit():
         with pytest.raises(HTTPException) as exc:
-            change_password(request=_make_request(), body=body, user={"id": "uid-1"})
+            change_password(request=_make_request(), response=_make_response(), body=body, user={"id": "uid-1"})
     assert exc.value.status_code == 401
 
 
@@ -103,7 +109,7 @@ def test_change_password_rejects_same(monkeypatch):
     body = ChangePasswordIn(current_password="OldPass9!Strong", new_password="OldPass9!Strong")
     with _noop_rate_limit():
         with pytest.raises(HTTPException) as exc:
-            change_password(request=_make_request(), body=body, user={"id": "uid-1"})
+            change_password(request=_make_request(), response=_make_response(), body=body, user={"id": "uid-1"})
     assert exc.value.status_code == 400
 
 
@@ -118,7 +124,7 @@ def test_change_password_success(monkeypatch):
 
     body = ChangePasswordIn(current_password="OldPass9!Strong", new_password="NewPass9!Strong")
     with _noop_rate_limit():
-        result = change_password(request=_make_request(), body=body, user={"id": "uid-1"})
+        result = change_password(request=_make_request(), response=_make_response(), body=body, user={"id": "uid-1"})
 
     assert result == {"ok": True}
     assert any("UPDATE ui_users SET password_hash" in sql for sql, _ in updates)
