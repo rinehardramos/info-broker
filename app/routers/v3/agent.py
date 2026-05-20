@@ -28,8 +28,15 @@ import os as _os
 IS_USE_TEMPORAL = _os.getenv("IS_USE_TEMPORAL", "false").lower() == "true"
 # IS_USE_LOOP gates the Path B orchestrated brain loop (Slice 1). Requires
 # IS_USE_TEMPORAL=true. When off, the single-shot brain path is used.
-IS_USE_LOOP = _os.getenv("IS_USE_LOOP", "false").lower() == "true"
+IS_USE_LOOP = _os.getenv("IS_USE_LOOP", "true").lower() == "true"
 IS_LOOP_MAX_TURNS = int(_os.getenv("IS_LOOP_MAX_TURNS", "8"))
+
+if not IS_USE_LOOP:
+    logging.getLogger(__name__).warning(
+        "OLD single-shot brain path is active (IS_USE_LOOP=false). "
+        "This path is scheduled for removal; switch to the loop (unset env or "
+        "set IS_USE_LOOP=true) and report any regression that forced fallback."
+    )
 
 
 def _fast_thorough_enabled() -> bool:
