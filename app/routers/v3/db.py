@@ -544,6 +544,8 @@ CREATE INDEX IF NOT EXISTS ix_evt_expires ON email_verification_tokens(expires_a
 ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS display_name TEXT;
 ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS timezone TEXT;
 ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS locale TEXT;
+-- Org scoping (read by auth._make_access_token; NULL = unscoped personal user):
+ALTER TABLE ui_users ADD COLUMN IF NOT EXISTS org_id UUID;
 
 -- Entity profile cache (physical-evidence enrichment per candidate name + run context):
 CREATE TABLE IF NOT EXISTS entity_profiles (
