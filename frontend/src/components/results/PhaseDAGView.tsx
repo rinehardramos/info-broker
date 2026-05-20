@@ -18,6 +18,7 @@ import { PhaseProgress } from './PhaseProgress'
 import { TacticianSwimLanes } from './TacticianSwimLanes'
 import { ResearchFlow } from './ResearchFlow'
 import { InvestigationDAG } from './InvestigationDAG'
+import { DAGFullscreenOverlay } from './DAGFullscreenOverlay'
 
 export type ViewMode = 'live' | 'compact' | 'dag'
 
@@ -56,6 +57,7 @@ function writeViewMode(mode: ViewMode) {
 export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode)
   const [selectedTactician, setSelectedTactician] = useState<{ phaseId: string; slotIdx: number } | null>(null)
+  const [dagFullscreen, setDagFullscreen] = useState(false)
 
   const run = useRunStreamStore(s => s.runsById[runId])
   const phases = run?.phases ?? {}
@@ -141,9 +143,31 @@ export function PhaseDAGView({ runId, phaseOrder, onSelectTactician }: PhaseDAGV
           <ResearchFlow runId={runId} compact />
         </div>
       ) : viewMode === 'dag' ? (
-        <div style={{ height: 200 }} className="overflow-hidden">
-          <InvestigationDAG runId={runId} onSelectTactician={handleDAGSelectTactician} />
-        </div>
+        <>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => setDagFullscreen(true)}
+            onKeyDown={(e) => e.key === 'Enter' && setDagFullscreen(true)}
+            title="Click to expand DAG"
+            className="relative cursor-zoom-in"
+            style={{ height: 200 }}
+          >
+            <div className="absolute top-1 right-2 z-10 text-[9px] uppercase tracking-wide select-none pointer-events-none"
+                 style={{ color: 'var(--muted)' }}>
+              click to expand
+            </div>
+            <div className="w-full h-full pointer-events-none overflow-hidden">
+              <InvestigationDAG runId={runId} onSelectTactician={handleDAGSelectTactician} />
+            </div>
+          </div>
+          <DAGFullscreenOverlay
+            open={dagFullscreen}
+            onClose={() => setDagFullscreen(false)}
+            runId={runId}
+            onSelectTactician={handleDAGSelectTactician}
+          />
+        </>
       ) : (
         /* Live view — pills + compact subtitle, no scroll needed */
         <div className="flex flex-col">

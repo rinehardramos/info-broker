@@ -1,9 +1,10 @@
+import type { ReactNode } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 interface Props {
   title: string
   value: string | number
-  sub?: string
+  sub?: ReactNode
   emphasis?: 'normal' | 'danger'
 }
 

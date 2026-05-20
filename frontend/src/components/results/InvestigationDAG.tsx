@@ -26,6 +26,12 @@ const CANVAS_PADDING = 40
 
 // ─── SVG Edges ────────────────────────────────────────────────────────────────
 
+const EDGE_LABEL_COLOR: Record<NonNullable<DagEdge['labelKind']>, string> = {
+  pass:     '#22c55e',
+  fail:     '#ef4444',
+  ask_user: '#fbbf24',
+}
+
 function EdgeLayer({
   edges,
   nodeById,
@@ -47,17 +53,45 @@ function EdgeLayer({
 
         const cy = (y1 + y2) / 2
         const d = `M ${x1} ${y1} C ${x1} ${cy}, ${x2} ${cy}, ${x2} ${y2}`
+        const labelColor = edge.labelKind ? EDGE_LABEL_COLOR[edge.labelKind] : undefined
 
         return (
-          <path
-            key={edge.id}
-            d={d}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1"
-            strokeOpacity="0.25"
-            className="text-slate-500"
-          />
+          <g key={edge.id}>
+            <path
+              d={d}
+              fill="none"
+              stroke={labelColor ?? 'currentColor'}
+              strokeWidth={labelColor ? 1.5 : 1}
+              strokeOpacity={labelColor ? 0.55 : 0.25}
+              className={labelColor ? undefined : 'text-slate-500'}
+            />
+            {edge.label && (
+              <g>
+                {/* small dark backdrop so label stays readable over node grid */}
+                <rect
+                  x={(x1 + x2) / 2 - edge.label.length * 3.2}
+                  y={cy - 7}
+                  width={edge.label.length * 6.4}
+                  height={13}
+                  rx={3}
+                  fill="rgb(2,6,23)"
+                  stroke={labelColor ?? '#475569'}
+                  strokeOpacity={0.6}
+                />
+                <text
+                  x={(x1 + x2) / 2}
+                  y={cy + 3}
+                  textAnchor="middle"
+                  fontSize="9"
+                  fontWeight="600"
+                  fill={labelColor ?? '#94a3b8'}
+                  style={{ fontFamily: 'system-ui, sans-serif' }}
+                >
+                  {edge.label}
+                </text>
+              </g>
+            )}
+          </g>
         )
       })}
     </g>
@@ -212,8 +246,24 @@ export function InvestigationDAG({ runId, onSelectTactician }: InvestigationDAGP
   const run = useRunStreamStore(s => s.runsById[runId])
   const containerRef = useRef<HTMLDivElement>(null)
   const { transform, onMouseDown, onMouseMove, onMouseUp, fitToView } = usePanZoom(containerRef)
+  // Pruned candidates visible by default per design decision; toolbar toggles.
+  const [showPruned, setShowPruned] = useState(true)
 
-  const { nodes, edges, totalWidth, totalHeight } = buildDagFromRun(run)
+  const fullGraph = buildDagFromRun(run)
+  const { nodes, edges, totalWidth, totalHeight } = showPruned
+    ? fullGraph
+    : (() => {
+        const dropIds = new Set(
+          fullGraph.nodes
+            .filter((n) => n.data.kind === 'candidate' && n.data.isPruned)
+            .map((n) => n.id),
+        )
+        return {
+          ...fullGraph,
+          nodes: fullGraph.nodes.filter((n) => !dropIds.has(n.id)),
+          edges: fullGraph.edges.filter((e) => !dropIds.has(e.targetId) && !dropIds.has(e.sourceId)),
+        }
+      })()
 
   const nodeById = new Map<string, DagNode>(nodes.map(n => [n.id, n]))
 
@@ -244,16 +294,32 @@ export function InvestigationDAG({ runId, onSelectTactician }: InvestigationDAGP
       role="img"
       aria-label="Investigation DAG — pan with drag, zoom with Ctrl+scroll"
     >
-      {/* Fit button */}
-      <button
-        type="button"
-        className="absolute top-2 right-2 z-10 text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700 rounded px-2 py-0.5 bg-slate-900/80 transition-colors"
-        onClick={(e) => { e.stopPropagation(); fitToView(totalWidth, totalHeight) }}
-        title="Fit graph to view"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        fit
-      </button>
+      {/* Toolbar */}
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-1">
+        <button
+          type="button"
+          className={[
+            'text-[10px] border rounded px-2 py-0.5 bg-slate-900/80 transition-colors',
+            showPruned
+              ? 'text-slate-300 border-slate-600'
+              : 'text-slate-500 border-slate-700 hover:text-slate-300',
+          ].join(' ')}
+          onClick={(e) => { e.stopPropagation(); setShowPruned((v) => !v) }}
+          onMouseDown={(e) => e.stopPropagation()}
+          title={showPruned ? 'Hide pruned candidates' : 'Show pruned candidates'}
+        >
+          {showPruned ? '✓ pruned' : 'pruned hidden'}
+        </button>
+        <button
+          type="button"
+          className="text-[10px] text-slate-500 hover:text-slate-300 border border-slate-700 rounded px-2 py-0.5 bg-slate-900/80 transition-colors"
+          onClick={(e) => { e.stopPropagation(); fitToView(totalWidth, totalHeight) }}
+          title="Fit graph to view"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          fit
+        </button>
+      </div>
 
       {/* Transformed canvas */}
       <div

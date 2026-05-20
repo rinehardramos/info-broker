@@ -60,6 +60,10 @@ export interface CandidateNodeData {
   name: string
   confidence: number
   slotIdx: number
+  /** True if the candidate has at least one disconfirm evidence row. */
+  isPruned?: boolean
+  /** Short reason from the first disconfirm snippet (≤ 60 chars), if any. */
+  pruneReason?: string
 }
 
 export type DagNodeData =
@@ -82,6 +86,10 @@ export interface DagEdge {
   id: string
   sourceId: string
   targetId: string
+  /** Optional inline label rendered at the edge midpoint (e.g. "pass · 3"). */
+  label?: string
+  /** Used to color the label: green for pass, red for fail, amber for ask_user. */
+  labelKind?: 'pass' | 'fail' | 'ask_user'
 }
 
 export interface DagGraph {
@@ -204,11 +212,34 @@ export function buildDagFromRun(run: RunStream | undefined): DagGraph {
       },
     })
 
-    // Edge: query → first phase, prev phase → this phase
+    // Edge: query → first phase, prev phase → this phase. Carry the prev
+    // phase's gate decision on the edge so the reader sees pass·N / fail·N /
+    // ask_user as the run progresses.
     if (prevPhaseId === null) {
       edges.push({ id: `edge__query__${phaseId}`, sourceId: queryId, targetId: phaseNodeId })
     } else {
-      edges.push({ id: `edge__${prevPhaseId}__${phaseId}`, sourceId: `node__phase__${prevPhaseId}`, targetId: phaseNodeId })
+      const prevState = run.phases[prevPhaseId]
+      const prevGate = prevState?.gate_status ?? null
+      const prevCount = (prevState?.distinct_candidate_names ?? []).length
+      let label: string | undefined
+      let labelKind: DagEdge['labelKind']
+      if (prevGate === 'pass') {
+        label = `pass · ${prevCount}`
+        labelKind = 'pass'
+      } else if (prevGate === 'fail') {
+        label = `fail · ${prevCount}`
+        labelKind = 'fail'
+      } else if (prevGate === 'ask_user') {
+        label = 'ask user'
+        labelKind = 'ask_user'
+      }
+      edges.push({
+        id: `edge__${prevPhaseId}__${phaseId}`,
+        sourceId: `node__phase__${prevPhaseId}`,
+        targetId: phaseNodeId,
+        label,
+        labelKind,
+      })
     }
     prevPhaseId = phaseId
 
@@ -288,15 +319,19 @@ export function buildDagFromRun(run: RunStream | undefined): DagGraph {
   }
 
   // ── Final row: top-3 ranked candidates ────────────────────────────────────
+  // Pruned candidates (those with disconfirm evidence) stay in the row but
+  // render dim so the reader can see what was rejected and why.
   const top3 = run.rankedCandidates.slice(0, 3)
   if (top3.length > 0) {
     const candidateRowY = currentY
-    // Edge from last phase to each candidate
     const lastPhaseNodeId = prevPhaseId ? `node__phase__${prevPhaseId}` : queryId
 
     for (let i = 0; i < top3.length; i++) {
       const c = top3[i]
       const candNodeId = `node__candidate__${i}`
+      const disconfirms = (c.evidence ?? []).filter((e) => e.is_disconfirm)
+      const isPruned = disconfirms.length > 0
+      const firstReason = isPruned ? (disconfirms[0].snippet ?? '').slice(0, 60) : undefined
       nodes.push({
         id: candNodeId,
         x: 0,
@@ -309,6 +344,8 @@ export function buildDagFromRun(run: RunStream | undefined): DagGraph {
           name: c.name,
           confidence: c.confidence,
           slotIdx: c.slot_idx,
+          isPruned,
+          pruneReason: firstReason,
         },
       })
       edges.push({

@@ -42,6 +42,10 @@ export interface PluginInfo {
   description: string
   requires_api_key: boolean
   available: boolean
+  /** 'public' = anyone can use; 'private' = scoped to org_id. Defaults to 'public'. */
+  visibility?: 'public' | 'private'
+  /** When visibility=='private', the org that owns the plugin. null for public. */
+  org_id?: string | null
 }
 
 export interface CoreSettingsOut {
@@ -116,6 +120,203 @@ export const archiveSession = (sessionId: string): Promise<void> =>
 
 export const listSessions = (): Promise<AgentSession[]> =>
   api.get('/v3/agent/sessions').then(r => r.data)
+
+export interface EntityProfile {
+  entity_type: 'person' | 'place' | 'item' | 'event' | 'other'
+  images: Array<{ url: string; alt?: string; source?: string }>
+  links: {
+    social:   Array<{ platform: string; url: string; title?: string }>
+    official: Array<{ label: string;   url: string; title?: string }>
+  }
+  geo: { lat: number; lng: number; address?: string; name_en?: string; name_native?: string | null } | null
+  fetched_at: string
+}
+
+export const getEntityProfile = (
+  name: string,
+  context: string,
+  evidenceUrls: string[] = [],
+): Promise<EntityProfile> =>
+  api.post<EntityProfile>('/v3/evidence/entity-profile', {
+    name, context, evidence_urls: evidenceUrls,
+  }).then(r => r.data)
+
+// --- Workers health ---
+
+export interface WorkerHealth {
+  temporal: 'ok' | 'unreachable'
+  scope: 'user' | 'global'
+  queued_count: number
+  running_count: number
+  oldest_queued_age_seconds: number | null
+  oldest_running_age_seconds: number | null
+}
+
+export const getWorkerHealth = (): Promise<WorkerHealth> =>
+  api.get<WorkerHealth>('/v3/health/workers').then(r => r.data)
+
+// ── Path B: working-memory snapshots ─────────────────────────────────────────
+export interface WorkingMemorySnapshot {
+  turn: number
+  phase: 'explore' | 'test' | 'synthesize' | string
+  created_at: string | null
+  counts: {
+    hypotheses_open: number
+    hypotheses_resolved: number
+    facts: number
+    findings: number
+    open_questions: number
+    strategies_tried: number
+  }
+  source_classes?: Record<string, number>
+  ach_ranking?: Array<{
+    hypothesis_id: string
+    statement: string
+    status: string
+    inconsistencies: number
+    consistencies: number
+  }>
+  evidence_matrix_size?: number
+  deception?: {
+    flagged_count: number
+    flag_counts: Record<string, number>
+  }
+  working_memory: Record<string, unknown>
+}
+
+export interface WorkingMemoryResponse {
+  run_id: string
+  total_turns: number
+  snapshots: WorkingMemorySnapshot[]
+  synthesis_summary: string
+  decay?: {
+    decayed_prior_count: number
+    max_decay_pct: number
+  }
+  pir?: {
+    entity_type: string
+    overall_coverage: number     // 0.0–1.0
+    resolved_eeis: number
+    total_eeis: number
+    gaps: string[]
+    pir_summaries: Array<{
+      name: string
+      coverage: number
+      confidence: 'high' | 'moderate' | 'low' | string
+    }>
+  } | null
+  cost?: {
+    total_ru: number
+    by_phase: Record<string, number>
+  } | null
+}
+
+export const getWorkingMemorySnapshots = (runId: string): Promise<WorkingMemoryResponse> =>
+  api.get<WorkingMemoryResponse>(`/v3/runs/${runId}/working-memory`).then(r => r.data)
+
+// ── Investigation templates (built-in question patterns) ─────────────────────
+export interface InvestigationTemplate {
+  id: string
+  name: string
+  description: string
+  icon: string
+  category: 'kyc' | 'due-diligence' | 'market' | 'finance' | 'identity' | 'general'
+  query_template: string
+  parameters: Array<{
+    name: string
+    label: string
+    type: 'text' | 'number'
+    required?: boolean
+    placeholder?: string
+  }>
+}
+
+export const listInvestigationTemplates = (): Promise<InvestigationTemplate[]> =>
+  api.get<InvestigationTemplate[]>('/v3/investigation-templates').then(r => r.data)
+
+// ── Hypothesis comments ──────────────────────────────────────────────────────
+export interface HypothesisComment {
+  id: string
+  run_id: string
+  hypothesis_id: string
+  user_id: string
+  body: string
+  created_at: string | null
+}
+
+export const listHypothesisComments = (runId: string, hypothesisId: string): Promise<HypothesisComment[]> =>
+  api.get<HypothesisComment[]>(`/v3/runs/${runId}/hypotheses/${hypothesisId}/comments`).then(r => r.data)
+
+export const postHypothesisComment = (runId: string, hypothesisId: string, body: string): Promise<{id: string}> =>
+  api.post(`/v3/runs/${runId}/hypotheses/${hypothesisId}/comments`, { body }).then(r => r.data)
+
+// ── Absorption endpoints (A through H) ───────────────────────────────────────
+export const getRunHeadline = (runId: string): Promise<{run_id: string, headline: string}> =>
+  api.get(`/v3/runs/${runId}/headline`).then(r => r.data)
+
+export interface EntityKnowledge {
+  subject: string
+  runs_touching_subject: number
+  facts: Array<{
+    claim: string
+    source_url: string | null
+    source_tool: string | null
+    verified_by: string
+    confidence: number
+    run_id: string
+    from_query: string
+  }>
+  contradictions: Array<{ prefix: string; alternatives: Array<{claim: string; run_id: string}> }>
+}
+export const getEntityKnowledge = (subject: string): Promise<EntityKnowledge> =>
+  api.get(`/v3/entities/${encodeURIComponent(subject)}/knowledge`).then(r => r.data)
+
+export const diffRuns = (a: string, b: string): Promise<{
+  a: string, b: string,
+  hypotheses: { added: any[]; removed: any[]; status_changed: any[] },
+  findings: { added_count: number; removed_count: number; added_titles: string[] },
+  source_class_delta: Record<string, number>,
+}> => api.get(`/v3/runs/diff`, { params: { a, b } }).then(r => r.data)
+
+export const upsertAnnotation = (
+  runId: string, findingId: string, body: string, color: 'yellow'|'red'|'green'|'blue'|'purple' = 'yellow',
+): Promise<{id: string}> =>
+  api.post(`/v3/runs/${runId}/findings/${findingId}/annotation`, { body, color }).then(r => r.data)
+
+export interface FindingAnnotation {
+  id: string; finding_id: string; body: string; color: string; created_at: string | null
+}
+export const listAnnotations = (runId: string): Promise<FindingAnnotation[]> =>
+  api.get(`/v3/runs/${runId}/annotations`).then(r => r.data)
+
+export interface HypothesisXrefs {
+  run_id: string
+  xrefs: Array<{
+    hypothesis_id: string; statement: string; status: string
+    related: Array<{title: string; run_id: string | null; score: number; user_graded: boolean}>
+  }>
+}
+export const getHypothesisXrefs = (runId: string): Promise<HypothesisXrefs> =>
+  api.get(`/v3/runs/${runId}/hypothesis-xrefs`).then(r => r.data)
+
+export const getContinueThread = (runId: string): Promise<{
+  previous_run?: string; suggested_query?: string | null;
+  rationale?: string; target_open_question?: string;
+}> => api.get(`/v3/runs/${runId}/continue-thread`).then(r => r.data)
+
+export const getUserCostAggregate = (windowDays = 7): Promise<{
+  window_days: number; total_ru: number;
+  by_phase: Record<string, number>;
+  by_trigger_type: Record<string, number>;
+}> => api.get(`/v3/wallet/aggregate`, { params: { window_days: windowDays } }).then(r => r.data)
+
+export const getOpenQuestionsDigest = (): Promise<{
+  open_count: number
+  questions: Array<{question: string; run_id: string; from_query: string; finished_at: string|null}>
+}> => api.get(`/v3/open-questions/digest`).then(r => r.data)
+
+export const cancelPipelineRun = (runId: string): Promise<void> =>
+  api.post(`/v3/pipelines/runs/${runId}/cancel`).then(() => undefined)
 
 export const getSession = (sessionId: string): Promise<AgentSession> =>
   api.get(`/v3/agent/sessions/${sessionId}`).then(r => r.data)

@@ -5,6 +5,7 @@ import { listPipelines } from '../api/pipelines'
 import { useForm } from 'react-hook-form'
 import IconRail from '../components/layout/IconRail'
 import { useSessionStore } from '../stores/sessionStore'
+import AccountSection from '../components/settings/AccountSection'
 
 const CORE_FIELDS = [
   // LLM Model Tiers
@@ -412,16 +413,31 @@ function NodeHealthSection() {
 }
 
 export default function Settings() {
-  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health'>('core')
   const isAdmin = useSessionStore(s => s.isAdmin)
+  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account'>(
+    isAdmin ? 'core' : 'account',
+  )
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
       <div className="flex h-full flex-1 overflow-hidden">
         <div className="w-40 flex-shrink-0 col-scroll py-3 px-2" style={{ background: 'var(--panel)', borderRight: '1px solid var(--border)' }}>
+          <div className="text-[10px] font-semibold mb-2 px-1" style={{ color: 'var(--muted)' }}>ACCOUNT</div>
+          <button
+            onClick={() => setSection('account')}
+            className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+            style={{
+              background: section === 'account' ? 'var(--panel2)' : 'transparent',
+              color: section === 'account' ? 'var(--accent)' : 'var(--text)',
+              border: 'none', cursor: 'pointer',
+            }}
+          >
+            Account
+          </button>
+
           {isAdmin && (
             <>
-              <div className="text-[10px] font-semibold mb-2 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
+              <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
               <button
                 onClick={() => setSection('core')}
                 className="w-full text-left px-2 py-1 rounded text-xs mb-1"
@@ -482,11 +498,13 @@ export default function Settings() {
 
         <div className="flex-1 col-scroll p-4">
           <h2 className="text-sm font-bold mb-4 capitalize" style={{ color: 'var(--accent)' }}>
-            {section === 'core' ? 'Core Settings'
+            {section === 'account' ? 'Account'
+              : section === 'core' ? 'Core Settings'
               : section === 'agent' ? 'Agent Settings'
               : section === 'node-health' ? 'Node Health'
               : 'Plugin Settings'}
           </h2>
+          {section === 'account' && <AccountSection />}
           {isAdmin && section === 'core' && <CoreSettingsForm />}
           {isAdmin && section === 'plugins' && <PluginSettingsForm />}
           {section === 'agent' && <AgentSettingsForm />}

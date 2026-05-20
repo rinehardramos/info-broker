@@ -16,6 +16,7 @@ import { StatusBadge } from '@/components/runs/StatusBadge'
 import { DownloadMenu } from '@/components/runs/DownloadMenu'
 import { RunCostBreakdown } from '@/components/wallet/RunCostBreakdown'
 import { listRuns, type RunRow } from '@/api/v3'
+import { useResultDrawerStore } from '@/stores/resultDrawerStore'
 import { X } from 'lucide-react'
 
 const COMPLETED = new Set(['succeeded', 'failed', 'canceled'])
@@ -40,6 +41,7 @@ function durationLabel(row: RunRow): string {
 
 export default function Runs() {
   const navigate = useNavigate()
+  const openDrawer = useResultDrawerStore((s) => s.open)
   const { data: runs } = useQuery({
     queryKey: ['all-runs'],
     queryFn: listRuns,
@@ -178,6 +180,21 @@ export default function Runs() {
                         {durationLabel(row)}
                       </td>
                       <td style={{ padding: '8px 10px', display: 'flex', gap: 6 }}>
+                        <button
+                          onClick={() => openDrawer(row.id)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 4,
+                            border: '1px solid var(--border)',
+                            background: 'transparent',
+                            color: 'var(--text)',
+                            fontSize: 11,
+                            cursor: 'pointer',
+                          }}
+                          title="Open this run's details (turns, synthesis, ACH ranking, findings)"
+                        >
+                          Show
+                        </button>
                         <button
                           onClick={() => navigate(`/research?replay=${row.id}`)}
                           style={{

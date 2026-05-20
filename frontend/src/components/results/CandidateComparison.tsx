@@ -6,6 +6,8 @@ import { ACHMatrix } from './ACHMatrix'
 interface CandidateComparisonProps {
   candidates: RankedCandidate[]
   achMatrix?: ACHMatrixType | null
+  /** Original user query — used to enrich entity profiles in the evidence modal. */
+  context?: string
 }
 
 /**
@@ -15,7 +17,7 @@ interface CandidateComparisonProps {
  * but NOT visually dominant. Runner-ups must read as legitimate alternatives
  * because the #89 failure mode was UIs that hid alternatives.
  */
-export function CandidateComparison({ candidates, achMatrix }: CandidateComparisonProps) {
+export function CandidateComparison({ candidates, achMatrix, context }: CandidateComparisonProps) {
   const [showAch, setShowAch] = useState(false)
 
   if (candidates.length < 2) return null
@@ -58,6 +60,7 @@ export function CandidateComparison({ candidates, achMatrix }: CandidateComparis
             candidate={candidate}
             isTop={idx === 0}
             rank={idx + 1}
+            context={context}
           />
         ))}
       </div>

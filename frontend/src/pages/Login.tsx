@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login } from '../api/auth'
 import { useSessionStore } from '../stores/sessionStore'
+import { useChatStore } from '../stores/chatStore'
 import { api } from '@/api/client'
 
 // Google Identity Services types (loaded via script tag, see useEffect below)
@@ -58,6 +59,7 @@ export default function Login() {
   const [loading, setLoading]   = useState(false)
   const navigate                = useNavigate()
   const { setTokens }           = useSessionStore()
+  const clearChat               = useChatStore(s => s.clearMessages)
 
   // Discover which SSO providers are configured on the backend so we can
   // disable buttons (and label them as "coming soon") when keys aren't set.
@@ -89,6 +91,7 @@ export default function Login() {
           if (!resp?.credential) return
           try {
             const r = await api.post('/v3/auth/google/onetap', { credential: resp.credential })
+            clearChat()
             setTokens(r.data.access_token, r.data.refresh_token)
             navigate('/')
           } catch (e: unknown) {
@@ -137,6 +140,7 @@ export default function Login() {
     setError('')
     try {
       const tokens = await login(username, password)
+      clearChat()
       setTokens(tokens.access_token, tokens.refresh_token)
       navigate('/')
     } catch {

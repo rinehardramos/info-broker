@@ -240,8 +240,15 @@ function connect(token: string) {
             case 'is.run_complete': {
               const rid = event.run_id ?? event.job_id ?? ''
               if (!rid) break
-              // Mark the run as succeeded in the store
-              stream.setRunStatus(rid, 'is', 'succeeded')
+              // Reflect the actual terminal status. ask_user means the run halted
+              // at a gate awaiting human input — not a success — so the right-rail
+              // and the Live banner stay consistent with the chat panel.
+              const runStatus = event.status === 'ask_user'
+                ? 'ask_user'
+                : event.status === 'failed'
+                  ? 'failed'
+                  : 'succeeded'
+              stream.setRunStatus(rid, 'is', runStatus as 'succeeded' | 'failed' | 'ask_user')
               // Populate ranked_candidates so CandidateComparison can render.
               // The backend sends raw dicts; the UI handles missing fields gracefully
               // (signal_scores defaults to {} when absent in MVP).

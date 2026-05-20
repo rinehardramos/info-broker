@@ -43,16 +43,20 @@ const CATEGORY_TAG: Record<string, string> = {
   enrich: 'ENRICH',
   score: 'SCORE',
   filter: 'FILTER',
-  datastore: 'DATASTORE',
+  lookup: 'LOOKUP',
+  destination: 'DESTINATION',
+  datastore: 'DATASTORE',   // retained for back-compat in case any third-party node still uses it
 }
 
 const TAG_COLORS: Record<string, { bg: string; text: string }> = {
-  SRC:       { bg: '#1e3a5f', text: '#60a5fa' },
-  ENRICH:    { bg: '#2d1f4e', text: '#a78bfa' },
-  SCORE:     { bg: '#1a3a2a', text: '#4ade80' },
-  PIPELINE:  { bg: '#1a2a1a', text: '#86efac' },
-  FILTER:    { bg: '#3a2a1a', text: '#fb923c' },
-  DATASTORE: { bg: '#3a1a2a', text: '#f472b6' },
+  SRC:         { bg: '#1e3a5f', text: '#60a5fa' },   // blue   — collection
+  ENRICH:      { bg: '#2d1f4e', text: '#a78bfa' },   // purple — enrichment APIs
+  SCORE:       { bg: '#1a3a2a', text: '#4ade80' },   // green  — scoring
+  PIPELINE:    { bg: '#1a2a1a', text: '#86efac' },   // light  — pipeline-node marker
+  FILTER:      { bg: '#3a2a1a', text: '#fb923c' },   // orange — filtering
+  LOOKUP:      { bg: '#3a2a4a', text: '#c4b5fd' },   // lavender — directed lookups
+  DESTINATION: { bg: '#3a2a1a', text: '#fde68a' },   // amber  — outputs/exports
+  DATASTORE:   { bg: '#3a1a2a', text: '#f472b6' },   // pink   — legacy
 }
 
 function TagBadge({ tag }: { tag: string }) {
@@ -86,9 +90,9 @@ const NODE_DESCRIPTIONS: Record<string, string> = {
   ai_provider: 'Call an LLM with a custom prompt. Use for enrichment, classification, or extraction.',
   manual_scoring: 'Extract a score field from item data. Use for rule-based scoring without LLM calls.',
   aggregator: 'Deduplicate and merge items from multiple upstream sources into a single stream.',
-  obsidian_vault: 'Search your Obsidian vault via semantic vector search. Datastore for Intelligent Search.',
-  local_files: 'Search local files by keyword. Supports glob patterns and path filters. Datastore for Intelligent Search.',
-  web_crawl: 'Crawl websites with configurable depth and domain restrictions. Datastore for Intelligent Search.',
+  obsidian_vault: 'Search your Obsidian vault via semantic vector search. Surfaces personal notes for the research loop.',
+  local_files: 'Search local files by keyword. Supports glob patterns and path filters across project directories.',
+  web_crawl: 'Crawl websites with configurable depth and domain restrictions to gather page content.',
   intelligent_search: 'LLM-powered agentic research loop. Dynamically searches connected datastores and the web.',
   summarizer: 'Condense single or aggregated input items into a coherent, structured summary via LLM.',
 }
@@ -229,13 +233,17 @@ function NodePluginCard({ node }: { node: NodeType }) {
 
 // ─── Category sort order + labels ───────────────────────────────────────────
 
-const CATEGORY_ORDER = ['source', 'enrich', 'score', 'filter', 'datastore']
+const CATEGORY_ORDER = [
+  'source', 'enrich', 'lookup', 'score', 'filter', 'destination', 'datastore',
+]
 const CATEGORY_LABELS: Record<string, string> = {
-  source:    'Sources',
-  enrich:    'Enrichment',
-  score:     'Scoring',
-  filter:    'Filter',
-  datastore: 'Datastores',
+  source:      'Sources',
+  enrich:      'Enrichment',
+  lookup:      'Lookups',
+  score:       'Scoring',
+  filter:      'Filter',
+  destination: 'Destinations',
+  datastore:   'Datastores',
 }
 
 // ─── Status badge for plugin requests ───────────────────────────────────────

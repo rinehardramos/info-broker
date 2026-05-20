@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
-import { sendMessage, getBrainStatus, archiveSession } from '../../api/v3'
-import type { AgentMessageOut } from '../../api/v3'
+import { sendMessage, getBrainStatus, archiveSession, listSessions, getSession } from '../../api/v3'
+import type { AgentMessageOut, AgentSession } from '../../api/v3'
 import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useSessionStore } from '../../stores/sessionStore'
@@ -69,6 +69,55 @@ export default function AgentChat() {
     next.delete('replay')
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
+
+  // Rehydrate chat from server on mount when local store is empty (e.g. fresh
+  // login, or a different device). Source of truth is agent_sessions; the
+  // local zustand persist cache is just a hot path. Without this, a user
+  // sees a blank Agent panel after logout/login even though their threads
+  // exist on the backend.
+  useEffect(() => {
+    if (chatMessages.length > 0) return
+    let cancelled = false
+    async function rehydrate() {
+      try {
+        let target: AgentSession | null = null
+        if (sessionId) {
+          target = await getSession(sessionId).catch(() => null)
+        }
+        if (!target) {
+          const sessions = await listSessions().catch(() => [])
+          target = sessions.find(s => s.status === 'active') ?? sessions[0] ?? null
+        }
+        if (cancelled || !target) return
+        const thread = (target.conversation_thread ?? []) as Array<{
+          role: string
+          content: string
+          ts?: string
+          timestamp?: string
+          run_id?: string | null
+        }>
+        if (thread.length === 0) {
+          setSessionId(target.id)
+          if (target.genesis_query) setGenesisQuery(target.genesis_query)
+          return
+        }
+        const rehydrated: Message[] = thread.map((m, i) => ({
+          id: `restored-${i}-${m.ts ?? m.timestamp ?? i}`,
+          role: m.role === 'user' ? 'user' : 'agent',
+          content: m.content ?? '',
+          status: 'done',
+          type: 'message',
+        }))
+        setChatMessages(rehydrated)
+        setSessionId(target.id)
+        if (target.genesis_query) setGenesisQuery(target.genesis_query)
+      } catch {
+        /* non-fatal — empty chat is acceptable */
+      }
+    }
+    void rehydrate()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())

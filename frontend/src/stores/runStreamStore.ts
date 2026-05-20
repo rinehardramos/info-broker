@@ -34,7 +34,7 @@ export interface BrainSuggestion {
 }
 
 export type RunKind = 'pipeline' | 'is'
-export type RunStatus = 'running' | 'succeeded' | 'failed' | 'canceled'
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'canceled' | 'ask_user'
 
 export interface RunEdge {
   from: string

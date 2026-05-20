@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { RankedCandidate, SourceClass } from '@/types/research'
 import { SourceClassBadge } from './SourceClassBadge'
+import { EvidenceModal } from './EvidenceModal'
 
 type SignalValue = 'match' | 'mismatch' | 'unknown' | undefined
 
@@ -58,12 +59,28 @@ interface CandidateRowProps {
   candidate: RankedCandidate
   isTop: boolean
   rank: number
+  /** Run query — passed into EvidenceModal for entity profile enrichment. */
+  context?: string
 }
 
-export function CandidateRow({ candidate, isTop, rank }: CandidateRowProps) {
+function uniqueDomainCount(evidence: RankedCandidate['evidence']): number {
+  const hosts = new Set<string>()
+  for (const e of evidence) {
+    if (!e.source_url) continue
+    try {
+      const h = new URL(e.source_url).hostname.toLowerCase().replace(/^www\./, '')
+      if (h) hosts.add(h)
+    } catch { /* skip malformed URL */ }
+  }
+  return hosts.size
+}
+
+export function CandidateRow({ candidate, isTop, rank, context }: CandidateRowProps) {
   const [disconfirmOpen, setDisconfirmOpen] = useState(false)
+  const [evidenceOpen,   setEvidenceOpen]   = useState(false)
   const disconfirmFindings = candidate.evidence.filter((e) => e.is_disconfirm)
   const evidenceCount = candidate.evidence.length
+  const domainCount   = uniqueDomainCount(candidate.evidence)
 
   return (
     <div
@@ -112,12 +129,43 @@ export function CandidateRow({ candidate, isTop, rank }: CandidateRowProps) {
         <div className="flex justify-center"><SignalCell value={candidate.signal_scores?.medium} /></div>
         <div className="flex justify-center"><SignalCell value={candidate.signal_scores?.recency} /></div>
 
-        {/* Evidence count + source breakdown */}
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] text-muted-foreground tabular-nums">{evidenceCount} evidence</span>
+        {/* Evidence count + source breakdown — click to open modal with full evidence list */}
+        <button
+          type="button"
+          onClick={(ev) => { ev.stopPropagation(); setEvidenceOpen(true) }}
+          disabled={evidenceCount === 0}
+          className={cn(
+            'flex flex-col gap-0.5 items-start text-left rounded px-1 -mx-1 transition-colors',
+            evidenceCount > 0 ? 'cursor-pointer hover:bg-muted/40' : 'cursor-default opacity-60',
+          )}
+          title={evidenceCount > 0 ? 'View evidence' : 'No evidence'}
+        >
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {evidenceCount} evidence
+            {evidenceCount > 0 && (
+              <span
+                className={cn(
+                  'ml-1',
+                  domainCount >= 3 ? 'text-emerald-400'
+                  : domainCount === 2 ? 'text-amber-400'
+                  : 'text-muted-foreground/60',
+                )}
+                title={`${domainCount} unique source domain${domainCount === 1 ? '' : 's'}`}
+              >
+                · {domainCount} domain{domainCount === 1 ? '' : 's'}
+              </span>
+            )}
+          </span>
           <SourceBreakdownPills evidence={candidate.evidence} />
-        </div>
+        </button>
       </div>
+
+      <EvidenceModal
+        open={evidenceOpen}
+        onClose={() => setEvidenceOpen(false)}
+        candidate={candidate}
+        context={context}
+      />
 
       {/* "Why not X?" section — only shown for non-top candidates */}
       {!isTop && (

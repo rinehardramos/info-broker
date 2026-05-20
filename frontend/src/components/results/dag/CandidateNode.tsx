@@ -18,6 +18,9 @@ interface CandidateNodeProps {
 export function CandidateNode({ data, onClick }: CandidateNodeProps) {
   const pct = Math.round(Math.min(1, Math.max(0, data.confidence)) * 100)
   const colorCls = RANK_COLORS[data.rank - 1] ?? RANK_COLORS[2]
+  const tooltip = data.isPruned
+    ? `#${data.rank}: ${data.name} — ${pct}% — pruned${data.pruneReason ? `: ${data.pruneReason}` : ''}`
+    : `#${data.rank}: ${data.name} — ${pct}% confidence`
 
   return (
     <button
@@ -27,11 +30,14 @@ export function CandidateNode({ data, onClick }: CandidateNodeProps) {
         'w-full h-full rounded-lg border px-2 py-1.5 flex flex-col gap-1 text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-violet-500',
         colorCls,
         onClick ? 'cursor-pointer hover:brightness-110' : 'cursor-default',
+        data.isPruned ? 'opacity-40 border-dashed' : '',
       ].join(' ')}
-      title={`#${data.rank}: ${data.name} — ${pct}% confidence`}
+      title={tooltip}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="text-[9px] font-bold opacity-70">#{data.rank}</span>
+        <span className="text-[9px] font-bold opacity-70">
+          {data.isPruned ? '✗' : '#'}{data.rank}
+        </span>
         <span className="text-[9px] font-bold tabular-nums text-right">{pct}%</span>
       </div>
       <div className="text-[10px] font-semibold truncate leading-tight" title={data.name}>
@@ -41,6 +47,11 @@ export function CandidateNode({ data, onClick }: CandidateNodeProps) {
       <div className="h-1 rounded bg-current/20 overflow-hidden">
         <div className="h-full rounded bg-current/60" style={{ width: `${pct}%` }} />
       </div>
+      {data.isPruned && data.pruneReason && (
+        <div className="text-[8px] leading-tight opacity-80 truncate" title={data.pruneReason}>
+          {data.pruneReason}
+        </div>
+      )}
     </button>
   )
 }

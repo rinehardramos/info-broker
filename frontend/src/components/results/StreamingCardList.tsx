@@ -4,8 +4,8 @@ import { NodeResultCard } from '../results/NodeResultCard'
 import { NodeResultDetailModal } from '../results/NodeResultDetailModal'
 import { BrainSuggestionBanner } from '../results/BrainSuggestionBanner'
 import { CandidateComparison } from '../results/CandidateComparison'
-import { brainApi } from '@/api/brain'
 import { useChatStore } from '@/stores/chatStore'
+import { brainApi } from '@/api/brain'
 import type { NodeCard, BrainSuggestion } from '@/stores/runStreamStore'
 
 const COLLAPSE_THRESHOLD = 30
@@ -83,7 +83,11 @@ export function StreamingCardList({ runId, filterByTactician }: StreamingCardLis
       {/* Candidate comparison is injected above the card list when the IS engine
           run finishes with 2+ distinct candidates. Renders nothing otherwise. */}
       {rankedCandidates.length >= 2 && (
-        <CandidateComparison candidates={rankedCandidates} achMatrix={achMatrix} />
+        <CandidateComparison
+          candidates={rankedCandidates}
+          achMatrix={achMatrix}
+          context={useChatStore.getState().genesisQuery ?? ''}
+        />
       )}
 
       {visibleSuggestions.map((sug) => (
