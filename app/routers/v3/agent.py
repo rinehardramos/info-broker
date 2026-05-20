@@ -26,6 +26,10 @@ router = APIRouter(prefix="/v3/agent", tags=["v3-agent"])
 
 import os as _os
 IS_USE_TEMPORAL = _os.getenv("IS_USE_TEMPORAL", "false").lower() == "true"
+# IS_USE_LOOP gates the Path B orchestrated brain loop (Slice 1). Requires
+# IS_USE_TEMPORAL=true. When off, the single-shot brain path is used.
+IS_USE_LOOP = _os.getenv("IS_USE_LOOP", "false").lower() == "true"
+IS_LOOP_MAX_TURNS = int(_os.getenv("IS_LOOP_MAX_TURNS", "8"))
 
 
 def _fast_thorough_enabled() -> bool:
@@ -99,19 +103,27 @@ def _get_active_pipeline(user_id: str) -> dict:
 
 
 def _create_or_fetch_session(session_id: str | None, user_id: str, org_id: str, message: str) -> tuple[str, dict | None]:
-    """Return (session_id, session_row). Creates session if session_id is None."""
-    if not session_id:
+    """Return (session_id, session_row). Creates a session if session_id is
+    None OR if the provided id doesn't belong to this user/org (e.g. a stale
+    id left in localStorage from another account). Without the fallthrough,
+    new users would silently have no agent_sessions rows and an empty HISTORY
+    panel even after running queries.
+    """
+    if session_id:
         row = fetch_one(
-            """INSERT INTO agent_sessions (id, user_id, org_id, genesis_query)
-               VALUES (%s, %s, %s, %s) RETURNING *""",
-            (str(uuid.uuid4()), user_id, org_id, message),
+            "SELECT * FROM agent_sessions WHERE id = %s AND user_id = %s AND org_id = %s",
+            (session_id, user_id, org_id),
         )
-        return str(row["id"]), dict(row) if row else None
+        if row:
+            return session_id, dict(row)
+        # Fall through: stale id, create a fresh session instead.
+    new_id = str(uuid.uuid4())
     row = fetch_one(
-        "SELECT * FROM agent_sessions WHERE id = %s AND user_id = %s AND org_id = %s",
-        (session_id, user_id, org_id),
+        """INSERT INTO agent_sessions (id, user_id, org_id, genesis_query)
+           VALUES (%s, %s, %s, %s) RETURNING *""",
+        (new_id, user_id, org_id, message),
     )
-    return session_id, dict(row) if row else None
+    return new_id, dict(row) if row else None
 
 
 async def _update_session_conversational(
@@ -1077,11 +1089,11 @@ async def send_message(
 
         fetch_one(
             """
-            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, temporal_workflow_id, status, trigger_type, query, budget_status, run_budget, budget_plan)
-            VALUES (%s, %s, %s, %s, %s, 'queued', 'agent_is', %s, 'reserved', %s, %s)
+            INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, session_id, temporal_workflow_id, status, trigger_type, query, budget_status, run_budget, budget_plan)
+            VALUES (%s, %s, %s, %s, %s, %s, 'queued', 'agent_is', %s, 'reserved', %s, %s)
             RETURNING *
             """,
-            (run_id, pipeline_id, uid, user_org_id(user), workflow_id, body.message,
+            (run_id, pipeline_id, uid, user_org_id(user), sid, workflow_id, body.message,
              _json.dumps(_raw_budget), _json.dumps(_budget_plan.breakdown)),
         )
 
@@ -1196,41 +1208,98 @@ async def send_message(
             )
 
         # Fire and forget — research runs async, pushes WS events when done.
-        if IS_USE_TEMPORAL:
-            from app.temporal.workflows.is_run import ISRunWorkflow, ISRunInput
-            from temporalio.client import Client
-            _host = _os.getenv("TEMPORAL_HOST", "localhost")
-            _port = int(_os.getenv("TEMPORAL_PORT", "7233"))
-            _t_client = await Client.connect(f"{_host}:{_port}")
-            await _t_client.start_workflow(
-                ISRunWorkflow.run,
-                ISRunInput(
-                    run_id=run_id,
-                    user_id=uid,
-                    org_id=user_org_id(user),
-                    query=body.message,
-                    pipeline_id=pipeline_id,
-                    session_id=sid,
-                    session_context=session_context,
-                    past_research=past_research or [],
-                    budget=_raw_budget,
-                    callback_url=getattr(body, "callback_url", None),
-                    preflight_prior_slots=dict(_SESSION_SLOTS.get(sid or "", {}) or {}),
-                ),
-                id=f"is-run-{run_id}",
-                task_queue="is-run-tasks",
-            )
-        else:
-            task = asyncio.create_task(
-                _run_is_research(
-                    run_id, uid, pipeline_id, body.message,
-                    past_research=past_research,
-                    session_id=sid,
-                    session_context=session_context,
-                    preflight_result=preflight_result,
+        # Any dispatch failure (Temporal unreachable, task scheduling error)
+        # must transition the pipeline_runs row to a terminal status so it
+        # doesn't sit in 'queued' forever waiting for a worker that won't come.
+        def _mark_dispatch_failed(reason: str) -> None:
+            try:
+                execute(
+                    """UPDATE pipeline_runs
+                          SET status = 'failed',
+                              finished_at = now(),
+                              error_message = %s
+                        WHERE id = %s AND status = 'queued'""",
+                    (f"dispatch failed: {reason}", run_id),
                 )
+            except Exception as upd_exc:
+                log.warning("could not mark run %s as failed after dispatch: %s", run_id, upd_exc)
+
+        def _is_task_failed_cb(t: asyncio.Task) -> None:
+            exc = t.exception() if not t.cancelled() else None
+            if exc is None:
+                return
+            log.error("IS research task failed: %s", exc)
+            _mark_dispatch_failed(f"IS task crashed: {type(exc).__name__}: {str(exc)[:120]}")
+
+        try:
+            if IS_USE_TEMPORAL:
+                from temporalio.client import Client
+                _host = _os.getenv("TEMPORAL_HOST", "localhost")
+                _port = int(_os.getenv("TEMPORAL_PORT", "7233"))
+                _t_client = await Client.connect(f"{_host}:{_port}")
+                if IS_USE_LOOP:
+                    # Path B — orchestrated multi-turn brain loop.
+                    from app.temporal.workflows.is_loop_run import (
+                        IsLoopRunWorkflow, ISLoopRunInput,
+                    )
+                    await _t_client.start_workflow(
+                        IsLoopRunWorkflow.run,
+                        ISLoopRunInput(
+                            run_id=run_id,
+                            user_id=uid,
+                            org_id=user_org_id(user),
+                            query=body.message,
+                            pipeline_id=pipeline_id,
+                            session_id=sid,
+                            session_context=session_context,
+                            past_research=past_research or [],
+                            budget=_raw_budget,
+                            callback_url=getattr(body, "callback_url", None),
+                            preflight_prior_slots=dict(_SESSION_SLOTS.get(sid or "", {}) or {}),
+                            max_turns=IS_LOOP_MAX_TURNS,
+                        ),
+                        id=f"is-loop-run-{run_id}",
+                        task_queue="is-run-tasks",
+                    )
+                else:
+                    # Path A — existing single-shot brain.
+                    from app.temporal.workflows.is_run import ISRunWorkflow, ISRunInput
+                    await _t_client.start_workflow(
+                        ISRunWorkflow.run,
+                        ISRunInput(
+                            run_id=run_id,
+                            user_id=uid,
+                            org_id=user_org_id(user),
+                            query=body.message,
+                            pipeline_id=pipeline_id,
+                            session_id=sid,
+                            session_context=session_context,
+                            past_research=past_research or [],
+                            budget=_raw_budget,
+                            callback_url=getattr(body, "callback_url", None),
+                            preflight_prior_slots=dict(_SESSION_SLOTS.get(sid or "", {}) or {}),
+                        ),
+                        id=f"is-run-{run_id}",
+                        task_queue="is-run-tasks",
+                    )
+            else:
+                task = asyncio.create_task(
+                    _run_is_research(
+                        run_id, uid, pipeline_id, body.message,
+                        past_research=past_research,
+                        session_id=sid,
+                        session_context=session_context,
+                        preflight_result=preflight_result,
+                    )
+                )
+                task.add_done_callback(_is_task_failed_cb)
+        except Exception as exc:
+            log.exception("IS dispatch failed for run %s: %s", run_id, exc)
+            _mark_dispatch_failed(f"{type(exc).__name__}: {str(exc)[:160]}")
+            raise HTTPException(
+                status_code=503,
+                detail="Research worker unavailable. Try again shortly.",
             )
-            task.add_done_callback(lambda t: log.error("IS research task failed: %s", t.exception()) if t.exception() else None)
 
         return AgentMessageOut(job_id=run_id, session_id=sid, status="pending", mode="investigation")
 

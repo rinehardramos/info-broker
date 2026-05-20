@@ -41,6 +41,55 @@ async def post_process(inp: PostProcessInput) -> None:
     except Exception as exc:
         log.warning("Annotation failed (non-fatal): %s", exc)
 
+    # Index findings into research_memory (Qdrant) so future runs can retrieve
+    # them via fused_retrieve. Best-effort; never fails the run.
+    try:
+        from app.memory.writer import index_research_findings
+        if findings:
+            indexed = await index_research_findings(
+                inp.run_id, result.get("query", ""), findings,
+            )
+            log.info("post_process: indexed %d findings to research_memory", indexed)
+    except Exception as exc:
+        log.warning("research_memory indexing failed (non-fatal): %s", exc)
+
+    # PIR coverage: for queries that look like investigations (person /
+    # company), decompose into Priority Intelligence Requirements and report
+    # which Essential Elements of Information are still un-resolved. Non-fatal.
+    try:
+        from app.pipeline.fusion.pir import (
+            infer_entity_type, decompose_query_to_pirs,
+            map_findings_to_pirs, generate_coverage_report,
+        )
+        query_text = (result.get("query") or "")
+        entity_type = result.get("entity_type") or "unknown"
+        if entity_type == "unknown" or not entity_type:
+            entity_type = infer_entity_type(query_text)
+        pirs = decompose_query_to_pirs(query_text, entity_type)
+        pirs = map_findings_to_pirs(pirs, findings or [])
+        report = generate_coverage_report(pirs)
+        # Stash on result so it propagates to WS event listeners + downstream.
+        result.setdefault("_loop_meta", {})
+        result["_loop_meta"]["pir"] = {
+            "entity_type": entity_type,
+            "overall_coverage": report["overall_coverage"],
+            "resolved_eeis": report["resolved_eeis"],
+            "total_eeis": report["total_eeis"],
+            "gaps": report["gaps"][:8],   # cap for prompt/UI sanity
+            "pir_summaries": [
+                {"name": p["name"], "coverage": p["coverage"],
+                 "confidence": p["confidence"]}
+                for p in report["pirs"]
+            ],
+        }
+        log.info(
+            "post_process: PIR entity=%s coverage=%.0f%% resolved=%d/%d gaps=%d",
+            entity_type, report["overall_coverage"] * 100,
+            report["resolved_eeis"], report["total_eeis"], len(report["gaps"]),
+        )
+    except Exception as exc:
+        log.warning("PIR coverage failed (non-fatal): %s", exc)
+
     # Mark succeeded
     execute(
         """UPDATE pipeline_runs

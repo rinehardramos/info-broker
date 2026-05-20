@@ -254,6 +254,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("Stale run sweep not started: %s", exc)
 
+    # Temporal-aware orphan watchdog (queries actual workflow state, doesn't
+    # rely on age alone). Authoritative reconciliation path; the simple
+    # `_stale_run_sweep` above stays as a belt-and-suspenders safety net.
+    try:
+        from app.pipeline.orphan_watchdog import start_orphan_watchdog
+        await start_orphan_watchdog()
+    except Exception as exc:
+        _log.warning("Orphan watchdog not started: %s", exc)
+
     yield
     await se_close()
 
@@ -340,6 +349,11 @@ from app.routers.v3.wallet import router as v3_wallet_router, runs_cost_router a
 from app.routers.v3.share import router as v3_share_router  # noqa: E402
 from app.routers.v3.templates import router as v3_templates_router  # noqa: E402
 from app.routers.v3.replay import router as v3_replay_router  # noqa: E402
+from app.routers.v3.evidence import router as v3_evidence_router  # noqa: E402
+from app.routers.v3.health import router as v3_health_router  # noqa: E402
+from app.routers.v3.working_memory import router as v3_working_memory_router  # noqa: E402
+from app.routers.v3.investigation_templates import router as v3_investigation_templates_router  # noqa: E402
+from app.routers.v3.absorption import router as v3_absorption_router  # noqa: E402
 app.include_router(v3_auth_router)
 app.include_router(v3_oauth_router)
 app.include_router(v3_users_router)
@@ -370,3 +384,8 @@ app.include_router(v3_runs_cost_router)
 app.include_router(v3_share_router)
 app.include_router(v3_templates_router)
 app.include_router(v3_replay_router)
+app.include_router(v3_evidence_router)
+app.include_router(v3_health_router)
+app.include_router(v3_working_memory_router)
+app.include_router(v3_investigation_templates_router)
+app.include_router(v3_absorption_router)

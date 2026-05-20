@@ -554,6 +554,51 @@ _STATIC_TOOLS = """\
 - run_entity_lineage(company_name, jurisdiction, domain, address, directors, years_back) — generate corporate lineage investigation queries for ANY company globally. Auto-detects jurisdiction from domain TLD (ph/us/uk/au/sg/de/fr). Returns: predecessor/name-change search queries, dissolution/merger checks, director cross-reference queries, address cross-reference queries, Wayback Machine targets, jurisdiction-specific registry guidance, name variants. Run for any company investigation -- uncovers restructuring, shell patterns, entity hopping. jurisdiction="" for auto-detect.
 """
 
+def render_past_research_blocks(past_research: list[dict] | None) -> list[str]:
+    """Render verified-vs-unverified prior-research blocks for prompt injection.
+
+    Returns a list of pre-formatted context blocks (0–2 entries). Used by both
+    the single-shot prompt and the orchestrated turn prompt (Path B). Verified
+    = user-graded A/A1/A2; unverified = brain-scored only.
+    """
+    if not past_research:
+        return []
+    blocks: list[str] = []
+    verified = [r for r in past_research if r.get("grade") in ("A", "A1", "A2")]
+    unverified = [r for r in past_research if r not in verified]
+
+    if verified:
+        lines = ["VERIFIED PRIOR RESEARCH (user-graded A — authoritative baseline, treat as established):"]
+        for r in verified[:2]:
+            findings = r.get("findings", [])
+            titles = [f.get("title", "?") for f in findings[:4]]
+            lines.append(
+                f"  ✓ {r.get('summary', '')[:200]}\n"
+                f"    Key findings: {', '.join(titles)}\n"
+                f"    → Affirm or update with fresh evidence. Do NOT ignore."
+            )
+        blocks.append("\n".join(lines))
+
+    if unverified:
+        summaries = []
+        for r in unverified[:3]:
+            findings = r.get("findings", [])
+            finding_titles = [f.get("title", "?") for f in findings[:4]]
+            deeper = r.get("deeper_leads", [])
+            summaries.append(
+                f"- Prior: {r.get('summary', '')[:200]}\n"
+                f"  Findings: {', '.join(finding_titles)}\n"
+                f"  Deeper leads: {deeper if deeper else 'none'}"
+            )
+        blocks.append(
+            "RELATED PRIOR RESEARCH (unverified — brain-scored only, NOT user-graded):\n"
+            "  Treat as ONE source among many, not the overarching narrative. Seeds H_PRIOR for BROADEN.\n"
+            "  For identification queries: must still generate ≥2 DISTINCT alternative identity hypotheses with live searches before ranking. RAG confidence is prior, not posterior.\n"
+            + "\n".join(summaries)
+        )
+    return blocks
+
+
 def _build_tools_section(available_nodes: list[dict] | None) -> str:
     """Build the AVAILABLE MCP TOOLS section dynamically from healthy nodes."""
     if not available_nodes:
@@ -586,39 +631,7 @@ def build_prompt(
 ) -> str:
     """Build the full research prompt with context."""
     context_parts: list[str] = []
-    if past_research:
-        verified = [r for r in past_research if r.get("grade") in ("A", "A1", "A2")]
-        unverified = [r for r in past_research if r not in verified]
-
-        if verified:
-            lines = ["VERIFIED PRIOR RESEARCH (user-graded A — authoritative baseline, treat as established):"]
-            for r in verified[:2]:
-                findings = r.get("findings", [])
-                titles = [f.get("title", "?") for f in findings[:4]]
-                lines.append(
-                    f"  ✓ {r.get('summary', '')[:200]}\n"
-                    f"    Key findings: {', '.join(titles)}\n"
-                    f"    → Affirm or update with fresh evidence. Do NOT ignore."
-                )
-            context_parts.append("\n".join(lines))
-
-        if unverified:
-            summaries = []
-            for r in unverified[:3]:
-                findings = r.get("findings", [])
-                finding_titles = [f.get("title", "?") for f in findings[:4]]
-                deeper = r.get("deeper_leads", [])
-                summaries.append(
-                    f"- Prior: {r.get('summary', '')[:200]}\n"
-                    f"  Findings: {', '.join(finding_titles)}\n"
-                    f"  Deeper leads: {deeper if deeper else 'none'}"
-                )
-            context_parts.append(
-                "RELATED PRIOR RESEARCH (unverified — brain-scored only, NOT user-graded):\n"
-                "  Treat as ONE source among many, not the overarching narrative. Seeds H_PRIOR for BROADEN.\n"
-                "  For identification queries: must still generate ≥2 DISTINCT alternative identity hypotheses with live searches before ranking. RAG confidence is prior, not posterior.\n"
-                + "\n".join(summaries)
-            )
+    context_parts.extend(render_past_research_blocks(past_research))
 
     if user_preferences:
         context_parts.append(f"USER PREFERENCES: {user_preferences}")
