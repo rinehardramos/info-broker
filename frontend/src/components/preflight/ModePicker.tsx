@@ -38,6 +38,8 @@ export function ModePicker({ modes, selectedMode, onSelect }: ModePickerProps) {
           return (
             <button
               key={mode.id}
+              data-mode-id={mode.id}
+              aria-pressed={active}
               title={mode.description}
               onClick={() => onSelect(mode)}
               style={{
