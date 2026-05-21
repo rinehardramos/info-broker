@@ -31,6 +31,13 @@ export interface PreflightIn {
   mode?: string
   dials?: Partial<DialsIn>
   strategy?: string
+  /** User-supplied override for auto-detected intent. */
+  intent_override?: string
+}
+
+export interface IntentEntry {
+  id: string
+  label: string
 }
 
 export interface PreflightEstimate {
@@ -113,6 +120,7 @@ export function usePreflight() {
   const [error, setError] = useState<string | null>(null)
   const [modes, setModes] = useState<ModeEntry[]>([])
   const [modesLoading, setModesLoading] = useState(false)
+  const [intents, setIntents] = useState<IntentEntry[]>([])
   const [userDefaults, setUserDefaults] = useState<UserDefaultEnvelope | null>(null)
   const [defaultsLoading, setDefaultsLoading] = useState(false)
 
@@ -160,6 +168,23 @@ export function usePreflight() {
   useEffect(() => {
     fetchModes()
   }, [fetchModes])
+
+  // ---------------------------------------------------------------------------
+  // Fetch intent catalog (once on mount) — populates the override dropdown
+  // ---------------------------------------------------------------------------
+
+  const fetchIntents = useCallback(async () => {
+    try {
+      const { data } = await api.get<IntentEntry[]>('/v3/preflight/intents')
+      setIntents(data)
+    } catch {
+      // Non-fatal: dropdown falls back to current detected intent only
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchIntents()
+  }, [fetchIntents])
 
   // ---------------------------------------------------------------------------
   // Preflight estimate — immediate (used for initial load)
@@ -230,6 +255,7 @@ export function usePreflight() {
     error,
     modes,
     modesLoading,
+    intents,
     userDefaults,
     defaultsLoading,
   }

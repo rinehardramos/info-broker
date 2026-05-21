@@ -50,6 +50,34 @@ def test_classify_synthesis_evaluate():
 def test_classify_default_ambiguous():
     assert classify_query("Tell me about quantum computing") == "person"  # default
 
+
+# ---------------------------------------------------------------------------
+# Real-estate / property search — regression tests for issue #102
+# ---------------------------------------------------------------------------
+
+def test_classify_real_estate_properties_in_location():
+    assert classify_query("properties in pennsylvania") == "real_estate"
+
+def test_classify_real_estate_houses_for_sale():
+    assert classify_query("houses for sale in cebu") == "real_estate"
+
+def test_classify_real_estate_condo_for_rent():
+    assert classify_query("condo for rent in makati") == "real_estate"
+
+def test_classify_real_estate_phrase():
+    assert classify_query("real estate listings philippines") == "real_estate"
+
+def test_classify_real_estate_homes_in():
+    assert classify_query("homes in austin texas") == "real_estate"
+
+def test_classify_real_estate_does_not_break_person_default():
+    # ambiguous query without property signals still defaults to person
+    assert classify_query("Tell me about quantum computing") == "person"
+
+def test_classify_real_estate_does_not_outrank_media_identification():
+    # media_identification still wins over real_estate when both signals present
+    assert classify_query("what show has homes in austin") == "media_identification"
+
 def test_classify_empty():
     assert classify_query("") == "person"
 

@@ -106,10 +106,31 @@ def _classify_intent(query: str) -> str:
     try:
         from app.pipeline.strategies.orchestrator import classify_query as _orch_classify
         cat = _orch_classify(query or "")
-        alias = {"researcher": "person", "place": "person"}
+        alias = {"researcher": "person"}
         return alias.get(cat, cat) if cat else "media_identification"
     except Exception:
         return "media_identification"
+
+
+# Known intent categories the user may select as an override. Kept in sync
+# with _CATEGORY_SIGNALS keys in orchestrator.py — the orchestrator is the
+# source of truth, this list is the *selectable* subset for the UI.
+_KNOWN_INTENTS: list[tuple[str, str]] = [
+    ("media_identification", "Media Identification"),
+    ("person",               "Person"),
+    ("lead",                 "Lead"),
+    ("company",              "Company"),
+    ("due_diligence",        "Due Diligence"),
+    ("researcher",           "Researcher"),
+    ("place",                "Place"),
+    ("real_estate",          "Real Estate"),
+    ("generation",           "Generation"),
+    ("explanation",          "Explanation"),
+    ("prediction",           "Prediction"),
+    ("synthesis",            "Synthesis"),
+]
+
+_VALID_INTENT_IDS: set[str] = {i for i, _ in _KNOWN_INTENTS}
 
 
 def _classify_query(query: str) -> str:
@@ -119,7 +140,14 @@ def _classify_query(query: str) -> str:
     app/pipeline/catalogs/registries/strategies/ they're picked up
     automatically.
     """
-    intent = _classify_intent(query)
+    return _resolve_strategy(_classify_intent(query))
+
+
+def _resolve_strategy(intent: str) -> str:
+    """Map an intent category to an engine_v2-runnable strategy_id, clamped
+    to the catalog registry. Shared by auto-detection and intent_override
+    so both paths land in the same place.
+    """
     supported = _engine_v2_supported_strategies()
     if intent in supported:
         return intent
@@ -155,6 +183,15 @@ class PreflightIn(BaseModel):
     mode: Optional[str] = None
     dials: Optional[DialsIn] = None
     strategy: Optional[str] = None
+    # User-supplied override for the auto-detected intent. When set, it
+    # replaces _classify_intent() output and drives suggested_strategy /
+    # suggested_mode. Validated against _VALID_INTENT_IDS.
+    intent_override: Optional[str] = None
+
+
+class IntentOut(BaseModel):
+    id: str
+    label: str
 
 
 # ---------------------------------------------------------------------------
@@ -317,13 +354,36 @@ def list_modes(_user: dict = Depends(get_current_user)):
     return result
 
 
+@router.get("/intents", response_model=list[IntentOut])
+def list_intents(_user: dict = Depends(get_current_user)):
+    """Return the list of intent categories a user may select as an override
+    for the auto-detected `classifier_output`. UI populates the intent
+    dropdown from this endpoint.
+    """
+    return [IntentOut(id=i, label=label) for i, label in _KNOWN_INTENTS]
+
+
 @router.post("", response_model=PreflightOut)
 def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
     """Classify query, suggest strategy + mode, compute RU estimate, snapshot wallet."""
     uid = str(user["id"])
 
-    # Classifier
-    strategy_id = body.strategy or _classify_query(body.query)
+    # Validate intent_override up-front so an invalid value is a 422, not
+    # a silent fallback to the auto-detected intent.
+    if body.intent_override is not None and body.intent_override not in _VALID_INTENT_IDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown intent_override '{body.intent_override}'. "
+                   f"Valid values: {sorted(_VALID_INTENT_IDS)}",
+        )
+
+    # Classifier — override wins over auto-detection.
+    if body.intent_override:
+        effective_intent = body.intent_override
+        strategy_id = body.strategy or _resolve_strategy(effective_intent)
+    else:
+        effective_intent = _classify_intent(body.query)
+        strategy_id = body.strategy or _classify_query(body.query)
     suggested_mode = body.mode or _suggest_mode(strategy_id)
 
     # Resolve mode dial defaults — mode sets the baseline; explicit dials override per-dial
@@ -375,9 +435,10 @@ def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
     after_run = ws["available_ru"] - est.estimated_ru_p90
 
     return PreflightOut(
-        # classifier_output = raw intent (what the user asked about);
-        # suggested_strategy = engine-runnable strategy (clamped to registry).
-        classifier_output=_classify_intent(body.query),
+        # classifier_output = raw intent (what the user asked about, or
+        # the user's explicit override); suggested_strategy = engine-runnable
+        # strategy (clamped to registry).
+        classifier_output=effective_intent,
         suggested_strategy=strategy_id,
         suggested_mode=suggested_mode,
         envelope=EnvelopeOut(

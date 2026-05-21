@@ -102,8 +102,13 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
     isLoading,
     error,
     modes,
+    intents,
     userDefaults,
   } = usePreflight()
+
+  // User-set intent override — when non-null, replaces classifier output.
+  const [intentOverride, setIntentOverride] = useState<string | null>(null)
+  const [intentMenuOpen, setIntentMenuOpen] = useState(false)
 
   // ---- dial state — seeded from per-user defaults when available ------------
   const [mode, setMode] = useState<string>('investigation')
@@ -153,7 +158,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
 
   // ---- initial load ---------------------------------------------------------
   useEffect(() => {
-    preflight({ query, mode, dials: { speed, capability, resource, hypothesis_count: hypothesisCount, depth } })
+    preflight({ query, mode, dials: { speed, capability, resource, hypothesis_count: hypothesisCount, depth }, intent_override: intentOverride ?? undefined })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- dial-change debounced refresh ----------------------------------------
@@ -162,12 +167,13 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
       query,
       mode,
       dials: { speed, capability, resource, hypothesis_count: hypothesisCount, depth },
+      intent_override: intentOverride ?? undefined,
     })
-  }, [query, mode, speed, capability, resource, hypothesisCount, depth, preflightDebounced])
+  }, [query, mode, speed, capability, resource, hypothesisCount, depth, intentOverride, preflightDebounced])
 
   useEffect(() => {
     runPreflightDebounced()
-  }, [speed, capability, resource, hypothesisCount, depth]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [speed, capability, resource, hypothesisCount, depth, intentOverride]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync hypothesis_count if backend upgraded it (strategy floor enforcement).
   // The backend's suggested_mode is treated as a *recommendation* — the user's
@@ -309,21 +315,44 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
           onSelect={handleModeSelect}
         />
 
-        {/* Intent badge — what the brain thinks you're asking about.
-            The actual execution strategy may differ (engine_v2 catalog is
-            still rolling out per-intent strategies) but the intent label
-            is always honest to your query. */}
-        <div style={{ marginBottom: 12 }}>
+        {/* Intent badge — what the brain thinks you're asking about,
+            click to override. The badge label is honest to your query;
+            the actual execution strategy may differ when engine_v2 hasn't
+            registered a strategy for that intent yet. */}
+        <div style={{ marginBottom: 12, position: 'relative' }}>
           <span style={{ fontWeight: 600, marginRight: 8 }}>Detected intent</span>
-          <span
+          <button
+            type="button"
+            onClick={() => setIntentMenuOpen(v => !v)}
+            aria-haspopup="listbox"
+            aria-expanded={intentMenuOpen}
+            data-testid="intent-badge"
             style={{
               background: 'var(--accent)', color: '#fff',
               borderRadius: 4, padding: '1px 8px', fontSize: 11,
+              border: 'none', cursor: 'pointer',
+              fontFamily: 'inherit',
             }}
-            title={`Engine strategy: ${strategy}`}
+            title={intentOverride
+              ? `User-set. Engine strategy: ${strategy}`
+              : `Auto-detected. Engine strategy: ${strategy}`}
           >
-            {humanizeId(intent)}
-          </span>
+            {humanizeId(intent)} {intentMenuOpen ? '▴' : '▾'}
+          </button>
+          {intentOverride && (
+            <button
+              type="button"
+              onClick={() => setIntentOverride(null)}
+              style={{
+                marginLeft: 6, fontSize: 10, color: 'var(--muted)',
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+              title="Return to auto-detected intent"
+            >
+              ↺ reset
+            </button>
+          )}
           <button
             onClick={() => setAdvanced(v => !v)}
             style={{
@@ -333,6 +362,52 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
           >
             Advanced {advanced ? '▴' : '▾'}
           </button>
+
+          {intentMenuOpen && intents.length > 0 && (
+            <div
+              role="listbox"
+              data-testid="intent-menu"
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: 110,
+                marginTop: 4,
+                zIndex: 50,
+                background: 'var(--panel)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                padding: 4,
+                minWidth: 180,
+                maxHeight: 240,
+                overflowY: 'auto',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+              }}
+            >
+              {intents.map(opt => {
+                const selected = opt.id === intent
+                return (
+                  <button
+                    key={opt.id}
+                    role="option"
+                    aria-selected={selected}
+                    onClick={() => {
+                      setIntentOverride(opt.id)
+                      setIntentMenuOpen(false)
+                    }}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left',
+                      padding: '4px 8px', fontSize: 11,
+                      background: selected ? 'var(--accent)' : 'transparent',
+                      color: selected ? '#fff' : 'var(--text)',
+                      border: 'none', cursor: 'pointer', borderRadius: 3,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         {/* Advanced dials — 5 dials in a grid */}
