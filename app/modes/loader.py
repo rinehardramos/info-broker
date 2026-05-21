@@ -62,16 +62,21 @@ def _load_file(path: Path) -> Mode:
     return Mode.model_validate(raw)
 
 
-def get_default_mode_id(org_id: str | None) -> str:
-    """Resolve the default mode id for an org. Order: org → global → 'general'.
+_PREFLIGHT_DEFAULT_MODE_ID = "investigation"
 
-    Invalid stored ids (mode no longer bundled) silently fall through to the
-    next tier and ultimately to 'general' so the picker never preselects
-    nothing.
+
+def get_default_mode_id(org_id: str | None) -> str:
+    """Resolve the default preflight mode id for an org. Order: org → global → 'investigation'.
+
+    Validated against the preflight mode catalog (the one the picker renders),
+    NOT against the bundled YAML loop modes — they are separate concepts.
+    Invalid stored ids fall through to the next tier and ultimately to
+    'investigation' so the picker never preselects nothing.
     """
     from app.routers.v3.db import fetch_one  # local import avoids circulars
+    from app.routers.v3.preflight import valid_preflight_mode_ids
 
-    valid_ids = {m.id for m in list_modes()}
+    valid_ids = valid_preflight_mode_ids()
 
     if org_id:
         row = fetch_one(
@@ -88,4 +93,4 @@ def get_default_mode_id(org_id: str | None) -> str:
     if row and row.get("value") and row["value"] in valid_ids:
         return row["value"]
 
-    return _DEFAULT_MODE_ID
+    return _PREFLIGHT_DEFAULT_MODE_ID

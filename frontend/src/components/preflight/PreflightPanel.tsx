@@ -134,7 +134,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
 
   useEffect(() => {
     let cancelled = false
-    api.get('[REDACTED:high-entropy-base64:25ch:hash=d1ee1236]')
+    api.get('/v3/settings/default_mode')
       .then(r => { if (!cancelled) setDefaultMode((r.data as { resolved: string }).resolved) })
       .catch(() => { /* fall back to current state */ })
     return () => { cancelled = true }
@@ -169,10 +169,15 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
     runPreflightDebounced()
   }, [speed, capability, resource, hypothesisCount, depth]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync hypothesis_count if backend upgraded it (strategy floor enforcement)
+  // Sync hypothesis_count if backend upgraded it (strategy floor enforcement).
+  // The backend's suggested_mode is treated as a *recommendation* — the user's
+  // configured default (or manual pick) takes precedence. Suggested_mode only
+  // applies when the user has no default set and hasn't manually picked.
   useEffect(() => {
     if (estimate) {
-      setMode(estimate.suggested_mode)
+      if (!defaultMode && !userTouchedMode) {
+        setMode(estimate.suggested_mode)
+      }
       if (estimate.envelope.hypothesis_count !== hypothesisCount) {
         setHypothesisCount(estimate.envelope.hypothesis_count as DialsIn['hypothesis_count'])
       }

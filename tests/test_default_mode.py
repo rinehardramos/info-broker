@@ -20,43 +20,43 @@ def clean_settings():
 
 
 def test_resolution_falls_back_to_general(clean_settings):
-    assert get_default_mode_id(None) == "general"
-    assert get_default_mode_id(str(uuid.uuid4())) == "general"
+    assert get_default_mode_id(None) == "investigation"
+    assert get_default_mode_id(str(uuid.uuid4())) == "investigation"
 
 
 def test_resolution_uses_global(clean_settings):
     execute(
-        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'kyc_edd', false)",
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'quick_lookup', false)",
         (),
     )
-    assert get_default_mode_id(None) == "kyc_edd"
-    assert get_default_mode_id(str(uuid.uuid4())) == "kyc_edd"
+    assert get_default_mode_id(None) == "quick_lookup"
+    assert get_default_mode_id(str(uuid.uuid4())) == "quick_lookup"
 
 
 def test_org_overrides_global(clean_settings):
     org_id = str(uuid.uuid4())
     execute(
-        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'general', false)",
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'investigation', false)",
         (),
     )
     execute(
-        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'lead_gen')",
+        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'leads_generation')",
         (org_id,),
     )
-    assert get_default_mode_id(org_id) == "lead_gen"
+    assert get_default_mode_id(org_id) == "leads_generation"
 
 
 def test_invalid_org_value_falls_through_to_global(clean_settings):
     org_id = str(uuid.uuid4())
     execute(
-        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'lead_gen', false)",
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'leads_generation', false)",
         (),
     )
     execute(
         "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'bogus_id')",
         (org_id,),
     )
-    assert get_default_mode_id(org_id) == "lead_gen"
+    assert get_default_mode_id(org_id) == "leads_generation"
 
 
 def test_invalid_global_value_falls_through_to_general(clean_settings):
@@ -64,7 +64,7 @@ def test_invalid_global_value_falls_through_to_general(clean_settings):
         "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'bogus_id', false)",
         (),
     )
-    assert get_default_mode_id(None) == "general"
+    assert get_default_mode_id(None) == "investigation"
 
 
 from fastapi.testclient import TestClient
@@ -94,7 +94,7 @@ def test_get_default_mode_returns_fallback(clean_settings):
     assert r.status_code == 200
     body = r.json()
     assert body == {
-        "resolved": "general",
+        "resolved": "investigation",
         "source": "fallback",
         "org_value": None,
         "global_value": None,
@@ -103,36 +103,36 @@ def test_get_default_mode_returns_fallback(clean_settings):
 
 def test_get_default_mode_returns_global_when_set(clean_settings):
     execute(
-        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'lead_gen', false)",
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'leads_generation', false)",
         (),
     )
     client, headers, _, _ = _client_with_user()
     r = client.get("/v3/settings/default_mode", headers=headers)
     assert r.status_code == 200
     body = r.json()
-    assert body["resolved"] == "lead_gen"
+    assert body["resolved"] == "leads_generation"
     assert body["source"] == "global"
     assert body["org_value"] is None
-    assert body["global_value"] == "lead_gen"
+    assert body["global_value"] == "leads_generation"
 
 
 def test_get_default_mode_returns_org_override(clean_settings):
     client, headers, _, org_id = _client_with_user()
     execute(
-        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'general', false)",
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'investigation', false)",
         (),
     )
     execute(
-        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'kyc_edd')",
+        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'quick_lookup')",
         (org_id,),
     )
     r = client.get("/v3/settings/default_mode", headers=headers)
     body = r.json()
     assert body == {
-        "resolved": "kyc_edd",
+        "resolved": "quick_lookup",
         "source": "org",
-        "org_value": "kyc_edd",
-        "global_value": "general",
+        "org_value": "quick_lookup",
+        "global_value": "investigation",
     }
 
 
@@ -141,7 +141,7 @@ def test_put_global_requires_is_admin(clean_settings):
     r = client.put(
         "/v3/settings/default_mode",
         headers=headers,
-        json={"value": "lead_gen", "scope": "global"},
+        json={"value": "leads_generation", "scope": "global"},
     )
     assert r.status_code == 403
 
@@ -151,7 +151,7 @@ def test_put_org_requires_org_admin_role(clean_settings):
     r = client.put(
         "/v3/settings/default_mode",
         headers=headers,
-        json={"value": "lead_gen", "scope": "org"},
+        json={"value": "leads_generation", "scope": "org"},
     )
     assert r.status_code == 403
 
@@ -171,11 +171,11 @@ def test_put_global_persists_value(clean_settings):
     r = client.put(
         "/v3/settings/default_mode",
         headers=headers,
-        json={"value": "kyc_edd", "scope": "global"},
+        json={"value": "quick_lookup", "scope": "global"},
     )
     assert r.status_code == 200
     row = fetch_one("SELECT value FROM core_settings WHERE key = 'default_mode_id'", ())
-    assert row["value"] == "kyc_edd"
+    assert row["value"] == "quick_lookup"
 
 
 def test_put_org_persists_value(clean_settings):
@@ -183,20 +183,20 @@ def test_put_org_persists_value(clean_settings):
     r = client.put(
         "/v3/settings/default_mode",
         headers=headers,
-        json={"value": "lead_gen", "scope": "org"},
+        json={"value": "leads_generation", "scope": "org"},
     )
     assert r.status_code == 200
     row = fetch_one(
         "SELECT value FROM org_settings WHERE org_id = %s AND key = 'default_mode_id'",
         (org_id,),
     )
-    assert row["value"] == "lead_gen"
+    assert row["value"] == "leads_generation"
 
 
 def test_put_org_null_clears_override(clean_settings):
     client, headers, _, org_id = _client_with_user(is_admin=False, role="admin")
     execute(
-        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'lead_gen')",
+        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'leads_generation')",
         (org_id,),
     )
     r = client.put(

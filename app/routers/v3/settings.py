@@ -3,10 +3,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.crypto import decrypt_value, encrypt_value
-from app.modes.loader import get_default_mode_id, list_modes
+from app.modes.loader import get_default_mode_id
 from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.models import CoreSettingIn, CoreSettingsOut, DefaultModeIn, DefaultModeOut
+from app.routers.v3.preflight import valid_preflight_mode_ids
 
 router = APIRouter(prefix="/v3/settings", tags=["v3-settings"])
 
@@ -105,9 +106,10 @@ def put_default_mode(
         if not user.get("org_id"):
             raise HTTPException(status_code=400, detail="User has no org")
 
-    # Validate value (None means clear)
+    # Validate value (None means clear). Validate against the preflight mode
+    # catalog — these are the ids the picker actually renders.
     if body.value is not None:
-        valid = {m.id for m in list_modes()}
+        valid = valid_preflight_mode_ids()
         if body.value not in valid:
             raise HTTPException(
                 status_code=400,

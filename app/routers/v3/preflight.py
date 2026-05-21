@@ -284,6 +284,15 @@ def _get_wallet_snapshot(user_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def valid_preflight_mode_ids() -> set[str]:
+    """Set of mode ids served by GET [REDACTED:high-entropy-base64:23ch:hash=a944149d].
+
+    Used by settings/default_mode to validate user-chosen defaults against the
+    same mode catalog the picker actually renders.
+    """
+    return set(_MODE_META.keys())
+
+
 @router.get("/modes", response_model=list[ModeOut])
 def list_modes(_user: dict = Depends(get_current_user)):
     """Return all 6 optimization modes with their id, label, description, and dial defaults."""
