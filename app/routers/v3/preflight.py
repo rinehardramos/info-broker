@@ -331,8 +331,13 @@ def valid_preflight_mode_ids() -> set[str]:
 
 
 @router.get("/modes", response_model=list[ModeOut])
-def list_modes(_user: dict = Depends(get_current_user)):
-    """Return all 6 optimization modes with their id, label, description, and dial defaults."""
+def list_modes(user: dict = Depends(get_current_user)):
+    """Return optimization modes with id, label, description, and dial defaults.
+
+    Non-admin users see only modes visible at their effective scope
+    (per #107 visibility settings). Admins always see the full catalog so
+    they can author/check visibility without locking themselves out.
+    """
     result: list[ModeOut] = []
     for mode_id, mode_entry in _MODE_CATALOG.items():
         meta = _MODE_META.get(mode_id, {"label": mode_id, "description": ""})
@@ -351,7 +356,13 @@ def list_modes(_user: dict = Depends(get_current_user)):
                 ),
             )
         )
-    return result
+
+    if user.get("is_admin") or user.get("role") == "admin":
+        return result
+
+    from app.routers.v3.visibility import filter_visible
+    org_id = str(user["org_id"]) if user.get("org_id") else None
+    return filter_visible("mode", [m.model_dump() for m in result], org_id)
 
 
 @router.get("/intents", response_model=list[IntentOut])

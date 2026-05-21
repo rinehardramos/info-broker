@@ -116,6 +116,20 @@ def put_default_mode(
                 detail=f"Unknown mode id; must be one of {sorted(valid)}",
             )
 
+        # Don't let admins pin a default that they've hidden — would brick
+        # non-admin users. Check visibility at the same scope they're setting.
+        from app.routers.v3.visibility import is_id_visible
+        scope_org_id = str(user["org_id"]) if body.scope == "org" else None
+        if not is_id_visible("mode", body.value, scope_org_id):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Cannot set '{body.value}' as default — it is currently "
+                    f"hidden via mode_visibility. Unhide it first or pick a "
+                    f"visible mode."
+                ),
+            )
+
     if body.scope == "global":
         if body.value is None:
             execute("DELETE FROM core_settings WHERE key = 'default_mode_id'", ())

@@ -147,8 +147,17 @@ INVESTIGATION_TEMPLATES: list[dict] = [
 
 @router.get("/investigation-templates")
 def list_investigation_templates(user: dict = Depends(get_current_user)) -> list[dict]:
-    """Return the built-in investigation templates available to the user."""
-    return INVESTIGATION_TEMPLATES
+    """Return the built-in investigation templates available to the user.
+
+    Non-admin users see only templates visible at their effective scope
+    (per #107 visibility settings). Admins always see the full catalog.
+    """
+    if user.get("is_admin") or user.get("role") == "admin":
+        return INVESTIGATION_TEMPLATES
+
+    from app.routers.v3.visibility import filter_visible
+    org_id = str(user["org_id"]) if user.get("org_id") else None
+    return filter_visible("template", INVESTIGATION_TEMPLATES, org_id)
 
 
 @router.get("/investigation-templates/{template_id}")
