@@ -17,6 +17,7 @@ import {
   Users,
   Wallet,
   List,
+  FolderOpen,
 } from 'lucide-react'
 import { listPluginRequests } from '../../api/pipelines'
 import { LogoMark } from '@/components/brand/LogoMark'
@@ -29,6 +30,7 @@ const NAV = [
   // /history and /jobs both redirect to /runs in App.tsx.
   { icon: <List size={18} />,            path: '/runs',             label: 'History' },
   { icon: <Wallet size={18} />,          path: '/wallet',           label: 'Wallet' },
+  { icon: <FolderOpen size={18} />,      path: '/assets',           label: 'Assets' },
   { icon: <Puzzle size={18} />,          path: '/plugins',          label: 'Plugins' },
   { icon: <Server size={18} />,          path: '/admin/processes',  label: 'Live Processes' },
   { icon: <Network size={18} />,         path: '/knowledge',        label: 'Knowledge Graph' },
