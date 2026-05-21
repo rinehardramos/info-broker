@@ -16,7 +16,7 @@ test('admin sets global default mode and Preflight preselects it', async ({ page
   const token = await adminToken(req)
 
   // Reset state
-  await req.put(`${API}/v3/settings/default-mode`, {
+  await req.put(`${API}/v3/settings/default_mode`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { value: 'lead_gen', scope: 'global' },
   })
@@ -35,7 +35,7 @@ test('admin sets global default mode and Preflight preselects it', async ({ page
     .toBeVisible({ timeout: 10_000 })
 
   // Cleanup — clear the global default
-  await req.put(`${API}/v3/settings/default-mode`, {
+  await req.put(`${API}/v3/settings/default_mode`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { value: null, scope: 'global' },
   })

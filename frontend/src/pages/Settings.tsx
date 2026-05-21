@@ -435,7 +435,7 @@ function DefaultModeForm() {
   useEffect(() => {
     Promise.all([
       api.get('/v3/modes'),
-      api.get('/v3/settings/default-mode'),
+      api.get('/v3/settings/default_mode'),
     ])
       .then(([modesResp, defResp]) => {
         setModes(modesResp.data as ModeEntry[])
@@ -448,7 +448,7 @@ function DefaultModeForm() {
     setSaving(scope)
     setError(null)
     try {
-      const resp = await api.put('/v3/settings/default-mode', { value, scope })
+      const resp = await api.put('/v3/settings/default_mode', { value, scope })
       setState(resp.data as DefaultModeState)
     } catch (e: any) {
       setError(e?.response?.data?.detail || 'Save failed')
