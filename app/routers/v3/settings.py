@@ -3,9 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.crypto import decrypt_value, encrypt_value
+from app.modes.loader import get_default_mode_id
 from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
-from app.routers.v3.models import CoreSettingIn, CoreSettingsOut
+from app.routers.v3.models import CoreSettingIn, CoreSettingsOut, DefaultModeIn, DefaultModeOut
 
 router = APIRouter(prefix="/v3/settings", tags=["v3-settings"])
 
@@ -51,4 +52,39 @@ def set_plugin_enabled(plugin_id: str, body: dict, user: dict = Depends(require_
         "INSERT INTO core_settings (key, value, is_secret) VALUES (%s, %s, false) "
         "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()",
         (key, "true" if body.get("enabled", True) else "false"),
+    )
+
+
+@router.get("/default_mode", response_model=DefaultModeOut)
+def get_default_mode(user: dict = Depends(get_current_user)) -> DefaultModeOut:
+    org_id = str(user["org_id"]) if user.get("org_id") else None
+
+    org_row = (
+        fetch_one(
+            "SELECT value FROM org_settings WHERE org_id = %s AND key = 'default_mode_id'",
+            (org_id,),
+        )
+        if org_id
+        else None
+    )
+    org_value = org_row["value"] if org_row and org_row.get("value") else None
+
+    global_row = fetch_one(
+        "SELECT value FROM core_settings WHERE key = 'default_mode_id'", ()
+    )
+    global_value = global_row["value"] if global_row and global_row.get("value") else None
+
+    resolved = get_default_mode_id(org_id)
+    if org_value and resolved == org_value:
+        source: str = "org"
+    elif global_value and resolved == global_value:
+        source = "global"
+    else:
+        source = "fallback"
+
+    return DefaultModeOut(
+        resolved=resolved,
+        source=source,  # type: ignore[arg-type]
+        org_value=org_value,
+        global_value=global_value,
     )

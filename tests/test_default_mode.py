@@ -65,3 +65,72 @@ def test_invalid_global_value_falls_through_to_general(clean_settings):
         (),
     )
     assert get_default_mode_id(None) == "general"
+
+
+from fastapi.testclient import TestClient
+
+
+def _client_with_user(is_admin: bool = False, role: str = "analyst", org_id: str | None = None):
+    """Build a TestClient + a Bearer token for a freshly created test user."""
+    from app.main import app
+    from app.routers.v3.auth import _make_access_token
+    from app.routers.v3.db import execute
+
+    user_id = str(uuid.uuid4())
+    org = org_id or str(uuid.uuid4())
+    execute(
+        """INSERT INTO ui_users (id, username, email, password_hash, is_active, is_admin, role, org_id)
+           VALUES (%s, %s, %s, '', true, %s, %s, %s)""",
+        (user_id, f"u-{user_id[:8]}", f"{user_id[:8]}@ex.com", is_admin, role, org),
+    )
+    token = _make_access_token(user_id)
+    client = TestClient(app)
+    return client, {"Authorization": f"Bearer {token}"}, user_id, org
+
+
+def test_get_default_mode_returns_fallback(clean_settings):
+    client, headers, _, _ = _client_with_user()
+    r = client.get("/v3/settings/default_mode", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {
+        "resolved": "general",
+        "source": "fallback",
+        "org_value": None,
+        "global_value": None,
+    }
+
+
+def test_get_default_mode_returns_global_when_set(clean_settings):
+    execute(
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'lead_gen', false)",
+        (),
+    )
+    client, headers, _, _ = _client_with_user()
+    r = client.get("/v3/settings/default_mode", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["resolved"] == "lead_gen"
+    assert body["source"] == "global"
+    assert body["org_value"] is None
+    assert body["global_value"] == "lead_gen"
+
+
+def test_get_default_mode_returns_org_override(clean_settings):
+    client, headers, _, org_id = _client_with_user()
+    execute(
+        "INSERT INTO core_settings (key, value, is_secret) VALUES ('default_mode_id', 'general', false)",
+        (),
+    )
+    execute(
+        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'kyc_edd')",
+        (org_id,),
+    )
+    r = client.get("/v3/settings/default_mode", headers=headers)
+    body = r.json()
+    assert body == {
+        "resolved": "kyc_edd",
+        "source": "org",
+        "org_value": "kyc_edd",
+        "global_value": "general",
+    }
