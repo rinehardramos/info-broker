@@ -60,3 +60,32 @@ def get_mode(mode_id: str | None) -> Mode:
 def _load_file(path: Path) -> Mode:
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return Mode.model_validate(raw)
+
+
+def get_default_mode_id(org_id: str | None) -> str:
+    """Resolve the default mode id for an org. Order: org → global → 'general'.
+
+    Invalid stored ids (mode no longer bundled) silently fall through to the
+    next tier and ultimately to 'general' so the picker never preselects
+    nothing.
+    """
+    from app.routers.v3.db import fetch_one  # local import avoids circulars
+
+    valid_ids = {m.id for m in list_modes()}
+
+    if org_id:
+        row = fetch_one(
+            "SELECT value FROM org_settings WHERE org_id = %s AND key = 'default_mode_id'",
+            (org_id,),
+        )
+        if row and row.get("value") and row["value"] in valid_ids:
+            return row["value"]
+
+    row = fetch_one(
+        "SELECT value FROM core_settings WHERE key = 'default_mode_id'",
+        (),
+    )
+    if row and row.get("value") and row["value"] in valid_ids:
+        return row["value"]
+
+    return _DEFAULT_MODE_ID
