@@ -519,11 +519,153 @@ function DefaultModeForm() {
   )
 }
 
+type VisibilityKind = 'mode' | 'template'
+
+type VisibilityState = {
+  kind: string
+  org: Record<string, boolean> | null
+  global: Record<string, boolean> | null
+  resolved: Record<string, boolean>
+  known_ids: string[]
+}
+
+function VisibilityForm() {
+  const isAdmin = useSessionStore(s => s.isAdmin)
+  const role = useSessionStore(s => s.role)
+  const isOrgAdmin = role === 'admin'
+
+  // Human labels — modes from /v3/preflight/modes (admin sees all there
+  // because the endpoint short-circuits for admins); templates from
+  // /v3/investigation-templates.
+  const [modeLabels, setModeLabels] = useState<Record<string, string>>({})
+  const [tplLabels, setTplLabels] = useState<Record<string, string>>({})
+  const [modeState, setModeState] = useState<VisibilityState | null>(null)
+  const [tplState, setTplState] = useState<VisibilityState | null>(null)
+  const [savingScope, setSavingScope] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/v3/preflight/modes'),
+      api.get('/v3/investigation-templates'),
+      api.get('/v3/settings/mode_visibility'),
+      api.get('/v3/settings/template_visibility'),
+    ])
+      .then(([m, t, mv, tv]) => {
+        setModeLabels(Object.fromEntries((m.data as { id: string; label: string }[]).map(x => [x.id, x.label])))
+        setTplLabels(Object.fromEntries((t.data as { id: string; name: string }[]).map(x => [x.id, x.name])))
+        setModeState(mv.data as VisibilityState)
+        setTplState(tv.data as VisibilityState)
+      })
+      .catch(e => setError(e?.response?.data?.detail || 'Failed to load visibility settings'))
+  }, [])
+
+  async function setItem(kind: VisibilityKind, scope: 'global' | 'org', id: string, visible: boolean) {
+    setSavingScope(`${kind}:${scope}:${id}`)
+    setError(null)
+    try {
+      const state = kind === 'mode' ? modeState : tplState
+      const current = (scope === 'org' ? state?.org : state?.global) ?? {}
+      // Missing entry == visible. Toggle: visible→remove key OR set false; hidden→remove key OR set true.
+      const next = { ...current }
+      if (visible) delete next[id]
+      else next[id] = false
+      const value = Object.keys(next).length === 0 ? null : next
+      const resp = await api.put(`/v3/settings/${kind}_visibility`, { scope, value })
+      const data = resp.data as VisibilityState
+      if (kind === 'mode') setModeState(data); else setTplState(data)
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } }
+      setError(ax?.response?.data?.detail || 'Save failed')
+    } finally {
+      setSavingScope(null)
+    }
+  }
+
+  if (error && !modeState) return <div style={{ color: '#f87171', fontSize: 12 }}>{error}</div>
+  if (!modeState || !tplState) return <div style={{ color: 'var(--muted)', fontSize: 12 }}>Loading…</div>
+
+  const scope: 'global' | 'org' = isAdmin ? 'global' : 'org'
+  const scopeLabel = scope === 'global' ? 'Global (all orgs)' : 'Your org'
+
+  function renderSection(
+    kind: VisibilityKind,
+    state: VisibilityState,
+    labels: Record<string, string>,
+  ) {
+    const overrides = (scope === 'org' ? state.org : state.global) ?? {}
+    const items = state.known_ids.map(id => {
+      const visible = (scope === 'org' ? state.org : state.global)?.[id] !== false
+      return { id, label: labels[id] ?? id, visible, overridden: id in overrides }
+    })
+
+    return (
+      <section style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>
+          {kind === 'mode' ? 'Modes' : 'Investigation Templates'}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+          Toggle items off to hide them from non-admin users in {scopeLabel.toLowerCase()}.
+        </div>
+        <div style={{ display: 'grid', gap: 4 }}>
+          {items.map(it => (
+            <label
+              key={it.id}
+              data-testid={`vis-${kind}-${it.id}`}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '6px 10px', borderRadius: 4,
+                background: 'var(--panel)', border: '1px solid var(--border)',
+                fontSize: 12, cursor: 'pointer',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={it.visible}
+                disabled={savingScope === `${kind}:${scope}:${it.id}`}
+                onChange={e => setItem(kind, scope, it.id, e.target.checked)}
+              />
+              <span style={{ flex: 1, color: 'var(--text)' }}>{it.label}</span>
+              {it.overridden && (
+                <span style={{ fontSize: 10, color: 'var(--accent)' }}>
+                  override
+                </span>
+              )}
+            </label>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <div>
+      {!isAdmin && !isOrgAdmin && (
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Admins only.
+        </div>
+      )}
+      {(isAdmin || isOrgAdmin) && (
+        <>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>
+            Editing scope: <b style={{ color: 'var(--text)' }}>{scopeLabel}</b>.
+            {scope === 'global' && ' Org-admin overrides take precedence over this when both are set.'}
+          </div>
+          {error && <div style={{ color: '#f87171', fontSize: 12, marginBottom: 8 }}>{error}</div>}
+          {renderSection('mode', modeState, modeLabels)}
+          {renderSection('template', tplState, tplLabels)}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
   const isAdmin = useSessionStore(s => s.isAdmin)
   const role = useSessionStore(s => s.role)
   const canSeeDefaultMode = isAdmin || role === 'admin'
-  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode'>(
+  const canSeeVisibility = isAdmin || role === 'admin'
+  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode' | 'visibility'>(
     isAdmin ? 'core' : 'account',
   )
 
@@ -554,6 +696,20 @@ export default function Settings() {
               }}
             >
               Default Mode
+            </button>
+          )}
+          {canSeeVisibility && (
+            <button
+              onClick={() => setSection('visibility')}
+              className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+              data-testid="settings-nav-visibility"
+              style={{
+                background: section === 'visibility' ? 'var(--panel2)' : 'transparent',
+                color: section === 'visibility' ? 'var(--accent)' : 'var(--text)',
+                border: 'none', cursor: 'pointer',
+              }}
+            >
+              Modes &amp; Templates
             </button>
           )}
 
@@ -625,6 +781,7 @@ export default function Settings() {
               : section === 'agent' ? 'Agent Settings'
               : section === 'node-health' ? 'Node Health'
               : section === 'default-mode' ? 'Default Mode'
+              : section === 'visibility' ? 'Modes & Templates'
               : 'Plugin Settings'}
           </h2>
           {section === 'account' && <AccountSection />}
@@ -633,6 +790,7 @@ export default function Settings() {
           {section === 'agent' && <AgentSettingsForm />}
           {section === 'node-health' && <NodeHealthSection />}
           {section === 'default-mode' && <DefaultModeForm />}
+          {canSeeVisibility && section === 'visibility' && <VisibilityForm />}
         </div>
       </div>
       <IconRail />
