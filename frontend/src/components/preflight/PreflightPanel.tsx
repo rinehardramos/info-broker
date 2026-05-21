@@ -134,7 +134,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
 
   useEffect(() => {
     let cancelled = false
-    api.get('/settings/default-mode')
+    api.get('[REDACTED:high-entropy-base64:25ch:hash=d1ee1236]')
       .then(r => { if (!cancelled) setDefaultMode((r.data as { resolved: string }).resolved) })
       .catch(() => { /* fall back to current state */ })
     return () => { cancelled = true }
