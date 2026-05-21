@@ -55,3 +55,30 @@ Covers Phase 3 (few-shot injection), Phase 4 (critic agent), and Phase 5 (fine-t
 - **Fine-tune export** — asserts that `export_dataset.row_to_chat_example` builds the expected `{"messages": [system, user, assistant]}` shape and that `fetch_training_rows` applies the `min_grade` filter.
 
 Mocks use `types.SimpleNamespace` to stand in for `openai` response objects and `unittest.mock.patch` for Postgres / Qdrant clients. Like `test_episodic_memory.py`, the file uses `pytest.importorskip` so it degrades gracefully when runtime deps are missing.
+
+## End-to-end (Playwright)
+
+The frontend suite at `frontend/e2e/*.spec.ts` runs against a live URL (defaults to `http://localhost:5173`; production specs target `https://infobroker.tech`). Tests authenticate with the seeded `admin/admin` user — see `app/routers/v3/db.py` `_SEED`. Headed runs display via WSLg on Windows.
+
+```sh
+cd frontend
+npm install                                          # one-time
+npx playwright install chromium                      # one-time browser fetch
+                                                     # (on Ubuntu 26.04, set
+                                                     # PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu22.04-x64)
+npx playwright test --project=chromium               # headless full suite
+npx playwright test SPEC --headed --project=chromium # one spec, visible browser
+```
+
+### `frontend/e2e/verify-infobroker-tech.spec.ts`
+
+Single-test smoke check of the production stack: loads `https://infobroker.tech`, signs in as `admin/admin` against `api.infobroker.tech` (the Cloudflare Tunnel origin), asserts redirect off `/login`, and confirms ≥1 same-origin API call succeeded. Screenshots land in `/tmp/ib-*.png`. Fails only on uncaught `pageerror`s — 401s before login and Google-GSI noise are ignored.
+
+### `frontend/e2e/thorough-infobroker-tech.spec.ts`
+
+Authenticated sweep across **every** user + admin route (14 of them at time of writing). For each route it navigates, waits for `networkidle`, screenshots full-page, and records uncaught page errors, console errors, and 4xx/5xx responses from `api.infobroker.tech`. Output:
+
+- `/tmp/ib-sweep/*.png` — one full-page screenshot per route
+- `/tmp/ib-thorough-report.json` — structured `{ bugs: [...], bugs_distinct, ... }` ready for ticket filing
+
+Use this whenever you want a fast end-to-end sanity check after schema or backend changes; the JSON report makes triage scriptable (`gh issue create` per distinct bug).
