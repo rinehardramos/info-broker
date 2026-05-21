@@ -23,6 +23,7 @@ const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
 const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
 const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
+const AssetsPage = lazy(() => import('./pages/AssetsPage'))
 const Wallet = lazy(() => import('./pages/Wallet'))
 const Runs = lazy(() => import('./pages/Runs'))
 const SharedRunPage = lazy(() => import('./pages/SharedRunPage'))
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="/history" element={<Navigate to="/runs" replace />} />
             <Route path="/runs" element={<AuthGuard><Runs /></AuthGuard>} />
             <Route path="/wallet" element={<AuthGuard><Wallet /></AuthGuard>} />
+            <Route path="/assets" element={<AuthGuard><AssetsPage /></AuthGuard>} />
             <Route path="/linkedin" element={<AuthGuard><LinkedInPage /></AuthGuard>} />
             <Route path="/plugins" element={<AuthGuard><PluginsPage /></AuthGuard>} />
             <Route path="/plugins/node/:nodeType" element={<AuthGuard><NodePluginPage /></AuthGuard>} />
