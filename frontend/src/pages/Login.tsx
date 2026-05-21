@@ -184,18 +184,26 @@ export default function Login() {
                 Continue with Google
               </Button>
             )}
-            <Button
+            <button
               type="button"
-              variant="outline"
               onClick={() => startOAuth('github')}
-              className="w-full gap-2 text-sm"
-              style={{ borderColor: 'var(--border)', color: providers.github ? 'var(--text)' : 'var(--subtext)', background: 'transparent' }}
               disabled={!providers.github}
               title={providers.github ? 'Continue with your GitHub account' : 'GitHub login — not configured'}
+              className="w-full inline-flex items-center justify-center gap-2 text-sm font-semibold rounded-md px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{
+                background: '#24292e',
+                color: '#ffffff',
+                border: '1px solid #24292e',
+                cursor: providers.github ? 'pointer' : 'not-allowed',
+              }}
+              onMouseEnter={e => { if (providers.github) e.currentTarget.style.background = '#1b1f23' }}
+              onMouseLeave={e => { if (providers.github) e.currentTarget.style.background = '#24292e' }}
             >
-              <GithubIcon />
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 .5C5.65.5.5 5.65.5 12.02c0 5.1 3.29 9.42 7.86 10.95.57.1.78-.25.78-.55v-1.93c-3.2.7-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.68-1.27-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.71 0-1.26.45-2.29 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11.04 11.04 0 0 1 5.79 0c2.21-1.49 3.18-1.18 3.18-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.83 1.18 3.09 0 4.43-2.69 5.41-5.25 5.7.41.36.78 1.07.78 2.16v3.2c0 .31.21.66.79.55C20.21 21.43 23.5 17.12 23.5 12.02 23.5 5.65 18.35.5 12 .5Z"/>
+              </svg>
               Continue with GitHub
-            </Button>
+            </button>
           </div>
 
           <div className="flex items-center gap-3 mb-5">

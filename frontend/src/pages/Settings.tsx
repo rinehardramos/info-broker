@@ -434,7 +434,7 @@ function DefaultModeForm() {
 
   useEffect(() => {
     Promise.all([
-      api.get('/v3/modes'),
+      api.get('/v3/preflight/modes'),
       api.get('/v3/settings/default_mode'),
     ])
       .then(([modesResp, defResp]) => {
@@ -476,7 +476,7 @@ function DefaultModeForm() {
             className="text-xs px-2 py-1 rounded"
             style={{ background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
           >
-            <option value="">— not set (uses fallback: general) —</option>
+            <option value="">— not set (uses fallback: investigation) —</option>
             {modes.map(m => (
               <option key={m.id} value={m.id}>{m.label}</option>
             ))}
@@ -499,7 +499,7 @@ function DefaultModeForm() {
             className="text-xs px-2 py-1 rounded"
             style={{ background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
           >
-            <option value="">Use system default ({labelFor(state.global_value || 'general')})</option>
+            <option value="">Use system default ({labelFor(state.global_value || 'investigation')})</option>
             {modes.map(m => (
               <option key={m.id} value={m.id}>{m.label}</option>
             ))}
@@ -507,7 +507,7 @@ function DefaultModeForm() {
           <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
             {state.org_value
               ? 'Active for everyone in this org.'
-              : `Inherited from system default: ${labelFor(state.global_value || 'general')}.`}
+              : `Inherited from system default: ${labelFor(state.global_value || 'investigation')}.`}
           </div>
         </section>
       )}
