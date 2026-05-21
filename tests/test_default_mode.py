@@ -134,3 +134,79 @@ def test_get_default_mode_returns_org_override(clean_settings):
         "org_value": "kyc_edd",
         "global_value": "general",
     }
+
+
+def test_put_global_requires_is_admin(clean_settings):
+    client, headers, _, _ = _client_with_user(is_admin=False, role="admin")
+    r = client.put(
+        "/v3/settings/default_mode",
+        headers=headers,
+        json={"value": "lead_gen", "scope": "global"},
+    )
+    assert r.status_code == 403
+
+
+def test_put_org_requires_org_admin_role(clean_settings):
+    client, headers, _, _ = _client_with_user(is_admin=False, role="analyst")
+    r = client.put(
+        "/v3/settings/default_mode",
+        headers=headers,
+        json={"value": "lead_gen", "scope": "org"},
+    )
+    assert r.status_code == 403
+
+
+def test_put_rejects_unknown_mode_id(clean_settings):
+    client, headers, _, _ = _client_with_user(is_admin=True)
+    r = client.put(
+        "/v3/settings/default_mode",
+        headers=headers,
+        json={"value": "totally_made_up", "scope": "global"},
+    )
+    assert r.status_code == 400
+
+
+def test_put_global_persists_value(clean_settings):
+    client, headers, _, _ = _client_with_user(is_admin=True)
+    r = client.put(
+        "/v3/settings/default_mode",
+        headers=headers,
+        json={"value": "kyc_edd", "scope": "global"},
+    )
+    assert r.status_code == 200
+    row = fetch_one("SELECT value FROM core_settings WHERE key = 'default_mode_id'", ())
+    assert row["value"] == "kyc_edd"
+
+
+def test_put_org_persists_value(clean_settings):
+    client, headers, _, org_id = _client_with_user(is_admin=False, role="admin")
+    r = client.put(
+        "/v3/settings/default_mode",
+        headers=headers,
+        json={"value": "lead_gen", "scope": "org"},
+    )
+    assert r.status_code == 200
+    row = fetch_one(
+        "SELECT value FROM org_settings WHERE org_id = %s AND key = 'default_mode_id'",
+        (org_id,),
+    )
+    assert row["value"] == "lead_gen"
+
+
+def test_put_org_null_clears_override(clean_settings):
+    client, headers, _, org_id = _client_with_user(is_admin=False, role="admin")
+    execute(
+        "INSERT INTO org_settings (org_id, key, value) VALUES (%s, 'default_mode_id', 'lead_gen')",
+        (org_id,),
+    )
+    r = client.put(
+        "/v3/settings/default_mode",
+        headers=headers,
+        json={"value": None, "scope": "org"},
+    )
+    assert r.status_code == 200
+    row = fetch_one(
+        "SELECT value FROM org_settings WHERE org_id = %s AND key = 'default_mode_id'",
+        (org_id,),
+    )
+    assert row is None
