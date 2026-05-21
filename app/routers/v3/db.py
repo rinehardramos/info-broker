@@ -62,6 +62,14 @@ CREATE TABLE IF NOT EXISTS core_settings (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS org_settings (
+    org_id     UUID NOT NULL,
+    key        VARCHAR(128) NOT NULL,
+    value      TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (org_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS v3_jobs (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID REFERENCES ui_users(id) ON DELETE CASCADE,
