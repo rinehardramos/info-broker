@@ -99,7 +99,9 @@ call the PlayGen API directly and holds no PlayGen service account. See
 | `S3_ACCESS_KEY_ID` | R2 access key |
 | `S3_SECRET_ACCESS_KEY` | R2 secret key |
 
-**Deployment:** info-broker runs as a Railway service within the PlayGen project. Internal hostname: `info-broker.railway.internal:8000`.
+**Deployment:**
+- **Frontend** (`infobroker.tech`) — Cloudflare Pages, auto-deploys on push to `main` via `.github/workflows/cloudflare-pages.yml`.
+- **Backend** (`api.infobroker.tech`) — FastAPI in Docker on the home server, exposed via Cloudflare Tunnel. **No CI/CD** — runbook in [`docs/operations/backend-deploy.md`](docs/operations/backend-deploy.md). Merging a PR that touches `app/`, `pyproject.toml`, or the `Dockerfile` requires running the three-command deploy on the home server, or the new routes will 404 in prod.
 
 ### curl examples
 
