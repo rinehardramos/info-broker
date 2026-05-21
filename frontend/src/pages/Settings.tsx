@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import IconRail from '../components/layout/IconRail'
 import { useSessionStore } from '../stores/sessionStore'
 import AccountSection from '../components/settings/AccountSection'
+import { api } from '../api/client'
 
 const CORE_FIELDS = [
   // LLM Model Tiers
@@ -412,9 +413,117 @@ function NodeHealthSection() {
   )
 }
 
+type DefaultModeState = {
+  resolved: string
+  source: 'org' | 'global' | 'fallback'
+  org_value: string | null
+  global_value: string | null
+}
+
+type ModeEntry = { id: string; label: string; description?: string }
+
+function DefaultModeForm() {
+  const isAdmin = useSessionStore(s => s.isAdmin)
+  const role = useSessionStore(s => s.role)
+  const isOrgAdmin = role === 'admin'
+
+  const [modes, setModes] = useState<ModeEntry[]>([])
+  const [state, setState] = useState<DefaultModeState | null>(null)
+  const [saving, setSaving] = useState<'global' | 'org' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      api.get('/v3/modes'),
+      api.get('/v3/settings/default-mode'),
+    ])
+      .then(([modesResp, defResp]) => {
+        setModes(modesResp.data as ModeEntry[])
+        setState(defResp.data as DefaultModeState)
+      })
+      .catch(e => setError(e?.response?.data?.detail || 'Failed to load'))
+  }, [])
+
+  async function save(scope: 'global' | 'org', value: string | null) {
+    setSaving(scope)
+    setError(null)
+    try {
+      const resp = await api.put('/v3/settings/default-mode', { value, scope })
+      setState(resp.data as DefaultModeState)
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || 'Save failed')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  if (error) return <div style={{ color: 'var(--danger)' }}>{error}</div>
+  if (!state) return <div style={{ color: 'var(--muted)' }}>Loading…</div>
+
+  const labelFor = (id: string) => modes.find(m => m.id === id)?.label || id
+
+  return (
+    <div className="space-y-6">
+      {isAdmin && (
+        <section>
+          <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text)' }}>
+            System default
+          </div>
+          <select
+            disabled={saving === 'global'}
+            value={state.global_value ?? ''}
+            onChange={e => save('global', e.target.value || null)}
+            className="text-xs px-2 py-1 rounded"
+            style={{ background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
+          >
+            <option value="">— not set (uses fallback: general) —</option>
+            {modes.map(m => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+          <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
+            Applies to every org that has not set its own override.
+          </div>
+        </section>
+      )}
+
+      {isOrgAdmin && (
+        <section>
+          <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text)' }}>
+            Org default
+          </div>
+          <select
+            disabled={saving === 'org'}
+            value={state.org_value ?? ''}
+            onChange={e => save('org', e.target.value || null)}
+            className="text-xs px-2 py-1 rounded"
+            style={{ background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
+          >
+            <option value="">Use system default ({labelFor(state.global_value || 'general')})</option>
+            {modes.map(m => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+          <div className="text-[11px] mt-1" style={{ color: 'var(--muted)' }}>
+            {state.org_value
+              ? 'Active for everyone in this org.'
+              : `Inherited from system default: ${labelFor(state.global_value || 'general')}.`}
+          </div>
+        </section>
+      )}
+
+      <div className="text-[11px] pt-2" style={{ color: 'var(--muted)', borderTop: '1px solid var(--border)' }}>
+        Currently resolved for you: <b>{labelFor(state.resolved)}</b> (source: {state.source})
+      </div>
+    </div>
+  )
+}
+
 export default function Settings() {
   const isAdmin = useSessionStore(s => s.isAdmin)
-  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account'>(
+  const role = useSessionStore(s => s.role)
+  const canSeeDefaultMode = isAdmin || role === 'admin'
+  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode'>(
     isAdmin ? 'core' : 'account',
   )
 
@@ -434,6 +543,19 @@ export default function Settings() {
           >
             Account
           </button>
+          {canSeeDefaultMode && (
+            <button
+              onClick={() => setSection('default-mode')}
+              className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+              style={{
+                background: section === 'default-mode' ? 'var(--panel2)' : 'transparent',
+                color: section === 'default-mode' ? 'var(--accent)' : 'var(--text)',
+                border: 'none', cursor: 'pointer',
+              }}
+            >
+              Default Mode
+            </button>
+          )}
 
           {isAdmin && (
             <>
@@ -502,6 +624,7 @@ export default function Settings() {
               : section === 'core' ? 'Core Settings'
               : section === 'agent' ? 'Agent Settings'
               : section === 'node-health' ? 'Node Health'
+              : section === 'default-mode' ? 'Default Mode'
               : 'Plugin Settings'}
           </h2>
           {section === 'account' && <AccountSection />}
@@ -509,6 +632,7 @@ export default function Settings() {
           {isAdmin && section === 'plugins' && <PluginSettingsForm />}
           {section === 'agent' && <AgentSettingsForm />}
           {section === 'node-health' && <NodeHealthSection />}
+          {section === 'default-mode' && <DefaultModeForm />}
         </div>
       </div>
       <IconRail />
