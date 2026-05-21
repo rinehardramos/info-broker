@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { api } from '../../api/client'
 import { usePreflight } from '../../hooks/usePreflight'
 import type { DialsIn, ModeEntry } from '../../hooks/usePreflight'
 import { ModePicker } from './ModePicker'
@@ -127,6 +128,24 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
       if (userDefaults.hypothesis_count) setHypothesisCount(userDefaults.hypothesis_count as DialsIn['hypothesis_count'])
     }
   }, [userDefaults]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [defaultMode, setDefaultMode] = useState<string | null>(null)
+  const [userTouchedMode, setUserTouchedMode] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.get('/settings/default-mode')
+      .then(r => { if (!cancelled) setDefaultMode((r.data as { resolved: string }).resolved) })
+      .catch(() => { /* fall back to current state */ })
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (defaultMode && !userTouchedMode) {
+      setMode(defaultMode)
+    }
+  }, [defaultMode, userTouchedMode])
+
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [showSaveCta, setShowSaveCta] = useState(false)
 
@@ -162,6 +181,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
 
   // ---- mode selection -------------------------------------------------------
   function handleModeSelect(modeEntry: ModeEntry) {
+    setUserTouchedMode(true)
     const d = modeEntry.dial_defaults
     setMode(modeEntry.id)
     setSpeed(d.speed as DialsIn['speed'])
