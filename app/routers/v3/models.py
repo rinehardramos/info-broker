@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
@@ -362,3 +362,17 @@ class PluginRequestOut(BaseModel):
 
 class PluginRequestStatusIn(BaseModel):
     status: str  # "approved" | "rejected" | "implemented"
+
+
+class DefaultModeOut(BaseModel):
+    """Resolved default mode plus its provenance, for the calling user's org."""
+    resolved: str
+    source: Literal["org", "global", "fallback"]
+    org_value: str | None
+    global_value: str | None
+
+
+class DefaultModeIn(BaseModel):
+    """Write-side payload for PUT [REDACTED:high-entropy-base64:25ch:hash=d1ee1236]."""
+    value: str | None  # null clears the override at this scope
+    scope: Literal["global", "org"]
