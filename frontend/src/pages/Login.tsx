@@ -103,10 +103,14 @@ export default function Login() {
         cancel_on_tap_outside: true,
       })
       if (gsiBtnRef.current) {
+        // GIS only accepts integer widths and caps at 400. Read the actual
+        // container width on mount so both social buttons share the same
+        // footprint regardless of card width.
+        const w = Math.min(400, Math.max(200, Math.round(gsiBtnRef.current.clientWidth || 320)))
         g.accounts.id.renderButton(gsiBtnRef.current, {
           theme: 'filled_black',
           size: 'large',
-          width: 320,
+          width: w,
           shape: 'rectangular',
           text: 'continue_with',
         })
@@ -189,11 +193,12 @@ export default function Login() {
               onClick={() => startOAuth('github')}
               disabled={!providers.github}
               title={providers.github ? 'Continue with your GitHub account' : 'GitHub login — not configured'}
-              className="w-full inline-flex items-center justify-center gap-2 text-sm font-semibold rounded-md px-4 py-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full inline-flex items-center justify-center gap-2 text-sm font-semibold rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 background: '#24292e',
                 color: '#ffffff',
                 border: '1px solid #24292e',
+                height: 40,
                 cursor: providers.github ? 'pointer' : 'not-allowed',
               }}
               onMouseEnter={e => { if (providers.github) e.currentTarget.style.background = '#1b1f23' }}
