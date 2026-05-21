@@ -97,10 +97,16 @@ class TestClassifyQuery:
             "what show is the girl in the new netflix series"
         ) == "media_identification"
 
-    def test_person_query_without_person_module_falls_to_generic_search(self):
-        """'investigate <name>' → person intent → no person.py module yet →
-        floor to generic_search (not media_identification, regression check)."""
-        assert _classify_query("investigate Acme Corp") == "generic_search"
+    def test_person_query_routes_to_person(self):
+        """'investigate <name>' → person intent → routes to person.py
+        (added in the ACH-strategies batch). Was 'generic_search' before
+        person.py existed."""
+        assert _classify_query("investigate Acme Corp") == "person"
+
+    def test_due_diligence_query_routes_to_due_diligence(self):
+        """'kyc on <entity>' → due_diligence intent → due_diligence.py
+        (added in the ACH-strategies batch)."""
+        assert _classify_query("kyc on Acme Corp") == "due_diligence"
 
 
 # ---------------------------------------------------------------------------
