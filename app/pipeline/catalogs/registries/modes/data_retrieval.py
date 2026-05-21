@@ -16,6 +16,6 @@ MODE = {
     },
     # TODO post-MVP: populate tactic_bias (tmdb, structured-source-first)
     "tactic_bias": {},
-    # TODO post-MVP: populate strategy_suggestions from classifier calibration
-    "strategy_suggestions": [],
+    # Structured-source intents in priority order, then generic floor.
+    "strategy_suggestions": ["real_estate", "place", "company", "generic_search"],
 }

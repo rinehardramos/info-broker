@@ -17,6 +17,8 @@ MODE = {
     },
     # TODO post-MVP: populate tactic_bias (counter_curation, disconfirm, wayback)
     "tactic_bias": {},
-    # TODO post-MVP: populate strategy_suggestions from classifier calibration
-    "strategy_suggestions": [],
+    # Investigative intents in priority order. media_identification is the
+    # only ACH-shaped one today; person + due_diligence are placeholders
+    # for future ACH-shaped strategy modules.
+    "strategy_suggestions": ["media_identification", "person", "due_diligence", "generic_search"],
 }

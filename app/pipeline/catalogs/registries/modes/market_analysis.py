@@ -16,6 +16,6 @@ MODE = {
     },
     # TODO post-MVP: populate tactic_bias (comparative, trend_analysis)
     "tactic_bias": {},
-    # TODO post-MVP: populate strategy_suggestions from classifier calibration
-    "strategy_suggestions": [],
+    # Comparative-trend intents in priority order, then generic floor.
+    "strategy_suggestions": ["prediction", "company", "generic_search"],
 }

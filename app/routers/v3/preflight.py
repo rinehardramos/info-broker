@@ -33,11 +33,13 @@ from app.pipeline.estimator import estimate_run
 from app.pipeline import budget as wallet
 
 # ---------------------------------------------------------------------------
-# Mode catalog — loaded once at import time
+# Mode + strategy catalogs — loaded once at import time
 # ---------------------------------------------------------------------------
 
 _MODES_DIR = Path(__file__).resolve().parent.parent.parent / "pipeline" / "catalogs" / "registries" / "modes"
+_STRATEGIES_DIR = Path(__file__).resolve().parent.parent.parent / "pipeline" / "catalogs" / "registries" / "strategies"
 _MODE_CATALOG = load_catalog("mode", _MODES_DIR)
+_STRATEGY_CATALOG = load_catalog("strategy", _STRATEGIES_DIR)
 
 log = logging.getLogger(__name__)
 
@@ -133,36 +135,75 @@ _KNOWN_INTENTS: list[tuple[str, str]] = [
 _VALID_INTENT_IDS: set[str] = {i for i, _ in _KNOWN_INTENTS}
 
 
-def _classify_query(query: str) -> str:
+def _classify_query(query: str, mode: str | None = None) -> str:
     """Return a strategy_id for the given query, clamped to whatever
-    engine_v2's catalog registry actually supports (today: just
-    media_identification). As more strategy modules are ported into
-    app/pipeline/catalogs/registries/strategies/ they're picked up
-    automatically.
+    engine_v2's catalog registry actually supports. ``mode`` (optional)
+    feeds the mode-anchored step of the resolution chain — see
+    ``_resolve_strategy``.
     """
-    return _resolve_strategy(_classify_intent(query))
+    return _resolve_strategy(_classify_intent(query), mode)
 
 
-def _resolve_strategy(intent: str) -> str:
-    """Map an intent category to an engine_v2-runnable strategy_id, clamped
-    to the catalog registry. Shared by auto-detection and intent_override
-    so both paths land in the same place.
+def _resolve_strategy(intent: str, mode: str | None = None) -> str:
+    """Map an intent (and optional mode) to an engine_v2-runnable strategy_id.
+
+    Resolution chain (most specific → most permissive):
+
+      1. **Intent module** — a dedicated strategy module whose id matches
+         ``intent`` (e.g. ``real_estate`` → ``real_estate.py``). Most precise.
+      2. **Mode-anchored strategy** — the first id in the mode's
+         ``strategy_suggestions`` list (catalog field on
+         ``OptimizationMode``) that is actually registered. Lets a user who
+         picks "academic_research" mode with a vague query still route to
+         the academic strategy.
+      3. **``generic_search``** — permissive single-phase retrieval floor.
+         Prevents hard-fail on intents that have no dedicated module
+         (regression-tested against the b0e457a4 run that died at the
+         media_identification broaden gate).
+      4. **``media_identification``** — legacy fallback for the unlikely
+         case where ``generic_search`` isn't registered yet.
+      5. **First supported strategy** — absolute last resort.
+
+    Shared by auto-detection and ``intent_override`` so both paths land in
+    the same place.
     """
     supported = _engine_v2_supported_strategies()
+
+    # 1. Dedicated intent module wins.
     if intent in supported:
         return intent
+
+    # 2. Mode anchor — first registered strategy in the mode's suggestion list.
+    if mode:
+        mode_entry = _MODE_CATALOG.get(mode)
+        if mode_entry is not None:
+            for candidate in mode_entry.strategy_suggestions:
+                if candidate in supported:
+                    return candidate
+
+    # 3. Permissive floor.
+    if "generic_search" in supported:
+        return "generic_search"
+
+    # 4. Legacy floor (in case generic_search hasn't been deployed yet).
     if "media_identification" in supported:
         return "media_identification"
+
+    # 5. Whatever's available.
     return next(iter(supported))
 
 
 def _suggest_mode(strategy_id: str) -> str:
-    """Suggest a mode based on strategy.
+    """Suggest a mode based on the strategy's declared ``default_mode``.
 
-    MVP: media_identification → investigation.
+    Each registered Strategy catalog entry carries a ``default_mode`` field
+    (see app/pipeline/catalogs/builders/research_skeleton.py and
+    app/pipeline/catalogs/registries/strategies/*.py). Falls back to
+    ``quick_lookup`` if the strategy isn't registered.
     """
-    if strategy_id == "media_identification":
-        return "investigation"
+    entry = _STRATEGY_CATALOG.get(strategy_id)
+    if entry is not None:
+        return entry.default_mode
     return "quick_lookup"
 
 
@@ -388,13 +429,15 @@ def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
                    f"Valid values: {sorted(_VALID_INTENT_IDS)}",
         )
 
-    # Classifier — override wins over auto-detection.
+    # Classifier — override wins over auto-detection. Mode (if user-supplied)
+    # feeds the resolution chain's mode-anchor step, so users picking a mode
+    # with a vague query route through that mode's preferred strategy.
     if body.intent_override:
         effective_intent = body.intent_override
-        strategy_id = body.strategy or _resolve_strategy(effective_intent)
+        strategy_id = body.strategy or _resolve_strategy(effective_intent, body.mode)
     else:
         effective_intent = _classify_intent(body.query)
-        strategy_id = body.strategy or _classify_query(body.query)
+        strategy_id = body.strategy or _classify_query(body.query, body.mode)
     suggested_mode = body.mode or _suggest_mode(strategy_id)
 
     # Resolve mode dial defaults — mode sets the baseline; explicit dials override per-dial

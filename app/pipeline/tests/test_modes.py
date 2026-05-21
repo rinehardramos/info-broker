@@ -150,7 +150,8 @@ class TestModeDialDefaults:
 
 
 # ---------------------------------------------------------------------------
-# tactic_bias and strategy_suggestions are MVP-empty (post-MVP TODO)
+# tactic_bias still MVP-empty; strategy_suggestions now populated for the
+# mode-anchored resolution chain (_resolve_strategy in preflight.py).
 # ---------------------------------------------------------------------------
 
 
@@ -161,8 +162,26 @@ class TestModePostMvpFields:
                 f"Mode '{mode_id}' tactic_bias should be empty dict for MVP"
             )
 
-    def test_strategy_suggestions_empty_for_all_modes(self, mode_catalog: dict[str, OptimizationMode]):
+    def test_strategy_suggestions_populated_for_all_modes(
+        self, mode_catalog: dict[str, OptimizationMode]
+    ):
+        """Every mode declares at least one strategy id so _resolve_strategy
+        has a mode anchor to walk. Floor is 'generic_search'."""
         for mode_id, entry in mode_catalog.items():
-            assert entry.strategy_suggestions == [], (
-                f"Mode '{mode_id}' strategy_suggestions should be empty list for MVP"
+            assert len(entry.strategy_suggestions) >= 1, (
+                f"Mode '{mode_id}' must declare at least one strategy_suggestion"
+            )
+            assert all(isinstance(s, str) and s for s in entry.strategy_suggestions), (
+                f"Mode '{mode_id}' strategy_suggestions must contain non-empty strings"
+            )
+
+    def test_strategy_suggestions_end_with_generic_search(
+        self, mode_catalog: dict[str, OptimizationMode]
+    ):
+        """Every mode's suggestion list ends with 'generic_search' as the
+        floor — guarantees the resolver always finds a registered fallback."""
+        for mode_id, entry in mode_catalog.items():
+            assert entry.strategy_suggestions[-1] == "generic_search", (
+                f"Mode '{mode_id}' strategy_suggestions must end with 'generic_search' "
+                f"(got: {entry.strategy_suggestions[-1]!r})"
             )

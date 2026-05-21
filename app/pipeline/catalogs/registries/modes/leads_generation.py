@@ -16,6 +16,8 @@ MODE = {
     },
     # TODO post-MVP: populate tactic_bias (contact_extraction, linkedin_lookup)
     "tactic_bias": {},
-    # TODO post-MVP: populate strategy_suggestions from classifier calibration
-    "strategy_suggestions": [],
+    # `lead` is the natural fit for this mode; generic_search is the floor.
+    # The resolver picks the first id that's actually registered, so listing
+    # not-yet-built ids first is forward-compatible.
+    "strategy_suggestions": ["lead", "generic_search"],
 }

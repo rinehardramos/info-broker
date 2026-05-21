@@ -16,6 +16,8 @@ MODE = {
     },
     # TODO post-MVP: populate tactic_bias with retrieval-heavy weights
     "tactic_bias": {},
-    # TODO post-MVP: populate strategy_suggestions from classifier calibration
-    "strategy_suggestions": [],
+    # Walked by _resolve_strategy when intent has no dedicated module.
+    # quick_lookup is the catch-all speed-first mode → generic_search is
+    # the natural fit.
+    "strategy_suggestions": ["generic_search"],
 }

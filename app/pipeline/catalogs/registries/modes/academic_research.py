@@ -16,6 +16,7 @@ MODE = {
     },
     # TODO post-MVP: populate tactic_bias (primary_source, citation_chain)
     "tactic_bias": {},
-    # TODO post-MVP: populate strategy_suggestions from classifier calibration
-    "strategy_suggestions": [],
+    # Academic intents in priority order. "researcher" alias of the
+    # citation-chain shape; synthesis covers literature-review queries.
+    "strategy_suggestions": ["researcher", "synthesis", "generic_search"],
 }

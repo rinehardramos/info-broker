@@ -95,8 +95,14 @@ def test_preflight_returns_estimate_with_envelope(mock_fetch):
 
 @patch("app.routers.v3.preflight.fetch_one", side_effect=_wallet_row_side_effect)
 def test_preflight_classifier_returns_media_identification(mock_fetch):
+    """A real media-id query must route to media_identification, not the
+    generic fallback. Uses a phrase that hits the media_identification
+    signal list (orchestrator._CATEGORY_SIGNALS)."""
     client = _make_client()
-    resp = client.post("/v3/preflight", json={"query": "who is this actress in the ad"})
+    resp = client.post(
+        "/v3/preflight",
+        json={"query": "what show is the girl in the new netflix series"},
+    )
     assert resp.status_code == 200
     data = resp.json()
     assert data["suggested_strategy"] == "media_identification"
@@ -105,10 +111,11 @@ def test_preflight_classifier_returns_media_identification(mock_fetch):
 
 @patch("app.routers.v3.preflight.fetch_one", side_effect=_wallet_row_side_effect)
 def test_preflight_enforces_strategy_budget_minimums(mock_fetch):
-    """hypothesis_count='single' gets upgraded to 'competing' for media_identification."""
+    """hypothesis_count='single' gets upgraded to 'competing' for
+    media_identification (which sets a 'competing' floor in budget_minimums)."""
     client = _make_client()
     resp = client.post("/v3/preflight", json={
-        "query": "who is this",
+        "query": "what show is the girl in the new netflix series",
         "dials": {"hypothesis_count": "single", "capability": "general", "depth": "search"},
     })
     assert resp.status_code == 200
