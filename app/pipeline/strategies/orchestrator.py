@@ -34,6 +34,17 @@ _CATEGORY_SIGNALS: list[tuple[str, list[str]]] = [
         "how far is ", "distance from ", "paano makarating ", "papunta sa ",
         "tawid ", "eskinita ", "bliss hulo", "bliss mandaluyong",
     ]),
+    # --- Real estate / property search (checked before generic person) ---
+    ("real_estate", [
+        "real estate", "properties in", "properties for ", "property in ",
+        "property for ", "houses for ", "house for sale", "homes for ",
+        "homes in ", "home for sale", "condo for ", "condos for ",
+        "condos in ", "condo in ", "apartment for ", "apartments for ",
+        "apartments in ", "apartment in ", "land for sale", "lot for sale",
+        "lots for sale", "rental property", "rental properties", "for rent in ",
+        "for sale in ", "listings in ", "listings for ", "mls listings",
+        "townhouse for ", "townhouses in ",
+    ]),
     # --- Specific Retrieval variants (checked before generic person) ---
     ("due_diligence", ["due diligence", "kyc", "aml", "compliance check", "background check",
                        "risk assessment", "sanctions", "pep screen", "know your customer"]),
