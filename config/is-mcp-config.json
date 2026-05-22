@@ -5,8 +5,7 @@
       "args": ["run", "python", "-m", "mcp_server"],
       "cwd": "/Users/rinehardramos/Projects/info-broker",
       "env": {
-        "INFO_BROKER_URL": "http://localhost:8000",
-        "INFO_BROKER_API_KEY": "changeme"
+        "INFO_BROKER_URL": "http://localhost:8000"
       }
     }
   }

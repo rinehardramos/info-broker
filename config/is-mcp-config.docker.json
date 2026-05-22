@@ -5,8 +5,7 @@
       "args": ["-m", "mcp_server"],
       "cwd": "/app",
       "env": {
-        "INFO_BROKER_URL": "http://info-broker-api:8000",
-        "INFO_BROKER_API_KEY": "changeme"
+        "INFO_BROKER_URL": "http://info-broker-api:8000"
       }
     }
   }
