@@ -634,17 +634,29 @@ def _write_research_trail(
     for p in result.phases:
         gate_result = getattr(p, "gate_result", None)
         if gate_result is not None:
-            phase_status = "passed" if gate_result.get("passed") else "failed"
+            if gate_result.get("passed"):
+                phase_status = "passed"
+                gate_status = "pass"
+            else:
+                phase_status = "failed"
+                # Derive gate_status from the run's overall status: if the run is
+                # "ask_user" AND this is the last (failing) phase, this phase's gate
+                # is the one that triggered the ask_user escalation. Match the
+                # live _phase_complete_cb mapping.
+                is_last_failing = (p is result.phases[-1] and result.status == "ask_user")
+                gate_status = "ask_user" if is_last_failing else "fail"
         else:
             # Pre-spec / absent gate data — fall back to execution-passed
             # (the only way phases reach this point in the legacy flow).
             phase_status = "passed"
+            gate_status = "pass"
         phases_full.append({
             "phase_id": p.phase_id,
             "status": phase_status,
+            "gate_status": gate_status,  # NEW — for replay endpoint
             "distinct_candidate_names": p.distinct_candidate_names,
             "metadata": p.metadata,
-            "gate_result": gate_result,  # NEW — None for legacy phases
+            "gate_result": gate_result,  # None for legacy phases
         })
 
     # ACH matrix (P5) — serialize if present

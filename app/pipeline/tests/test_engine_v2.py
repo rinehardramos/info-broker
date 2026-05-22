@@ -961,3 +961,55 @@ def test_write_research_trail_persists_gate_result():
     trail = json.loads(trail_json_str)
     assert trail["phases_full"][0]["gate_result"] == failing_gate
     assert trail["phases_full"][0]["status"] != "passed"  # must NOT hardcode
+
+
+def test_write_research_trail_includes_gate_status_per_phase():
+    """phases_full[].gate_status should be 'pass'/'fail'/'ask_user' matching the
+    WebSocket gate_status emitted by _phase_complete_cb. Replay endpoint depends on this."""
+    from app.pipeline.engine_v2 import _write_research_trail
+    from app.pipeline.strategist import RunResult, PhaseOutput
+    import json
+    from unittest.mock import patch
+
+    failing_gate = {
+        "passed": False,
+        "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {"tool_calls": 0, "findings": 0},
+        "brain_summary": {"tool_calls": 0, "findings": 0, "hypothesis_count": 0, "duration_ms": 0, "invoked_tools": []},
+    }
+    po_ask = PhaseOutput(
+        phase_id="extract", aggregated_findings=[], distinct_candidate_names=[],
+        metadata={}, gate_result=failing_gate,
+    )
+    # A passing phase
+    passing_gate = {
+        "passed": True, "failing_check_kind": None, "failing_check_detail": {},
+        "brain_summary": {"tool_calls": 3, "findings": 5, "hypothesis_count": 1, "duration_ms": 200, "invoked_tools": ["x"]},
+    }
+    po_pass = PhaseOutput(
+        phase_id="gather", aggregated_findings=[{"x": 1}], distinct_candidate_names=[],
+        metadata={}, gate_result=passing_gate,
+    )
+
+    result = RunResult(
+        run_id="test-run-gs",
+        status="ask_user",
+        phases=[po_pass, po_ask],
+        user_question={"summary": "...", "detail": failing_gate, "run_id": "test-run-gs", "phase_id": "extract"},
+    )
+
+    captured = []
+    def fake_execute(sql, args=None):
+        captured.append((sql, args))
+
+    with patch("app.routers.v3.db.execute", side_effect=fake_execute):
+        _write_research_trail("test-run-gs", "u1", "q", result)
+
+    inserts = [a for s, a in captured if "INSERT INTO research_trails" in s]
+    trail = json.loads(inserts[0][5])
+    phases_full = trail["phases_full"]
+    assert phases_full[0]["phase_id"] == "gather"
+    assert phases_full[0]["gate_status"] == "pass"
+    assert phases_full[1]["phase_id"] == "extract"
+    # When the run's overall status is ask_user AND this phase failed, gate_status should be "ask_user"
+    assert phases_full[1]["gate_status"] == "ask_user", f"got {phases_full[1].get('gate_status')}"
