@@ -117,10 +117,16 @@ services:
       IS_USE_LOOP: ${IS_USE_LOOP:-true}
       IS_LOOP_MAX_TURNS: ${IS_LOOP_MAX_TURNS:-8}
     volumes:
-      - claude_auth:/root/.claude
-      # Mount host Claude Code credentials when present.
-      # On WSL/Linux: `claude auth login` writes to ~/.config/anthropic
-      # On macOS: keychain is read elsewhere via the existing fallback chain
+      # /root/.claude — Claude CLI credentials + sessions + projects + backups.
+      # Prefer a bind-mount of the host's ~/.claude so the OAuth token's
+      # refresh (done by host `claude` CLI every ~24h) flows through
+      # automatically and the container never goes stale. Falls back to the
+      # named volume claude_auth in CI/cloud where there's no host dir.
+      # Set HOST_CLAUDE_DIR=/home/$USER/.claude in .env to enable bind-mount.
+      - ${HOST_CLAUDE_DIR:-claude_auth}:/root/.claude
+      # Legacy: macOS / setup-token flow can drop creds at ~/.config/anthropic.
+      # On WSL/Linux that path is usually empty (Claude CLI writes ~/.claude/),
+      # but kept for compatibility. /dev/null default = effectively no mount.
       - ${CLAUDE_CREDS_DIR:-/dev/null}:/root/.config/anthropic:ro
     ports:
       - "8000:8000"
@@ -268,10 +274,10 @@ services:
       CLAUDE_CODE_OAUTH_REFRESH_TOKEN: ${CLAUDE_CODE_OAUTH_REFRESH_TOKEN:-}
       HOME: /root
     volumes:
-      - claude_auth:/root/.claude
-      # Mount host Claude Code credentials when present.
-      # On WSL/Linux: `claude auth login` writes to ~/.config/anthropic
-      # On macOS: keychain is read elsewhere via the existing fallback chain
+      # See info-broker-api block above for the HOST_CLAUDE_DIR rationale —
+      # the is-temporal-worker spawns brain subprocesses too, so it needs the
+      # same auto-refreshing credentials path.
+      - ${HOST_CLAUDE_DIR:-claude_auth}:/root/.claude
       - ${CLAUDE_CREDS_DIR:-/dev/null}:/root/.config/anthropic:ro
     depends_on:
       - temporal
