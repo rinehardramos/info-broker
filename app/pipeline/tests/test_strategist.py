@@ -1556,3 +1556,45 @@ def test_ask_user_emits_structured_payload_for_no_brain_work():
     assert payload["summary"].startswith("The system didn't gather")
     assert payload["detail"]["failing_check_kind"] == "no_brain_work"
     assert payload["detail"]["brain_summary"]["tool_calls"] == 0
+
+
+# ---------------------------------------------------------------------------
+# test_strategist_emits_gate_result_log_per_phase
+# Defends: every gate evaluation emits a structured log line at INFO so
+# ops/SREs can aggregate across runs (e.g. "how often is no_brain_work
+# firing this week?"). Trails cover per-run forensics; logs cover trends.
+# ---------------------------------------------------------------------------
+def test_strategist_emits_gate_result_log_per_phase(caplog):
+    """A full strategist.execute() emits at least one strategist.gate_result log line."""
+    import logging
+    from unittest.mock import patch
+
+    phase = _make_phase("extract", on_fail="ask_user", checks=[])
+    strategy = _make_strategy([phase])
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        return {
+            "findings": [],
+            "candidates": [],
+            "metadata": {
+                "tool_calls": 0,
+                "duration_ms": 50,
+                "invoked_tools": [],
+                "surviving_hypothesis_count": 0,
+            },
+        }
+
+    strategist = _make_strategist(strategy)
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.strategist"):
+        with patch("app.pipeline.strategist.wallet.consume"):
+            run_sync(strategist.execute("test query", {}, fake_tactician))
+
+    gate_logs = [
+        r for r in caplog.records
+        if "strategist.gate_result" in r.getMessage() or r.msg == "strategist.gate_result"
+    ]
+    assert len(gate_logs) >= 1, (
+        f"expected at least one strategist.gate_result log, got: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )

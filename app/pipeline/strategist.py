@@ -994,6 +994,19 @@ class Strategist:
                 phase_output.metadata["replan_attempt"] = replan_attempts
 
                 gate_result = _run_gate(phase_output, phase, self._envelope)
+                log.info(
+                    "strategist.gate_result",
+                    extra={
+                        "run_id": self._run_id,
+                        "phase_id": phase.id,
+                        "gate_passed": gate_result["passed"],
+                        "failing_check_kind": gate_result["failing_check_kind"],
+                        "tool_calls": gate_result["brain_summary"]["tool_calls"],
+                        "findings": gate_result["brain_summary"]["findings"],
+                        "duration_ms": gate_result["brain_summary"]["duration_ms"],
+                        "replan_attempt": phase_output.metadata.get("replan_attempt", 0),
+                    },
+                )
                 phase_output.gate_result = gate_result
                 gate_passed = gate_result["passed"]
 
