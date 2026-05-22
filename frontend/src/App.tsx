@@ -8,7 +8,8 @@ import { useLayoutStore } from './stores/layoutStore'
 import { applyTheme } from './lib/theme'
 import { ResultDrawer } from './components/runs/ResultDrawer'
 import { PageShellSkeleton } from './components/ui/page-shell-skeleton'
-import { createQueryClient } from './lib/queryClient'
+import { queryClient as qc } from './lib/queryClient'
+import { installCrossTabLogoutListener } from './lib/clearClientSession'
 
 // Lazy-load pages to keep initial bundle small
 const Dashboard = lazy(() => import('./pages/Dashboard'))
@@ -28,15 +29,14 @@ const Wallet = lazy(() => import('./pages/Wallet'))
 const Runs = lazy(() => import('./pages/Runs'))
 const SharedRunPage = lazy(() => import('./pages/SharedRunPage'))
 
-const qc = createQueryClient()
-
-
 export default function App() {
   const theme = useLayoutStore(s => s.theme)
 
   useEffect(() => {
     applyTheme(theme)
   }, [theme])
+
+  useEffect(() => installCrossTabLogoutListener(), [])
 
   return (
     <QueryClientProvider client={qc}>

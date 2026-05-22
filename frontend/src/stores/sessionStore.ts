@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { clearClientSession } from '../lib/clearClientSession'
 
 interface SessionState {
   accessToken: string | null
@@ -44,11 +45,16 @@ function claimsFromToken(token: string | null): { isAdmin: boolean; userId: stri
   }
 }
 
-const storedToken = localStorage.getItem('access_token')
+function safeGetItem(key: string): string | null {
+  try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null }
+  catch { return null }
+}
+
+const storedToken = safeGetItem('access_token')
 const initialClaims = claimsFromToken(storedToken)
 
 export const useSessionStore = create<SessionState>((set) => ({
-  accessToken: localStorage.getItem('access_token'),
+  accessToken: storedToken,
   username: null,
   userId:   initialClaims.userId,
   isAdmin:  initialClaims.isAdmin,
@@ -79,8 +85,7 @@ export const useSessionStore = create<SessionState>((set) => ({
   setCol1Content: (content) => set({ col1Content: content }),
 
   logout: () => {
-    localStorage.removeItem('access_token')
-    localStorage.removeItem('refresh_token')
+    clearClientSession()
     set({ accessToken: null, username: null, userId: null, activeJobId: null, col1Content: null, isAdmin: false, role: 'analyst' })
   },
 }))

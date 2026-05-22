@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { clearClientSession } from '../lib/clearClientSession'
 
 // Same-origin /api is proxied by Vite in dev. Production builds on Cloudflare
 // Pages set VITE_API_URL=https://api.infobroker.tech so requests cross the
@@ -33,8 +34,7 @@ api.interceptors.response.use(
           // refresh failed — fall through to redirect
         }
       }
-      localStorage.removeItem('access_token')
-      localStorage.removeItem('refresh_token')
+      clearClientSession()
       window.location.href = '/login'
     }
     return Promise.reject(err)

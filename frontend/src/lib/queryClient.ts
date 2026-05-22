@@ -21,3 +21,7 @@ export function createQueryClient(): QueryClient {
     },
   })
 }
+
+// Module-level singleton so non-React code (auth, axios interceptors, cross-tab
+// logout) can reach the cache without prop-drilling through React context.
+export const queryClient = createQueryClient()
