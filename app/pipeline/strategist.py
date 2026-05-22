@@ -293,17 +293,91 @@ _GATE_CHECKS: dict[
 }
 
 
+# ---------------------------------------------------------------------------
+# Startup audit — catch misconfigured strategies before they reach prod
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GateAuditViolation:
+    """A strategy declared a gate-check kind the runtime can't resolve.
+
+    The strategist would fail-OPEN at runtime (treating unknown kinds as
+    pass), so the gate becomes documentation instead of enforcement —
+    runs report 'succeeded' with zero work done.
+    """
+    strategy_id: str
+    phase_id: str
+    unknown_kind: str
+
+
+def audit_strategy_gates(
+    strategies: dict[str, Any],
+    registered_kinds: set[str] | None = None,
+) -> list[GateAuditViolation]:
+    """Walk every strategy's gate.checks; return violations for unknown kinds.
+
+    Called once at app startup. ``strategies`` accepts either Pydantic
+    ``Strategy`` objects (from load_catalog) or raw dicts (matching
+    the catalog file shape) — both expose phases[].gate.checks[].kind.
+    """
+    if registered_kinds is None:
+        registered_kinds = set(_GATE_CHECKS)
+    violations: list[GateAuditViolation] = []
+    for sid, s in strategies.items():
+        phases = _phases_of(s)
+        for phase in phases:
+            phase_id = _phase_id(phase)
+            for check in _checks_of(phase):
+                kind = _check_kind(check)
+                if kind not in registered_kinds:
+                    violations.append(GateAuditViolation(
+                        strategy_id=sid, phase_id=phase_id, unknown_kind=kind,
+                    ))
+    return violations
+
+
+def _phases_of(strategy: Any) -> list:
+    return getattr(strategy, "phases", None) or strategy.get("phases", [])
+
+
+def _phase_id(phase: Any) -> str:
+    return getattr(phase, "id", None) or phase.get("id", "?")
+
+
+def _checks_of(phase: Any) -> list:
+    gate = getattr(phase, "gate", None) or phase.get("gate", {})
+    return getattr(gate, "checks", None) or gate.get("checks", [])
+
+
+def _check_kind(check: Any) -> str:
+    return getattr(check, "kind", None) or check.get("kind", "?")
+
+
 def _run_gate(
     phase_output: PhaseOutput,
     phase: PhaseSpec,
     envelope: BudgetEnvelope,
 ) -> bool:
-    """Return True if all gate checks pass, False otherwise."""
+    """Return True if all gate checks pass, False otherwise.
+
+    Unknown check kinds are logged at ERROR and treated as **failed** —
+    a misconfigured strategy with a phantom check kind would otherwise
+    auto-pass every gate, producing the "succeeded with 0 work" no-op
+    pattern. The audit at startup (audit_strategy_gates) is the
+    primary line of defense; this is the runtime backstop.
+    """
     for check in phase.gate.checks:
         fn = _GATE_CHECKS.get(check.kind)
         if fn is None:
-            log.warning("Unknown gate check kind %r — treating as pass", check.kind)
-            continue
+            log.error(
+                "GATE_CONFIG_ERROR: unknown gate check kind %r on phase %r — "
+                "failing the gate. Add the kind to _GATE_CHECKS or remove it "
+                "from the strategy catalog. (Was fail-OPEN before; flipped to "
+                "fail-CLOSED because the no-op bug took ~36h to surface.)",
+                check.kind, phase.id,
+            )
+            return False
         if not fn(phase_output, check.params, envelope):
             return False
     return True

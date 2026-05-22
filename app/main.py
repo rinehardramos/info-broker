@@ -113,6 +113,45 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("v3 DB migration skipped: %s", exc)
 
+    # Strategy gate audit — fail loud if any registered strategy declares a
+    # gate check kind the strategist runtime doesn't implement. Without this,
+    # the runtime fail-OPENed on unknown kinds and runs reported success with
+    # 0 work done (issue: skeleton strategies "succeeding" in 0.1s).
+    try:
+        from pathlib import Path as _Path
+        from app.pipeline.catalogs.loader import load_catalog as _load_catalog
+        from app.pipeline.strategist import audit_strategy_gates as _audit_gates
+        _strat_dir = _Path(__file__).resolve().parent / "pipeline" / "catalogs" / "registries" / "strategies"
+        _strategies = _load_catalog("strategy", _strat_dir)
+        _violations = _audit_gates(_strategies)
+        if _violations:
+            for v in _violations:
+                _log.error(
+                    "GATE_AUDIT_VIOLATION strategy=%s phase=%s unknown_kind=%s — "
+                    "this gate would fail-CLOSED at runtime (was fail-open before "
+                    "the audit landed). Either implement the check kind in "
+                    "strategist._GATE_CHECKS or remove it from the strategy catalog.",
+                    v.strategy_id, v.phase_id, v.unknown_kind,
+                )
+            _log.error(
+                "GATE_AUDIT: %d unknown gate-check kind(s) detected across %d strategies. "
+                "Runs touching these strategies WILL fail their gates until fixed. "
+                "Set STRATEGY_GATE_AUDIT_STRICT=true to refuse startup on violations.",
+                len(_violations),
+                len({v.strategy_id for v in _violations}),
+            )
+            if os.getenv("STRATEGY_GATE_AUDIT_STRICT", "").lower() in ("1", "true", "yes"):
+                raise RuntimeError(
+                    f"strict gate audit: {len(_violations)} violations — "
+                    f"refusing to start. See ERROR logs above."
+                )
+        else:
+            _log.info("GATE_AUDIT: all %d strategies' gate-check kinds resolved.", len(_strategies))
+    except RuntimeError:
+        raise  # strict mode — let it propagate
+    except Exception as exc:
+        _log.warning("GATE_AUDIT skipped: %s", exc)
+
     os.makedirs("/tmp/exports", exist_ok=True)
 
     # Start graph materializer background task
