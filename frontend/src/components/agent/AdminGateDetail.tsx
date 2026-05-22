@@ -5,44 +5,6 @@ interface Props {
   detail: GateResult | null
 }
 
-/**
- * Renders a JSON entry line for the failing_check_detail block.
- * Keys that share names with grid-label regexes (e.g. "findings") are rendered
- * with the first two characters wrapped in a <b> so that getNodeText() on the
- * containing <span> does not produce a string that collides with the grid-label
- * regex while still being visually correct in the browser.
- */
-function JsonLine({
-  jsonKey,
-  value,
-  comma,
-}: {
-  jsonKey: string
-  value: unknown
-  comma: boolean
-}) {
-  const valText = `${JSON.stringify(value)}${comma ? ',' : ''}`
-  // Keys whose full names would conflict with testing-library /findings/i (and
-  // similar) grid-label queries: split at character 2 so the span's direct text
-  // nodes don't contain the whole key name.
-  const gridLabelKeys = new Set(['findings'])
-  if (gridLabelKeys.has(jsonKey)) {
-    // e.g. "findings" → '"' + <b>fi</b> + 'ndings": <val>'
-    return (
-      <span key={jsonKey} style={{ display: 'block' }}>
-        {'  "'}
-        <b style={{ fontWeight: 'inherit' }}>{jsonKey.slice(0, 2)}</b>
-        {`${jsonKey.slice(2)}": ${valText}\n`}
-      </span>
-    )
-  }
-  return (
-    <span key={jsonKey} style={{ display: 'block' }}>
-      {`  "${jsonKey}": ${valText}\n`}
-    </span>
-  )
-}
-
 export function AdminGateDetail({ detail }: Props) {
   if (!detail) {
     return (
@@ -77,11 +39,7 @@ export function AdminGateDetail({ detail }: Props) {
         <div className="mt-2">
           detail:
           <pre className="mt-1 max-h-32 overflow-auto rounded bg-zinc-100 p-2 text-xs">
-            {'{\n'}
-            {detailEntries.map(([k, v], i) => (
-              <JsonLine key={k} jsonKey={k} value={v} comma={i < detailEntries.length - 1} />
-            ))}
-            {'}'}
+            {JSON.stringify(detail.failing_check_detail, null, 2)}
           </pre>
         </div>
       )}

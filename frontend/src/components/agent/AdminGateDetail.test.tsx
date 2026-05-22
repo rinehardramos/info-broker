@@ -22,7 +22,8 @@ describe('AdminGateDetail', () => {
   it('renders brain summary counts', () => {
     render(<AdminGateDetail detail={failingGate} />)
     expect(screen.getByText(/tool calls/i)).toBeInTheDocument()
-    expect(screen.getByText(/findings/i)).toBeInTheDocument()
+    // "findings" appears in both the grid label and the JSON detail; ensure at least one match
+    expect(screen.getAllByText(/findings/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/73\s*ms/)).toBeInTheDocument()
   })
 
