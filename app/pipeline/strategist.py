@@ -517,20 +517,44 @@ def audit_strategy_gates(
 
 
 def _phases_of(strategy: Any) -> list:
-    return getattr(strategy, "phases", None) or strategy.get("phases", [])
+    p = getattr(strategy, "phases", None)
+    if p is not None:
+        return p
+    if isinstance(strategy, dict):
+        return strategy.get("phases", [])
+    return []
 
 
 def _phase_id(phase: Any) -> str:
-    return getattr(phase, "id", None) or phase.get("id", "?")
+    pid = getattr(phase, "id", None)
+    if pid is not None:
+        return pid
+    if isinstance(phase, dict):
+        return phase.get("id", "?")
+    return "?"
 
 
 def _checks_of(phase: Any) -> list:
-    gate = getattr(phase, "gate", None) or phase.get("gate", {})
-    return getattr(gate, "checks", None) or gate.get("checks", [])
+    gate = getattr(phase, "gate", None)
+    if gate is None and isinstance(phase, dict):
+        gate = phase.get("gate", {})
+    if gate is None:
+        return []
+    checks = getattr(gate, "checks", None)
+    if checks is not None:
+        return checks
+    if isinstance(gate, dict):
+        return gate.get("checks", [])
+    return []
 
 
 def _check_kind(check: Any) -> str:
-    return getattr(check, "kind", None) or check.get("kind", "?")
+    kind = getattr(check, "kind", None)
+    if kind is not None:
+        return kind
+    if isinstance(check, dict):
+        return check.get("kind", "?")
+    return "?"
 
 
 def _run_gate(

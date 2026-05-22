@@ -86,6 +86,28 @@ class TestAuditContract:
 # ---------------------------------------------------------------------------
 
 
+class TestAcceptsBothDictsAndPydanticObjects:
+    """Regression: the lifespan audit path passes Strategy objects from
+    load_catalog (Pydantic models), not raw dicts. An earlier helper
+    impl assumed dicts and crashed on `gate.get(...)`.
+    """
+    def test_accepts_pydantic_strategy_objects(self):
+        from app.pipeline.catalogs.schemas import Strategy
+        strat = Strategy.model_validate(_make_strategy_dict("x", [
+            {"kind": "missing_kind"},
+        ]))
+        violations = audit_strategy_gates({"x": strat}, registered_kinds={"min_primary_signals"})
+        assert [v.unknown_kind for v in violations] == ["missing_kind"]
+
+    def test_accepts_loaded_catalog(self, catalog):
+        """The real catalog comes back as a dict[str, Strategy]. Audit
+        must traverse it without AttributeError."""
+        # Should not raise on real Pydantic Strategy objects.
+        violations = audit_strategy_gates(catalog)
+        # Whatever the result is, the call itself must succeed.
+        assert isinstance(violations, list)
+
+
 class TestRealCatalog:
     def test_all_registered_strategies_have_known_gate_kinds(self, catalog):
         """The crown jewel: every gate check kind declared in the real
