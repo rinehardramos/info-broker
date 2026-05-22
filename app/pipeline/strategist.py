@@ -19,6 +19,7 @@ from typing import Any, Callable, Literal, TypedDict
 from app.pipeline.catalogs.budget import BudgetEnvelope
 from app.pipeline.catalogs.schemas import PhaseSpec, Strategy
 from app.pipeline import budget as wallet
+from app.security import sanitize_check_detail
 from app.pipeline.ach import (
     ACHSignal,
     ACHMatrix,
@@ -607,10 +608,15 @@ def _build_brain_summary(phase_output: PhaseOutput) -> "BrainSummary":
 
 def _run_gate(
     phase_output: PhaseOutput,
-    phase: PhaseSpec,
-    envelope: BudgetEnvelope,
-) -> bool:
-    """Return True if all gate checks pass, False otherwise.
+    phase: "Any",
+    envelope: "Any",
+) -> "GateResult":
+    """Evaluate gate checks and return a GateResult dict.
+
+    Invariant (top-level, checked before per-strategy checks):
+        A phase with tool_calls == 0 AND findings == 0 cannot pass.
+        This prevents a strategy author who forgot to declare gate checks
+        from silently shipping a zero-work phase as "succeeded".
 
     Unknown check kinds are logged at ERROR and treated as **failed** —
     a misconfigured strategy with a phantom check kind would otherwise
@@ -618,20 +624,57 @@ def _run_gate(
     pattern. The audit at startup (audit_strategy_gates) is the
     primary line of defense; this is the runtime backstop.
     """
+    brain_summary = _build_brain_summary(phase_output)
+
+    # Top-level invariant: both tool_calls AND findings must be zero to trip.
+    if brain_summary["tool_calls"] == 0 and brain_summary["findings"] == 0:
+        return {
+            "passed": False,
+            "failing_check_kind": "no_brain_work",
+            "failing_check_detail": sanitize_check_detail(
+                {"tool_calls": 0, "findings": 0}
+            ),
+            "brain_summary": brain_summary,
+        }
+
+    # Per-strategy checks — preserve fail-CLOSED behavior on unknown kinds.
     for check in phase.gate.checks:
-        fn = _GATE_CHECKS.get(check.kind)
+        kind = check.kind
+        fn = _GATE_CHECKS.get(kind)
         if fn is None:
             log.error(
                 "GATE_CONFIG_ERROR: unknown gate check kind %r on phase %r — "
                 "failing the gate. Add the kind to _GATE_CHECKS or remove it "
                 "from the strategy catalog. (Was fail-OPEN before; flipped to "
                 "fail-CLOSED because the no-op bug took ~36h to surface.)",
-                check.kind, phase.id,
+                kind, phase.id,
             )
-            return False
-        if not fn(phase_output, check.params, envelope):
-            return False
-    return True
+            return {
+                "passed": False,
+                "failing_check_kind": f"unknown:{kind}",
+                "failing_check_detail": sanitize_check_detail(
+                    {"check": kind, "params": getattr(check, "params", {})}
+                ),
+                "brain_summary": brain_summary,
+            }
+        params = getattr(check, "params", {})
+        ok = fn(phase_output, params, envelope)
+        if not ok:
+            return {
+                "passed": False,
+                "failing_check_kind": kind,
+                "failing_check_detail": sanitize_check_detail(
+                    {"check": kind, "params": params}
+                ),
+                "brain_summary": brain_summary,
+            }
+
+    return {
+        "passed": True,
+        "failing_check_kind": None,
+        "failing_check_detail": {},
+        "brain_summary": brain_summary,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -943,7 +986,9 @@ class Strategist:
                 # Audit: record replan attempt number for research_trails
                 phase_output.metadata["replan_attempt"] = replan_attempts
 
-                gate_passed = _run_gate(phase_output, phase, self._envelope)
+                gate_result = _run_gate(phase_output, phase, self._envelope)
+                phase_output.gate_result = gate_result
+                gate_passed = gate_result["passed"]
 
                 if gate_passed:
                     # Consume RU for this phase

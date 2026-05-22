@@ -1431,3 +1431,65 @@ def test_build_brain_summary_truncates_invoked_tools():
     )
     summary = _build_brain_summary(po)
     assert len(summary["invoked_tools"]) == 10
+
+
+def test_run_gate_no_brain_work_invariant_fires_on_zero_zero():
+    """A phase with tool_calls=0 AND findings=0 fails the gate, regardless of strategy checks."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "extract"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0, "duration_ms": 73, "invoked_tools": []},
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    assert result["passed"] is False
+    assert result["failing_check_kind"] == "no_brain_work"
+    assert result["failing_check_detail"] == {"tool_calls": 0, "findings": 0}
+    assert result["brain_summary"]["tool_calls"] == 0
+    assert result["brain_summary"]["findings"] == 0
+
+
+def test_run_gate_one_tool_call_one_finding_skips_invariant():
+    """tool_calls > 0 OR findings > 0 skips the invariant; per-strategy checks decide."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "gather"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="gather",
+        aggregated_findings=[{"x": 1}],
+        distinct_candidate_names=["A"],
+        metadata={"tool_calls": 1, "duration_ms": 500, "invoked_tools": ["run_web_search"]},
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    assert result["passed"] is True
+    assert result["failing_check_kind"] is None
+
+
+def test_run_gate_tool_calls_zero_findings_one_skips_invariant():
+    """AND semantics — only 0/0 trips the invariant. Findings>0 alone is enough."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "synthesize"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="synthesize",
+        aggregated_findings=[{"x": 1}],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0, "duration_ms": 200, "invoked_tools": []},
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    assert result["passed"] is True
