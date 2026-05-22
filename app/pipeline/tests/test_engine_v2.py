@@ -909,3 +909,55 @@ def test_engine_v2_emits_phase_replan_when_gate_fails_and_depth_allows():
     assert "max_attempts" in evt
     assert "reason" in evt
     assert "strategy" in evt
+
+
+def test_write_research_trail_persists_gate_result():
+    """phases_full[].gate_result reflects the actual gate decision, not a hardcoded 'passed'."""
+    from app.pipeline.engine_v2 import _write_research_trail
+    from app.pipeline.strategist import RunResult, PhaseOutput
+    import json
+    from unittest.mock import patch
+
+    failing_gate = {
+        "passed": False,
+        "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {"tool_calls": 0, "findings": 0},
+        "brain_summary": {
+            "tool_calls": 0, "findings": 0, "hypothesis_count": 0,
+            "duration_ms": 73, "invoked_tools": [],
+        },
+    }
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0},
+        gate_result=failing_gate,
+    )
+    result = RunResult(
+        run_id="test-run-1",
+        status="ask_user",
+        phases=[po],
+        user_question={
+            "summary": "...", "detail": failing_gate,
+            "run_id": "test-run-1", "phase_id": "extract",
+        },
+    )
+
+    captured_sql = []
+    captured_args = []
+    def fake_execute(sql, args=None):
+        captured_sql.append(sql)
+        captured_args.append(args)
+
+    # Patch at the call site (engine_v2 imports `execute` inside the function via local import)
+    with patch("app.routers.v3.db.execute", side_effect=fake_execute):
+        _write_research_trail("test-run-1", "u1", "test query", result)
+
+    # The INSERT writes the trail; grab its trail json (the 6th positional arg per existing INSERT)
+    insert_args = [a for s, a in zip(captured_sql, captured_args) if "INSERT INTO research_trails" in s]
+    assert len(insert_args) == 1, f"expected 1 insert, got {len(insert_args)} (sql: {captured_sql})"
+    trail_json_str = insert_args[0][5]
+    trail = json.loads(trail_json_str)
+    assert trail["phases_full"][0]["gate_result"] == failing_gate
+    assert trail["phases_full"][0]["status"] != "passed"  # must NOT hardcode

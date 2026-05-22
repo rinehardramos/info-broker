@@ -632,11 +632,19 @@ def _write_research_trail(
     # Rich phase metadata for replay reconstruction
     phases_full: list[dict] = []
     for p in result.phases:
+        gate_result = getattr(p, "gate_result", None)
+        if gate_result is not None:
+            phase_status = "passed" if gate_result.get("passed") else "failed"
+        else:
+            # Pre-spec / absent gate data — fall back to execution-passed
+            # (the only way phases reach this point in the legacy flow).
+            phase_status = "passed"
         phases_full.append({
             "phase_id": p.phase_id,
-            "status": "passed",  # only completed phases reach this point
+            "status": phase_status,
             "distinct_candidate_names": p.distinct_candidate_names,
             "metadata": p.metadata,
+            "gate_result": gate_result,  # NEW — None for legacy phases
         })
 
     # ACH matrix (P5) — serialize if present
