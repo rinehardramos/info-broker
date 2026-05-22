@@ -1,11 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// `E2E_BASE_URL=https://infobroker.tech npx playwright test ...` flips the
+// whole suite to PROD without per-test edits. Defaults preserved for local dev.
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:5173'
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
   retries: 0,
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: BASE_URL,
     channel: 'chromium',
     headless: false,
     viewport: { width: 1400, height: 900 },

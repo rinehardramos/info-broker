@@ -39,7 +39,16 @@ test('IS brain: research query produces findings in UI', async ({ page }) => {
   await expect(textarea).toBeVisible({ timeout: 10_000 })
   await textarea.fill('Who are the top 3 AI agent framework founders in 2026?')
   await textarea.press('Enter')
-  console.log('[TEST] Message sent, waiting for IS brain...')
+  console.log('[TEST] Query submitted — waiting for preflight estimate panel')
+
+  // Current UI: Enter opens the preflight panel (estimate + Run/Cancel
+  // buttons) rather than launching the run directly. The user has to
+  // click "Run" to kick off the brain. Wait for the Run button, then
+  // click it.
+  const runBtn = page.getByRole('button', { name: /^Run$/ })
+  await expect(runBtn, 'preflight Run button must appear within 30s').toBeVisible({ timeout: 30_000 })
+  await runBtn.click()
+  console.log('[TEST] Clicked Run on preflight — waiting for IS brain...')
 
   // A new run tab should appear in the sidebar (text contains "Research:" or the query)
   // The IS brain creates a pipeline_run with trigger_type=agent_is
