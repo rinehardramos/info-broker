@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -20,6 +21,100 @@ from app.pipeline.catalogs.schemas import Tactic
 from app.claude_auth_setup import ensure_claude_credentials
 
 log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Brain-subprocess failure detection
+# ---------------------------------------------------------------------------
+#
+# When the Claude Code subprocess hits an auth / HTTP / network error, its
+# stream-json event sequence still LOOKS structured: an init event, retries,
+# a synthetic assistant message, then a result event with is_error=true. The
+# legacy diagnostic just logged "produced 0 task_calls" at WARNING — so the
+# strategist's broaden gate failed with "checks did not pass" and the real
+# 401 / 429 / 500 was invisible. This function pulls the failure out
+# explicitly so admin logs name the actual cause early.
+
+
+@dataclass(frozen=True)
+class BrainFailure:
+    """Structured summary of a brain-subprocess outcome.
+
+    Fields:
+        is_fatal:        True if the subprocess produced no usable output
+        kind:            "ok" | "auth_failed" | "rate_limited" | "upstream_error"
+                         | "no_result_event"
+        api_status:      Final HTTP status from the result event (None on ok)
+        retry_count:     Number of api_retry events observed (for observability;
+                         non-zero on transient errors that ultimately succeeded)
+        api_key_source:  apiKeySource from the init event ("none" is itself
+                         diagnostic — Claude CLI found no auth)
+        message:         Short human-readable summary suitable for admin logs
+    """
+    is_fatal: bool
+    kind: str
+    api_status: int | None
+    retry_count: int
+    api_key_source: str
+    message: str
+
+
+def detect_brain_failure(events: list[dict[str, Any]]) -> BrainFailure:
+    """Inspect a Claude-Code stream-json event list and classify the outcome.
+
+    The function is pure (no I/O) so it can be unit-tested without spawning
+    the subprocess. The caller (scoped_brain_runner) escalates the log
+    level to ERROR when ``is_fatal`` is True.
+    """
+    api_src = ""
+    retry_count = 0
+    final_status: int | None = None
+    final_is_error = False
+    final_message = ""
+    saw_result = False
+
+    for e in events:
+        if e.get("type") == "system":
+            if e.get("subtype") == "init" and not api_src:
+                api_src = e.get("apiKeySource", "?")
+            elif e.get("subtype") == "api_retry":
+                retry_count += 1
+        elif e.get("type") == "result":
+            saw_result = True
+            final_is_error = bool(e.get("is_error"))
+            final_status = e.get("api_error_status")
+            final_message = str(e.get("result", ""))[:300]
+
+    if not saw_result:
+        return BrainFailure(
+            is_fatal=True, kind="no_result_event", api_status=None,
+            retry_count=retry_count, api_key_source=api_src or "?",
+            message="brain subprocess emitted no `result` event — possible crash / timeout",
+        )
+
+    if not final_is_error:
+        return BrainFailure(
+            is_fatal=False, kind="ok", api_status=None,
+            retry_count=retry_count, api_key_source=api_src or "?",
+            message="",
+        )
+
+    # is_error is true — classify by HTTP status
+    if final_status == 401:
+        kind = "auth_failed"
+    elif final_status == 429:
+        kind = "rate_limited"
+    elif final_status and final_status >= 500:
+        kind = "upstream_error"
+    else:
+        # is_error with no api_error_status set — generic failure
+        kind = "upstream_error"
+
+    return BrainFailure(
+        is_fatal=True, kind=kind, api_status=final_status,
+        retry_count=retry_count, api_key_source=api_src or "?",
+        message=final_message or f"brain failed (HTTP {final_status})",
+    )
 
 # ---------------------------------------------------------------------------
 # Subprocess constants (mirror is_brain.py values; do NOT share state)
@@ -550,26 +645,55 @@ async def scoped_brain_runner(
                         break
                 if first_text:
                     break
-        # Capture the result event content too
-        result_text = ""
-        for e in all_events:
-            if e.get("type") == "result":
-                result_text = str(e.get("result", ""))[:300]
-                break
-        # api key source from system event
-        api_src = ""
-        for e in all_events:
-            if e.get("type") == "system":
-                api_src = e.get("apiKeySource", "?")
-                break
-        log.warning(
-            "scoped_brain: tactic=%s slot=%d produced 0 task_calls — "
-            "events=%s tool_use_blocks=%d apiKeySource=%s\n"
-            "  assistant text: %r\n"
-            "  result text: %r",
-            tactic.id, slot_idx, dict(event_types), tool_use_count, api_src,
-            first_text, result_text,
-        )
+
+        # Classify the failure so admin logs name the real cause early.
+        # Without this the strategist would surface only "Gate failed on
+        # phase X: checks did not pass" — auth / quota / upstream errors
+        # would stay invisible until someone read raw stream-json.
+        failure = detect_brain_failure(all_events)
+        if failure.is_fatal:
+            hint = {
+                "auth_failed": (
+                    "Refresh Claude credentials in the container — "
+                    "/root/.claude/.credentials.json OAuth token likely expired. "
+                    "Re-run `claude auth login` on the host and copy the file in, "
+                    "OR set a real ANTHROPIC_API_KEY (sk-ant-api03-…)."
+                ),
+                "rate_limited": (
+                    "Anthropic API rate limit hit — back off or upgrade tier."
+                ),
+                "upstream_error": (
+                    "Anthropic API returned a server error — transient unless "
+                    "it keeps repeating."
+                ),
+                "no_result_event": (
+                    "Subprocess exited without emitting a final result event — "
+                    "check for timeout / killed process / stderr."
+                ),
+            }.get(failure.kind, "Check container logs around this run.")
+            log.error(
+                "BRAIN_FAILURE tactic=%s slot=%d kind=%s api_status=%s "
+                "retries=%d apiKeySource=%s — %s\n"
+                "  events=%s tool_use_blocks=%d\n"
+                "  brain_message: %r\n"
+                "  HINT: %s",
+                tactic.id, slot_idx, failure.kind, failure.api_status,
+                failure.retry_count, failure.api_key_source, failure.message,
+                dict(event_types), tool_use_count,
+                failure.message or first_text, hint,
+            )
+        else:
+            # Brain returned cleanly but produced no task_calls — that's a
+            # legitimate "model declined to call any tool" outcome, not a
+            # failure. Keep at warning so it shows in admin logs but doesn't
+            # crowd the error feed.
+            log.warning(
+                "scoped_brain: tactic=%s slot=%d produced 0 task_calls — "
+                "events=%s tool_use_blocks=%d apiKeySource=%s\n"
+                "  assistant text: %r",
+                tactic.id, slot_idx, dict(event_types), tool_use_count,
+                failure.api_key_source, first_text,
+            )
     # Harvest the brain's structured-findings JSON block (post-tool-call output).
     # When present, attach to the first task_call so the tactician can prefer
     # these real entity-named findings over the query-as-candidate fallback.
