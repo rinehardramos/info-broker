@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -217,6 +218,42 @@ def _topo_sort(phases: list[PhaseSpec]) -> list[PhaseSpec]:
 # ---------------------------------------------------------------------------
 # Gate check functions (§8.1)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Bounded fan-out — memory-safe parallel tactician spawning (#113)
+# ---------------------------------------------------------------------------
+#
+# Each tactician slot spawns a Claude Code subprocess (~300 MB resident).
+# At mem_limit=1g the container OOM-kills if >3-4 run concurrently. The
+# unbounded ``asyncio.gather`` fan-out used previously hit this when
+# red_team had 10+ surviving hypotheses (15 disconfirm slots in one run).
+# This semaphore-bounded helper keeps peak concurrency at a configurable N.
+
+_DEFAULT_MAX_PARALLEL_TACTICIANS = int(os.getenv("MAX_PARALLEL_TACTICIANS", "3"))
+
+
+async def gather_bounded(
+    awaitables: list, max_concurrent: int = _DEFAULT_MAX_PARALLEL_TACTICIANS,
+) -> list:
+    """asyncio.gather but with peak concurrency capped at ``max_concurrent``.
+
+    Order of results matches the input order. Exceptions propagate exactly
+    like ``asyncio.gather`` (first-error wins). ``max_concurrent <= 0`` falls
+    back to unbounded gather for defensive safety on misconfiguration.
+    """
+    if not awaitables:
+        return []
+    if max_concurrent <= 0:
+        return await asyncio.gather(*awaitables)
+
+    sem = asyncio.Semaphore(max_concurrent)
+
+    async def _bounded(coro):
+        async with sem:
+            return await coro
+
+    return await asyncio.gather(*(_bounded(a) for a in awaitables))
 
 
 def _gate_min_primary_signals(
@@ -816,7 +853,10 @@ class Strategist:
                         tactician_fn(phase, _uow_for_slot(slot_idx), slot_idx)
                         for slot_idx in range(n_tacticians)
                     ]
-                    raw_outputs: list[dict] = await asyncio.gather(*tactician_tasks)
+                    # Bounded by MAX_PARALLEL_TACTICIANS (default 3) so we
+                    # don't OOM the container under high hypothesis counts.
+                    # See gather_bounded() docstring + #113.
+                    raw_outputs: list[dict] = await gather_bounded(tactician_tasks)
                 except Exception as exc:
                     # Subprocess/runtime error counts as a consumed attempt.
                     log.exception(
