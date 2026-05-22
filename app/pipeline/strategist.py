@@ -280,16 +280,158 @@ def _gate_top_candidate_confidence(
     return phase_output.ranked_candidates[0].get("confidence", 0.0) >= min_confidence
 
 
+# ---------------------------------------------------------------------------
+# Skeleton-strategy gate check kinds (extract → gather → synthesize)
+# ---------------------------------------------------------------------------
+#
+# The 8 strategies built atop research_skeleton (real_estate, lead, company,
+# place, generation, explanation, prediction, synthesis) each declare a
+# domain-specific gate check kind. These functions implement them.
+#
+# All are intentionally generic — they enforce "the brain returned SOMETHING
+# usable" not "the brain returned the right thing". The strategies' briefings
+# already describe the domain expectations; the gate checks only catch the
+# no-op pattern (0 findings, 0 sources, 0 distinct results) which is what
+# turns the strategy into theatre.
+
+
+def _gate_min_listings_returned(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """real_estate.gather — ≥N findings returned."""
+    return len(phase_output.aggregated_findings) >= params.get("min", 1)
+
+
+def _gate_contact_info_per_target(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """lead.gather — at least ``min`` finding(s) per declared target.
+
+    Every name in distinct_candidate_names must appear as candidate_name on
+    at least ``min`` findings. Empty candidate list = no targets = fail.
+    """
+    if not phase_output.distinct_candidate_names:
+        return False
+    min_per = params.get("min", 1)
+    counts: dict[str, int] = {n: 0 for n in phase_output.distinct_candidate_names}
+    for f in phase_output.aggregated_findings:
+        name = f.get("candidate_name")
+        if name in counts:
+            counts[name] += 1
+    return all(c >= min_per for c in counts.values())
+
+
+def _gate_min_signal_classes_covered(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """company.gather — ≥N distinct source_class values across findings."""
+    classes = {
+        f.get("source_class") for f in phase_output.aggregated_findings
+        if f.get("source_class")
+    }
+    return len(classes) >= params.get("min", 1)
+
+
+# Coordinate-like patterns: "lat=40.7 lon=-74.0", "40.7,-74.0", "lat: 40.7".
+# Loose on purpose — the brain may format coords in any of several ways.
+import re as _re
+_COORD_RE = _re.compile(
+    r"(?:lat(?:itude)?\s*[:=]\s*[+-]?\d+(?:\.\d+)?)|"
+    r"(?:[-+]?\d{1,3}\.\d+\s*[,\s]\s*[-+]?\d{1,3}\.\d+)",
+    _re.IGNORECASE,
+)
+
+
+def _gate_coordinates_present(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """place.gather — at least one finding mentions resolved coordinates."""
+    for f in phase_output.aggregated_findings:
+        haystack = " ".join(
+            str(f.get(k, "")) for k in
+            ("evidence_summary", "evidence_snippet", "candidate_name")
+        )
+        if _COORD_RE.search(haystack):
+            return True
+    return False
+
+
+def _gate_min_options_with_rationale(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """generation.synthesize — ≥N distinct options proposed.
+
+    Default ``min`` is 2 (a single option isn't a "comparison of options").
+    """
+    return len(phase_output.distinct_candidate_names) >= params.get("min", 2)
+
+
+def _gate_min_mechanisms_with_support(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """explanation.synthesize — ≥N mechanism candidates, each with ≥1 source URL."""
+    if not phase_output.distinct_candidate_names:
+        return False
+    with_source: set[str] = set()
+    for f in phase_output.aggregated_findings:
+        name = f.get("candidate_name")
+        if name in phase_output.distinct_candidate_names and f.get("source_url"):
+            with_source.add(name)
+    return len(with_source) >= params.get("min", 2)
+
+
+def _gate_confidence_band_present(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """prediction.synthesize — at least one finding signals confidence.
+
+    Accepts either an explicit ``confidence`` float field OR a textual
+    mention of confidence/probability/likelihood/band in evidence text.
+    """
+    text_hints = ("confidence", "probability", "likelihood", "band", "%")
+    for f in phase_output.aggregated_findings:
+        if isinstance(f.get("confidence"), (int, float)):
+            return True
+        text = " ".join(
+            str(f.get(k, "")) for k in ("evidence_summary", "evidence_snippet")
+        ).lower()
+        if any(h in text for h in text_hints):
+            return True
+    return False
+
+
+def _gate_min_sources_synthesized(
+    phase_output: PhaseOutput, params: dict, envelope: BudgetEnvelope
+) -> bool:
+    """synthesis.synthesize — ≥N distinct (non-empty) source URLs across findings."""
+    urls = {
+        f.get("source_url") for f in phase_output.aggregated_findings
+        if f.get("source_url")
+    }
+    return len(urls) >= params.get("min", 3)
+
+
 # Dispatch map: check kind → gate function
 _GATE_CHECKS: dict[
     str,
     Callable[[PhaseOutput, dict, BudgetEnvelope], bool],
 ] = {
+    # ACH-shaped strategies
     "min_primary_signals": _gate_min_primary_signals,
     "distinct_identity_count": _gate_distinct_identity_count,
     "per_hypothesis_live_source": _gate_per_hypothesis_live_source,
     "disconfirm_logged_per_hypothesis": _gate_disconfirm_logged_per_hypothesis,
     "top_candidate_confidence": _gate_top_candidate_confidence,
+    # Skeleton-shaped strategies (real_estate, lead, company, place,
+    # generation, explanation, prediction, synthesis)
+    "min_listings_returned": _gate_min_listings_returned,
+    "contact_info_per_target": _gate_contact_info_per_target,
+    "min_signal_classes_covered": _gate_min_signal_classes_covered,
+    "coordinates_present": _gate_coordinates_present,
+    "min_options_with_rationale": _gate_min_options_with_rationale,
+    "min_mechanisms_with_support": _gate_min_mechanisms_with_support,
+    "confidence_band_present": _gate_confidence_band_present,
+    "min_sources_synthesized": _gate_min_sources_synthesized,
 }
 
 
