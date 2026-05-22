@@ -222,7 +222,7 @@ def test_gate_fail_ask_user_returns_ask_user_status():
 
     assert result.status == "ask_user"
     assert result.user_question is not None
-    assert len(result.user_question) > 0
+    assert len(result.user_question["summary"]) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -1517,3 +1517,42 @@ def test_no_brain_work_failing_kind_flows_to_corrective_hint_path():
     po.gate_result = gr  # mimic strategist's attach
     # Downstream consumers should read this directly
     assert (po.gate_result or {}).get("failing_check_kind") == "no_brain_work"
+
+
+def test_ask_user_emits_structured_payload_for_no_brain_work():
+    """When the no_brain_work invariant fires, RunResult.user_question is structured."""
+    from unittest.mock import patch
+    # Build a phase whose gate will fail via the no_brain_work invariant
+    phase = _make_phase(
+        "extract",
+        on_fail="ask_user",
+        checks=[],  # only the invariant runs
+    )
+    strategy = _make_strategy([phase])
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        # Force 0 tool_calls + 0 findings — must trip the invariant.
+        return {
+            "findings": [],
+            "candidates": [],
+            "metadata": {
+                "tool_calls": 0,
+                "duration_ms": 50,
+                "invoked_tools": [],
+                "surviving_hypothesis_count": 0,
+            },
+        }
+
+    strategist = _make_strategist(strategy)
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("test query", {}, fake_tactician))
+
+    assert result.status == "ask_user"
+    assert isinstance(result.user_question, dict), f"got {type(result.user_question)}"
+    payload = result.user_question
+    assert payload["run_id"]
+    assert payload["phase_id"] == "extract"
+    assert payload["summary"].startswith("The system didn't gather")
+    assert payload["detail"]["failing_check_kind"] == "no_brain_work"
+    assert payload["detail"]["brain_summary"]["tool_calls"] == 0

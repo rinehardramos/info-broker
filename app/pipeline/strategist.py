@@ -146,7 +146,7 @@ class RunResult:
     phases: list[PhaseOutput] = field(default_factory=list)
     ranked_candidates: list[dict] = field(default_factory=list)
     terminate_reason: str | None = None
-    user_question: str | None = None
+    user_question: "UserQuestionPayload | None" = None    # was: str | None
     ach_matrix: ACHMatrix | None = None
 
 
@@ -175,6 +175,33 @@ class UserQuestionPayload(TypedDict):
     detail: GateResult     # admin-only; emitted only via gate-detail endpoint
     run_id: str
     phase_id: str
+
+
+_USER_QUESTION_SUMMARIES: dict[str, str] = {
+    "no_brain_work": (
+        "The system didn't gather any results for this query. "
+        "This may be a temporary issue — please try again or contact support."
+    ),
+    "min_listings_returned": (
+        "We couldn't find listings matching your criteria. "
+        "Try broadening location or budget."
+    ),
+    "min_signal_classes_covered": (
+        "Not enough information was gathered to answer this query. "
+        "Please try a more specific query."
+    ),
+    # Strategy authors may extend; missing kinds use the fallback below.
+}
+
+
+def _build_user_question_summary(failing_check_kind: str | None, phase_id: str) -> str:
+    if failing_check_kind and failing_check_kind in _USER_QUESTION_SUMMARIES:
+        return _USER_QUESTION_SUMMARIES[failing_check_kind]
+    # Fallback per spec — only substitutes phase_id, never check internals.
+    return (
+        f"We couldn't complete the '{phase_id}' phase for this query. "
+        f"Please try a more specific query or contact support."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1016,14 +1043,23 @@ class Strategist:
                                 phase_complete_cb(phase, phase_output, False)
                         except Exception as exc:  # pragma: no cover
                             log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+                    gate_result = phase_output.gate_result or {
+                        "passed": False,
+                        "failing_check_kind": None,
+                        "failing_check_detail": {},
+                        "brain_summary": _build_brain_summary(phase_output),
+                    }
+                    payload: UserQuestionPayload = {
+                        "summary": _build_user_question_summary(gate_result["failing_check_kind"], phase.id),
+                        "detail": gate_result,
+                        "run_id": self._run_id,
+                        "phase_id": phase.id,
+                    }
                     return RunResult(
                         run_id=self._run_id,
                         status="ask_user",
                         phases=completed_phases,
-                        user_question=(
-                            f"The '{phase.id}' phase could not extract sufficient "
-                            f"signals from your query. Could you provide more detail?"
-                        ),
+                        user_question=payload,
                     )
 
                 if replan_attempts >= max_replans:
