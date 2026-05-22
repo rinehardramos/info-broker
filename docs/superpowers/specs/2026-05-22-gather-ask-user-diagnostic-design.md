@@ -149,9 +149,18 @@ Each phase entry gains a `gate_result` key with the shape above. Strategist alwa
 - **`AskUserPrompt`** — renders `summary` for everyone, plus a collapsible `<AdminGateDetail>` section that mounts only when `user.is_admin || user.role === 'admin'`. The detail shows `failing_check_kind`, the per-check detail, brain summary, and a copy-run_id button.
 - **`RunBadge`** (new) — renders `run_id` as an 8-char prefix chip with the full UUID in the `title` tooltip and copied to clipboard on click. Used in: ask_user surface, History row, error toast, run-detail header.
 
-### API endpoint contract
+### Backend surfaces that change
 
-The existing `/v3/agent/confirm/pending` and run-create endpoints return `user_question` as a structured object instead of a string. For non-admin callers, the API **omits** the `detail` field entirely (not redact-with-null) — cleaner schema, smaller payload, no info-leak surface. Admin gating happens at the route layer following the `working_memory.py:50` pattern. Client-side flags cannot reveal the field.
+The strategist's `user_question` reaches the user via **WebSocket events** emitted from `engine_v2.py`, not via the entity-confirmation endpoint `/v3/agent/confirm/pending` (which is a different flow):
+
+- `engine_v2.py:535-543` — emits a `brain.question` event with `{run_id, job_id, question, options}`, and also attaches `user_question` to the `run_complete` payload
+- Consumed in `frontend/src/components/agent/AgentChat.tsx:206-220` (renders the chat bubble)
+
+After this spec ships:
+
+- The `brain.question` event payload becomes `{run_id, job_id, summary, phase_id, options}` — `question` (the misleading string) is dropped in favor of `summary`. No `detail` over WebSocket (no role context at emit time).
+- A new REST endpoint **`GET /v3/pipelines/runs/{run_id}/gate-detail`** returns the full `GateResult` for the last failing phase, gated by `is_admin || role == 'admin'`. Returns 403 for non-admin even on their own runs (admin-only data). Frontend calls this after rendering the friendly summary, only if `user.is_admin`.
+- The phase-level `is.phase_complete` event (`engine_v2.py:330-345`) adds a `gate_result_summary` field (the count/duration fields, NOT detail strings) so live phase progress can show "0 tool calls" cues without leaking detail.
 
 ## Data flow
 
@@ -198,11 +207,15 @@ Tracing what happens for the query "show all properties for rent in chicago" *af
                             │ THIRD CHANGE — trail persists gate_result.
                             │ jsonb_pretty(trail) now tells the truth.
 
-6. Frontend ask_user        GET /v3/agent/confirm/pending → list including:
-                              { run_id, summary, detail?, phase_id }
+6. Frontend ask_user        WS event `brain.question` arrives in AgentChat:
+                              { run_id, job_id, summary, phase_id, options }
+                            AgentChat renders summary + RunBadge.
+                            If user.is_admin, AgentChat fetches:
+                              GET /v3/pipelines/runs/{run_id}/gate-detail
+                            and renders <AdminGateDetail/> inline.
                             ▲
-                            │ detail present only when caller is admin
-                            │ (server-side filter)
+                            │ detail endpoint is admin-gated server-side; returns
+                            │ 403 for non-admin regardless of run ownership.
 
 7. UI renders               <AskUserPrompt>
                               <p>{summary}</p>
@@ -288,7 +301,8 @@ Default is **deny**, not permit. Gate-check authors who want to expose additiona
 ### Backwards compatibility
 
 - **Strategist `RunResult.user_question`** changes from `str | None` → `UserQuestionPayload | None`. Internal callers (`app/routers/v3/agent.py`, `app/routers/v3/preflight.py`, others — grep during implementation) updated in lockstep.
-- **API JSON response** for `/v3/agent/confirm/pending` and run-create now nests `user_question` as an object. Frontend is updated in lockstep. No external/webhook consumer of this field (verified: `webhook_deliveries` table does not carry `user_question`).
+- **WebSocket `brain.question` event** drops the legacy `question: string` field in favor of `summary: string` + `phase_id`. `AgentChat.tsx` is updated in lockstep. No external/webhook consumer (verified: `webhook_deliveries` does not carry `user_question`).
+- **WebSocket `run_complete` payload** changes `user_question: string` → `user_question: UserQuestionPayload | null` (object or null). Same lockstep update on `AgentChat.tsx` and `useWebSocket.ts`.
 - **research_trails schema** — no DB migration; `trail` is already `jsonb`, `gate_result` is purely additive.
 
 ### Security checklist
