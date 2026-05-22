@@ -1349,3 +1349,42 @@ def test_ask_user_escalation_does_not_replan():
     assert result.user_question is not None
     # Only 1 attempt — ask_user never replans
     assert attempt_count[0] == 1
+
+
+def test_gate_result_typed_dict_shape():
+    """GateResult exposes all fields required by the spec."""
+    from app.pipeline.strategist import GateResult, BrainSummary
+    summary: BrainSummary = {
+        "tool_calls": 0,
+        "findings": 0,
+        "hypothesis_count": 0,
+        "duration_ms": 73,
+        "invoked_tools": [],
+    }
+    result: GateResult = {
+        "passed": False,
+        "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {"tool_calls": 0, "findings": 0},
+        "brain_summary": summary,
+    }
+    assert set(summary.keys()) == {"tool_calls", "findings", "hypothesis_count", "duration_ms", "invoked_tools"}
+    assert set(result.keys()) == {"passed", "failing_check_kind", "failing_check_detail", "brain_summary"}
+
+
+def test_user_question_payload_shape():
+    from app.pipeline.strategist import UserQuestionPayload, GateResult, BrainSummary
+    summary: BrainSummary = {
+        "tool_calls": 0, "findings": 0, "hypothesis_count": 0,
+        "duration_ms": 0, "invoked_tools": [],
+    }
+    gr: GateResult = {
+        "passed": False, "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {}, "brain_summary": summary,
+    }
+    p: UserQuestionPayload = {
+        "summary": "test",
+        "detail": gr,
+        "run_id": "abc-123",
+        "phase_id": "extract",
+    }
+    assert set(p.keys()) == {"summary", "detail", "run_id", "phase_id"}

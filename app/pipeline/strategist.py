@@ -14,7 +14,7 @@ import os
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, TypedDict
 
 from app.pipeline.catalogs.budget import BudgetEnvelope
 from app.pipeline.catalogs.schemas import PhaseSpec, Strategy
@@ -146,6 +146,33 @@ class RunResult:
     terminate_reason: str | None = None
     user_question: str | None = None
     ach_matrix: ACHMatrix | None = None
+
+
+# ---------------------------------------------------------------------------
+# Gate result types (spec: 2026-05-22-gather-ask-user-diagnostic-design.md)
+# ---------------------------------------------------------------------------
+
+
+class BrainSummary(TypedDict):
+    tool_calls: int
+    findings: int
+    hypothesis_count: int       # surviving hypothesis count
+    duration_ms: int            # phase wall-clock
+    invoked_tools: list[str]    # distinct MCP / built-in tools touched, truncated to top 10
+
+
+class GateResult(TypedDict):
+    passed: bool
+    failing_check_kind: str | None
+    failing_check_detail: dict        # sanitized; see app/security.py:sanitize_check_detail
+    brain_summary: BrainSummary
+
+
+class UserQuestionPayload(TypedDict):
+    summary: str           # user-safe; never blames the query
+    detail: GateResult     # admin-only; emitted only via gate-detail endpoint
+    run_id: str
+    phase_id: str
 
 
 # ---------------------------------------------------------------------------
