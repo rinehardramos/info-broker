@@ -335,11 +335,26 @@ async def run_engine_v2(
         else:
             gate_status = "fail"
 
+        # Surface a brain-summary cue so live phase UIs can show "0 tool calls"
+        # hints. Counts only — no detail strings. Admin detail is fetched via
+        # the GET /v3/pipelines/runs/{run_id}/gate-detail endpoint (Task 8).
+        gate_result_summary = None
+        gr = getattr(phase_output, "gate_result", None)
+        if gr is not None:
+            bs = gr.get("brain_summary") or {}
+            gate_result_summary = {
+                "tool_calls": bs.get("tool_calls", 0),
+                "findings": bs.get("findings", 0),
+                "duration_ms": bs.get("duration_ms", 0),
+                "failing_check_kind": gr.get("failing_check_kind"),  # kind name only
+            }
+
         await _emit(event_emit, {
             "type": "is.phase_complete",
             "run_id": run_id,
             "phase_id": phase.id,
             "gate_status": gate_status,
+            "gate_result_summary": gate_result_summary,  # NEW
             "distinct_candidate_names": phase_output.distinct_candidate_names,
             "n_tacticians": phase_output.metadata.get("num_tacticians", 0),
         })
@@ -533,12 +548,22 @@ async def run_engine_v2(
     # `brain.question` event for AgentChat in addition to the question on
     # the run_complete payload so existing consumers keep working.
     if result.status == "ask_user" and getattr(result, "user_question", None):
-        run_complete_payload["user_question"] = result.user_question
+        payload = result.user_question  # UserQuestionPayload dict
+        # run_complete carries the user_question as a structured object (sans detail).
+        # detail field intentionally omitted from WS — admin fetches via REST endpoint.
+        run_complete_payload["user_question"] = {
+            "summary": payload.get("summary", ""),
+            "run_id": payload.get("run_id", run_id),
+            "phase_id": payload.get("phase_id", ""),
+        }
+        # brain.question event drops legacy 'question: str' in favor of 'summary' + 'phase_id'.
+        # AgentChat.tsx is updated in lockstep in Task 13.
         await _emit(event_emit, {
             "type": "brain.question",
             "run_id": run_id,
             "job_id": run_id,
-            "question": result.user_question,
+            "summary": payload.get("summary", ""),  # was: 'question': str
+            "phase_id": payload.get("phase_id", ""),
             "options": [],
         })
 
