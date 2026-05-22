@@ -11,6 +11,7 @@ import { InlineError } from '@/components/ui/inline-error'
 import { useDebouncedLoading } from '@/hooks/useDebouncedLoading'
 import { useResultDrawerStore } from '@/stores/resultDrawerStore'
 import { StatusBadge } from './StatusBadge'
+import { RunBadge } from './RunBadge'
 import { DownloadMenu } from './DownloadMenu'
 import { api } from '@/api/client'
 import {
@@ -129,6 +130,7 @@ export function ResultDrawer() {
           </SheetTitle>
           <SheetDescription className="flex items-center gap-2 mt-1">
             {run && <StatusBadge status={run.status} />}
+            {runId && <RunBadge runId={runId} />}
             {run?.pipeline_name && (
               <Badge variant="outline" className="text-xs" style={{ borderColor: 'var(--border)', color: 'var(--subtext)' }}>
                 {run.pipeline_name}

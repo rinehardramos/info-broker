@@ -43,4 +43,12 @@ describe('RunListTable', () => {
     render(<RunListTable rows={[]} onShow={() => {}} />)
     expect(screen.getByText(/no runs yet/i)).toBeInTheDocument()
   })
+
+  it('shows a RunBadge with the 8-char run id prefix for each row', () => {
+    render(<RunListTable rows={rows} onShow={() => {}} />)
+    const badges = screen.getAllByTestId('run-badge')
+    expect(badges).toHaveLength(rows.length)
+    expect(badges[0]).toHaveTextContent('r1')
+    expect(badges[1]).toHaveTextContent('r2')
+  })
 })
