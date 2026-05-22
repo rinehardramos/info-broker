@@ -338,16 +338,80 @@ _extra = _cors_os.getenv("CORS_ALLOWED_ORIGINS", "")
 if _extra:
     _CORS_ORIGINS.extend(o.strip() for o in _extra.split(",") if o.strip())
 
+_CORS_ORIGIN_REGEX = r"https://.*\.ngrok-free\.(app|dev)"
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
     # ngrok-free for legacy demos.
-    allow_origin_regex=r"https://.*\.ngrok-free\.(app|dev)",
+    allow_origin_regex=_CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Session-Id",
                    "X-MCP-Signature", "X-MCP-Timestamp", "X-Caller-Identity"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Uncaught-exception handler with CORS-header echo (#97)
+# ---------------------------------------------------------------------------
+#
+# FastAPI's default 500 path returns before CORSMiddleware can add headers, so
+# browsers report uncaught exceptions as "CORS blocked" instead of HTTP 500 —
+# hiding the real failure (#96 spent ~36h masked this way). This handler
+# echoes the matching CORS header back on 500s so DevTools shows the real
+# status code, while keeping the body generic (no traceback / path leaks).
+
+import re as _re_cors  # noqa: E402
+from fastapi import Request as _Request  # noqa: E402
+from fastapi.responses import JSONResponse as _JSONResponse  # noqa: E402
+
+_CORS_ORIGIN_REGEX_COMPILED = _re_cors.compile(_CORS_ORIGIN_REGEX)
+
+
+def _is_origin_allowed(origin: str | None) -> bool:
+    """True iff origin is in the explicit allowlist OR matches the regex."""
+    if not origin:
+        return False
+    if origin in _CORS_ORIGINS:
+        return True
+    return bool(_CORS_ORIGIN_REGEX_COMPILED.fullmatch(origin))
+
+
+async def cors_safe_500_handler(request: _Request, exc: Exception) -> _JSONResponse:
+    """Uncaught-exception handler — returns 500 with CORS headers echoed back
+    when the request's Origin is allowlisted.
+
+    Body stays generic ("Internal Server Error") so file paths and tracebacks
+    don't leak to clients. The real exception is logged at ERROR with the
+    traceback, so admins still see the cause.
+    """
+    # Log with traceback for admins. exc_info=True attaches the full
+    # traceback to the log record.
+    logging.getLogger("app.main.cors_safe_500").error(
+        "uncaught exception on %s %s: %s",
+        request.method, request.url.path, exc, exc_info=True,
+    )
+
+    origin = request.headers.get("origin")
+    headers: dict[str, str] = {}
+    if _is_origin_allowed(origin):
+        headers["Access-Control-Allow-Origin"] = origin  # type: ignore[assignment]
+        headers["Access-Control-Allow-Credentials"] = "true"
+        # Vary: Origin so caches don't reuse a no-CORS response for a CORS one.
+        headers["Vary"] = "Origin"
+
+    return _JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+        headers=headers,
+    )
+
+
+# Register against the broadest exception type. FastAPI's HTTPException path
+# already routes through middleware (so 4xx CORS works); this targets the
+# uncaught-exception path that bypasses middleware.
+app.add_exception_handler(Exception, cors_safe_500_handler)
 
 
 @app.get("/healthz", tags=["health"])
