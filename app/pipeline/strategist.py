@@ -135,6 +135,7 @@ class PhaseOutput:
     distinct_candidate_names: list[str]
     metadata: dict = field(default_factory=dict)
     ranked_candidates: list[dict] = field(default_factory=list)
+    gate_result: "GateResult | None" = None    # populated by _run_gate
 
 
 @dataclass
@@ -582,6 +583,26 @@ def _check_kind(check: Any) -> str:
     if isinstance(check, dict):
         return check.get("kind", "?")
     return "?"
+
+
+def _build_brain_summary(phase_output: PhaseOutput) -> "BrainSummary":
+    """Extract the brain-activity summary from a PhaseOutput's metadata.
+
+    Tacticians attach `tool_calls`, `invoked_tools`, and `duration_ms` to the
+    aggregated phase metadata. `findings` is len(aggregated_findings). The
+    `invoked_tools` list is truncated to the first 10 if longer.
+    """
+    md = phase_output.metadata
+    invoked = list(md.get("invoked_tools") or [])
+    if len(invoked) > 10:
+        invoked = invoked[:10]
+    return {
+        "tool_calls": int(md.get("tool_calls", 0) or 0),
+        "findings": len(phase_output.aggregated_findings or []),
+        "hypothesis_count": int(md.get("surviving_hypothesis_count", 0) or 0),
+        "duration_ms": int(md.get("duration_ms", 0) or 0),
+        "invoked_tools": invoked,
+    }
 
 
 def _run_gate(

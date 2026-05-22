@@ -1388,3 +1388,46 @@ def test_user_question_payload_shape():
         "phase_id": "extract",
     }
     assert set(p.keys()) == {"summary", "detail", "run_id", "phase_id"}
+
+
+def test_build_brain_summary_zero_work():
+    """A phase with zero findings and zero tool calls produces a zero-work summary."""
+    from app.pipeline.strategist import _build_brain_summary, PhaseOutput
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"hypotheses_explored": 1, "duration_ms": 73, "tool_calls": 0},
+    )
+    summary = _build_brain_summary(po)
+    assert summary["tool_calls"] == 0
+    assert summary["findings"] == 0
+    assert summary["hypothesis_count"] == 0  # nothing survived
+    assert summary["duration_ms"] == 73
+    assert summary["invoked_tools"] == []
+
+
+def test_phase_output_has_gate_result_field():
+    """PhaseOutput supports an optional gate_result attribute."""
+    from app.pipeline.strategist import PhaseOutput
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={},
+    )
+    assert hasattr(po, "gate_result")
+    assert po.gate_result is None
+
+
+def test_build_brain_summary_truncates_invoked_tools():
+    from app.pipeline.strategist import _build_brain_summary, PhaseOutput
+    tools = [f"tool_{i}" for i in range(60)]
+    po = PhaseOutput(
+        phase_id="gather",
+        aggregated_findings=[{"x": 1}],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 60, "invoked_tools": tools, "duration_ms": 1234},
+    )
+    summary = _build_brain_summary(po)
+    assert len(summary["invoked_tools"]) == 10
