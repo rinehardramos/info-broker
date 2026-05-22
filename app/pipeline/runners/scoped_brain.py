@@ -59,6 +59,56 @@ class BrainFailure:
     message: str
 
 
+# Human-facing message templates for pipeline_runs.error_message.
+# Keep concise; no file paths or stack traces (this surfaces in the UI).
+_USER_FACING_MESSAGES = {
+    "auth_failed": (
+        "Brain authentication failed (HTTP {status}). "
+        "Claude credentials are missing or expired in the API container — "
+        "ask an admin to refresh ~/.claude/.credentials.json or set "
+        "ANTHROPIC_API_KEY."
+    ),
+    "rate_limited": (
+        "Brain rate limited (HTTP {status}). "
+        "The Anthropic API throttled the request after {retries} retries — "
+        "wait a few minutes and try again, or upgrade the API tier."
+    ),
+    "upstream_error": (
+        "Brain upstream error (HTTP {status}). "
+        "The Anthropic API returned a server error — likely transient; "
+        "if it repeats, check status.anthropic.com."
+    ),
+    "no_result_event": (
+        "Brain subprocess crashed or timed out before completing. "
+        "Check the API container's recent logs for an exit code or "
+        "OOM-kill signal."
+    ),
+}
+
+
+def summarize_brain_failures(failures: list[BrainFailure]) -> str | None:
+    """Turn a list of per-slot BrainFailures into one user-facing string.
+
+    Returns None when there are no fatal failures — the caller can keep
+    the strategist's terminate_reason. Returns a short, UI-safe message
+    when at least one fatal failure happened. The FIRST fatal failure
+    wins (the run already terminated; no point listing every slot).
+    """
+    for f in failures:
+        if not f.is_fatal:
+            continue
+        template = _USER_FACING_MESSAGES.get(
+            f.kind,
+            "Brain failed ({kind}). Check API logs for details.",
+        )
+        return template.format(
+            kind=f.kind,
+            status=f.api_status or "?",
+            retries=f.retry_count,
+        )
+    return None
+
+
 def detect_brain_failure(events: list[dict[str, Any]]) -> BrainFailure:
     """Inspect a Claude-Code stream-json event list and classify the outcome.
 
@@ -415,6 +465,7 @@ async def scoped_brain_runner(
     event_emit: Callable,
     run_id: str = "",
     slot_idx: int = 0,
+    on_failure: Callable[[BrainFailure], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Spawn ONE Claude Code subprocess scoped to this tactician's unit_of_work.
 
@@ -651,6 +702,13 @@ async def scoped_brain_runner(
         # phase X: checks did not pass" — auth / quota / upstream errors
         # would stay invisible until someone read raw stream-json.
         failure = detect_brain_failure(all_events)
+        # Notify the caller (engine_v2) so it can override the run's
+        # terminate_reason / error_message with the real cause.
+        if on_failure is not None:
+            try:
+                on_failure(failure)
+            except Exception as cb_exc:
+                log.warning("on_failure callback raised (non-fatal): %s", cb_exc)
         if failure.is_fatal:
             hint = {
                 "auth_failed": (

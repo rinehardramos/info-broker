@@ -181,7 +181,19 @@ async def run_engine_v2(
     # ------------------------------------------------------------------
     # 3. Build real tactic_runner_fn (wraps scoped_brain_runner)
     # ------------------------------------------------------------------
-    from app.pipeline.runners.scoped_brain import scoped_brain_runner
+    from app.pipeline.runners.scoped_brain import (
+        scoped_brain_runner, BrainFailure, summarize_brain_failures,
+    )
+
+    # Collector for per-slot brain failures (HTTP 401 / 429 / 5xx / no-result).
+    # Populated by scoped_brain_runner's on_failure callback. After the run
+    # terminates we override terminate_reason with the user-facing summary so
+    # admins + the UI see "Brain authentication failed (HTTP 401)" instead of
+    # "Gate failed on phase 'broaden': checks did not pass".
+    brain_failures: list[BrainFailure] = []
+
+    def _record_brain_failure(f: BrainFailure) -> None:
+        brain_failures.append(f)
 
     def _make_tactic_runner_fn(phase: PhaseSpec, slot_idx: int, unit_of_work: dict):
         """Return an async runner the tactician awaits.
@@ -208,6 +220,7 @@ async def run_engine_v2(
                     event_emit=event_emit,
                     run_id=run_id,
                     slot_idx=slot_idx,
+                    on_failure=_record_brain_failure,
                 )
             except Exception as exc:
                 log.error("scoped_brain_runner failed: %s", exc)
@@ -453,12 +466,27 @@ async def run_engine_v2(
             "terminated": "failed",
             "ask_user": "ask_user",
         }.get(result.status, "failed")
+        # Override terminate_reason with the structured brain-failure summary
+        # when one was recorded. Without this the user sees "Gate failed on
+        # phase 'broaden': checks did not pass" — the strategist's downstream
+        # symptom — instead of the actual upstream cause (auth / rate-limit /
+        # upstream / no-result). Only kicks in for terminated runs; completed
+        # and ask_user runs use the original reason.
+        error_message = result.terminate_reason
+        if terminal_status == "failed":
+            brain_summary = summarize_brain_failures(brain_failures)
+            if brain_summary:
+                error_message = brain_summary
+                log.info(
+                    "engine_v2: overrode terminate_reason with brain-failure summary: %s",
+                    brain_summary,
+                )
         execute(
             """UPDATE pipeline_runs
                   SET status = %s, finished_at = now(),
                       error_message = %s
                 WHERE id = %s""",
-            (terminal_status, result.terminate_reason, run_id),
+            (terminal_status, error_message, run_id),
         )
     except Exception as exc:
         log.warning("engine_v2: pipeline_runs update failed (non-fatal): %s", exc)
