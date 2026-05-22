@@ -608,8 +608,8 @@ def _build_brain_summary(phase_output: PhaseOutput) -> "BrainSummary":
 
 def _run_gate(
     phase_output: PhaseOutput,
-    phase: "Any",
-    envelope: "Any",
+    phase: PhaseSpec,
+    envelope: BudgetEnvelope,
 ) -> "GateResult":
     """Evaluate gate checks and return a GateResult dict.
 
@@ -820,26 +820,6 @@ def _enrich_ranked_candidates(
         })
 
     return enriched, matrix
-
-
-# ---------------------------------------------------------------------------
-# Gate failure detail helpers (P3 replan support)
-# ---------------------------------------------------------------------------
-
-
-def _get_failing_check_kind(
-    phase_output: PhaseOutput,
-    phase: PhaseSpec,
-    envelope: BudgetEnvelope,
-) -> str:
-    """Return the kind string of the first gate check that failed, or 'unknown'."""
-    for check in phase.gate.checks:
-        fn = _GATE_CHECKS.get(check.kind)
-        if fn is None:
-            continue
-        if not fn(phase_output, check.params, envelope):
-            return check.kind
-    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -1081,7 +1061,7 @@ class Strategist:
                     )
 
                 # Decide replan strategy and prepare next attempt
-                failing_check_kind = _get_failing_check_kind(phase_output, phase, self._envelope)
+                failing_check_kind = (phase_output.gate_result or {}).get("failing_check_kind") or "unknown"
                 replan_strategy: str
 
                 if on_fail == "replan":

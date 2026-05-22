@@ -1000,7 +1000,7 @@ def test_ach_uses_strategy_signal_weights():
 # P3: Replan / recurse tests (§8.2, DEPTH_TO_REPLAN_BUDGET)
 # ---------------------------------------------------------------------------
 
-from app.pipeline.strategist import DEPTH_TO_REPLAN_BUDGET, _get_failing_check_kind
+from app.pipeline.strategist import DEPTH_TO_REPLAN_BUDGET
 
 
 def _make_always_failing_tactician(candidate_name="Candidate X"):
@@ -1493,3 +1493,27 @@ def test_run_gate_tool_calls_zero_findings_one_skips_invariant():
     )
     result = _run_gate(po, _MockPhase(), envelope={})
     assert result["passed"] is True
+
+
+def test_no_brain_work_failing_kind_flows_to_corrective_hint_path():
+    """When the no_brain_work invariant fires, downstream code that reads
+    phase_output.gate_result['failing_check_kind'] sees 'no_brain_work',
+    not the pre-existing _get_failing_check_kind helper's 'unknown' result.
+    """
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "extract"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0, "duration_ms": 50, "invoked_tools": []},
+    )
+    gr = _run_gate(po, _MockPhase(), envelope={})
+    po.gate_result = gr  # mimic strategist's attach
+    # Downstream consumers should read this directly
+    assert (po.gate_result or {}).get("failing_check_kind") == "no_brain_work"
