@@ -35,6 +35,9 @@ docs/superpowers/plans/
 frontend/node_modules/
 frontend/dist/
 
+# Stray npm lockfile — project uses pnpm (pnpm-lock.yaml)
+frontend/package-lock.json
+
 # Database dump files
 *.sql
 
