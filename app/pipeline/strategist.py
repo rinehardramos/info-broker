@@ -14,11 +14,12 @@ import os
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, TypedDict
 
 from app.pipeline.catalogs.budget import BudgetEnvelope
 from app.pipeline.catalogs.schemas import PhaseSpec, Strategy
 from app.pipeline import budget as wallet
+from app.security import sanitize_check_detail
 from app.pipeline.ach import (
     ACHSignal,
     ACHMatrix,
@@ -135,6 +136,7 @@ class PhaseOutput:
     distinct_candidate_names: list[str]
     metadata: dict = field(default_factory=dict)
     ranked_candidates: list[dict] = field(default_factory=list)
+    gate_result: "GateResult | None" = None    # populated by _run_gate
 
 
 @dataclass
@@ -144,8 +146,62 @@ class RunResult:
     phases: list[PhaseOutput] = field(default_factory=list)
     ranked_candidates: list[dict] = field(default_factory=list)
     terminate_reason: str | None = None
-    user_question: str | None = None
+    user_question: "UserQuestionPayload | None" = None    # was: str | None
     ach_matrix: ACHMatrix | None = None
+
+
+# ---------------------------------------------------------------------------
+# Gate result types (spec: 2026-05-22-gather-ask-user-diagnostic-design.md)
+# ---------------------------------------------------------------------------
+
+
+class BrainSummary(TypedDict):
+    tool_calls: int
+    findings: int
+    hypothesis_count: int       # surviving hypothesis count
+    duration_ms: int            # phase wall-clock
+    invoked_tools: list[str]    # distinct MCP / built-in tools touched, truncated to top 10
+
+
+class GateResult(TypedDict):
+    passed: bool
+    failing_check_kind: str | None
+    failing_check_detail: dict        # sanitized; see app/security.py:sanitize_check_detail
+    brain_summary: BrainSummary
+
+
+class UserQuestionPayload(TypedDict):
+    summary: str           # user-safe; never blames the query
+    detail: GateResult     # admin-only; emitted only via gate-detail endpoint
+    run_id: str
+    phase_id: str
+
+
+_USER_QUESTION_SUMMARIES: dict[str, str] = {
+    "no_brain_work": (
+        "The system didn't gather any results for this query. "
+        "This may be a temporary issue — please try again or contact support."
+    ),
+    "min_listings_returned": (
+        "We couldn't find listings matching your criteria. "
+        "Try broadening location or budget."
+    ),
+    "min_signal_classes_covered": (
+        "Not enough information was gathered to answer this query. "
+        "Please try a more specific query."
+    ),
+    # Strategy authors may extend; missing kinds use the fallback below.
+}
+
+
+def _build_user_question_summary(failing_check_kind: str | None, phase_id: str) -> str:
+    if failing_check_kind and failing_check_kind in _USER_QUESTION_SUMMARIES:
+        return _USER_QUESTION_SUMMARIES[failing_check_kind]
+    # Fallback per spec — only substitutes phase_id, never check internals.
+    return (
+        f"We couldn't complete the '{phase_id}' phase for this query. "
+        f"Please try a more specific query or contact support."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -557,12 +613,37 @@ def _check_kind(check: Any) -> str:
     return "?"
 
 
+def _build_brain_summary(phase_output: PhaseOutput) -> "BrainSummary":
+    """Extract the brain-activity summary from a PhaseOutput's metadata.
+
+    Tacticians attach `tool_calls`, `invoked_tools`, and `duration_ms` to the
+    aggregated phase metadata. `findings` is len(aggregated_findings). The
+    `invoked_tools` list is truncated to the first 10 if longer.
+    """
+    md = phase_output.metadata
+    invoked = list(md.get("invoked_tools") or [])
+    if len(invoked) > 10:
+        invoked = invoked[:10]
+    return {
+        "tool_calls": int(md.get("tool_calls", 0) or 0),
+        "findings": len(phase_output.aggregated_findings or []),
+        "hypothesis_count": int(md.get("surviving_hypothesis_count", 0) or 0),
+        "duration_ms": int(md.get("duration_ms", 0) or 0),
+        "invoked_tools": invoked,
+    }
+
+
 def _run_gate(
     phase_output: PhaseOutput,
     phase: PhaseSpec,
     envelope: BudgetEnvelope,
-) -> bool:
-    """Return True if all gate checks pass, False otherwise.
+) -> "GateResult":
+    """Evaluate gate checks and return a GateResult dict.
+
+    Invariant (top-level, checked before per-strategy checks):
+        A phase with tool_calls == 0 AND findings == 0 cannot pass.
+        This prevents a strategy author who forgot to declare gate checks
+        from silently shipping a zero-work phase as "succeeded".
 
     Unknown check kinds are logged at ERROR and treated as **failed** —
     a misconfigured strategy with a phantom check kind would otherwise
@@ -570,20 +651,57 @@ def _run_gate(
     pattern. The audit at startup (audit_strategy_gates) is the
     primary line of defense; this is the runtime backstop.
     """
+    brain_summary = _build_brain_summary(phase_output)
+
+    # Top-level invariant: both tool_calls AND findings must be zero to trip.
+    if brain_summary["tool_calls"] == 0 and brain_summary["findings"] == 0:
+        return {
+            "passed": False,
+            "failing_check_kind": "no_brain_work",
+            "failing_check_detail": sanitize_check_detail(
+                {"tool_calls": 0, "findings": 0}
+            ),
+            "brain_summary": brain_summary,
+        }
+
+    # Per-strategy checks — preserve fail-CLOSED behavior on unknown kinds.
     for check in phase.gate.checks:
-        fn = _GATE_CHECKS.get(check.kind)
+        kind = check.kind
+        fn = _GATE_CHECKS.get(kind)
         if fn is None:
             log.error(
                 "GATE_CONFIG_ERROR: unknown gate check kind %r on phase %r — "
                 "failing the gate. Add the kind to _GATE_CHECKS or remove it "
                 "from the strategy catalog. (Was fail-OPEN before; flipped to "
                 "fail-CLOSED because the no-op bug took ~36h to surface.)",
-                check.kind, phase.id,
+                kind, phase.id,
             )
-            return False
-        if not fn(phase_output, check.params, envelope):
-            return False
-    return True
+            return {
+                "passed": False,
+                "failing_check_kind": f"unknown:{kind}",
+                "failing_check_detail": sanitize_check_detail(
+                    {"check": kind, "params": getattr(check, "params", {})}
+                ),
+                "brain_summary": brain_summary,
+            }
+        params = getattr(check, "params", {})
+        ok = fn(phase_output, params, envelope)
+        if not ok:
+            return {
+                "passed": False,
+                "failing_check_kind": kind,
+                "failing_check_detail": sanitize_check_detail(
+                    {"check": kind, "params": params}
+                ),
+                "brain_summary": brain_summary,
+            }
+
+    return {
+        "passed": True,
+        "failing_check_kind": None,
+        "failing_check_detail": {},
+        "brain_summary": brain_summary,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -734,26 +852,6 @@ def _enrich_ranked_candidates(
 
 
 # ---------------------------------------------------------------------------
-# Gate failure detail helpers (P3 replan support)
-# ---------------------------------------------------------------------------
-
-
-def _get_failing_check_kind(
-    phase_output: PhaseOutput,
-    phase: PhaseSpec,
-    envelope: BudgetEnvelope,
-) -> str:
-    """Return the kind string of the first gate check that failed, or 'unknown'."""
-    for check in phase.gate.checks:
-        fn = _GATE_CHECKS.get(check.kind)
-        if fn is None:
-            continue
-        if not fn(phase_output, check.params, envelope):
-            return check.kind
-    return "unknown"
-
-
-# ---------------------------------------------------------------------------
 # Strategist
 # ---------------------------------------------------------------------------
 
@@ -897,7 +995,22 @@ class Strategist:
                 # Audit: record replan attempt number for research_trails
                 phase_output.metadata["replan_attempt"] = replan_attempts
 
-                gate_passed = _run_gate(phase_output, phase, self._envelope)
+                gate_result = _run_gate(phase_output, phase, self._envelope)
+                log.info(
+                    "strategist.gate_result",
+                    extra={
+                        "run_id": self._run_id,
+                        "phase_id": phase.id,
+                        "gate_passed": gate_result["passed"],
+                        "failing_check_kind": gate_result["failing_check_kind"],
+                        "tool_calls": gate_result["brain_summary"]["tool_calls"],
+                        "findings": gate_result["brain_summary"]["findings"],
+                        "duration_ms": gate_result["brain_summary"]["duration_ms"],
+                        "replan_attempt": phase_output.metadata.get("replan_attempt", 0),
+                    },
+                )
+                phase_output.gate_result = gate_result
+                gate_passed = gate_result["passed"]
 
                 if gate_passed:
                     # Consume RU for this phase
@@ -945,14 +1058,23 @@ class Strategist:
                                 phase_complete_cb(phase, phase_output, False)
                         except Exception as exc:  # pragma: no cover
                             log.warning("phase_complete_cb raised (non-fatal): %s", exc)
+                    gate_result = phase_output.gate_result or {
+                        "passed": False,
+                        "failing_check_kind": None,
+                        "failing_check_detail": {},
+                        "brain_summary": _build_brain_summary(phase_output),
+                    }
+                    payload: UserQuestionPayload = {
+                        "summary": _build_user_question_summary(gate_result["failing_check_kind"], phase.id),
+                        "detail": gate_result,
+                        "run_id": self._run_id,
+                        "phase_id": phase.id,
+                    }
                     return RunResult(
                         run_id=self._run_id,
                         status="ask_user",
                         phases=completed_phases,
-                        user_question=(
-                            f"The '{phase.id}' phase could not extract sufficient "
-                            f"signals from your query. Could you provide more detail?"
-                        ),
+                        user_question=payload,
                     )
 
                 if replan_attempts >= max_replans:
@@ -990,7 +1112,7 @@ class Strategist:
                     )
 
                 # Decide replan strategy and prepare next attempt
-                failing_check_kind = _get_failing_check_kind(phase_output, phase, self._envelope)
+                failing_check_kind = (phase_output.gate_result or {}).get("failing_check_kind") or "unknown"
                 replan_strategy: str
 
                 if on_fail == "replan":

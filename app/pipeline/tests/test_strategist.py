@@ -222,7 +222,7 @@ def test_gate_fail_ask_user_returns_ask_user_status():
 
     assert result.status == "ask_user"
     assert result.user_question is not None
-    assert len(result.user_question) > 0
+    assert len(result.user_question["summary"]) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -1000,7 +1000,7 @@ def test_ach_uses_strategy_signal_weights():
 # P3: Replan / recurse tests (§8.2, DEPTH_TO_REPLAN_BUDGET)
 # ---------------------------------------------------------------------------
 
-from app.pipeline.strategist import DEPTH_TO_REPLAN_BUDGET, _get_failing_check_kind
+from app.pipeline.strategist import DEPTH_TO_REPLAN_BUDGET
 
 
 def _make_always_failing_tactician(candidate_name="Candidate X"):
@@ -1403,3 +1403,250 @@ def test_select_tactic_no_preferred_uses_existing_pref_logic():
     assert selected is not None
     # HFS is a dict; the returned object should be the same dict
     assert (selected.get("id") if isinstance(selected, dict) else selected.id) == "hypothesis_first_search"
+def test_gate_result_typed_dict_shape():
+    """GateResult exposes all fields required by the spec."""
+    from app.pipeline.strategist import GateResult, BrainSummary
+    summary: BrainSummary = {
+        "tool_calls": 0,
+        "findings": 0,
+        "hypothesis_count": 0,
+        "duration_ms": 73,
+        "invoked_tools": [],
+    }
+    result: GateResult = {
+        "passed": False,
+        "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {"tool_calls": 0, "findings": 0},
+        "brain_summary": summary,
+    }
+    assert set(summary.keys()) == {"tool_calls", "findings", "hypothesis_count", "duration_ms", "invoked_tools"}
+    assert set(result.keys()) == {"passed", "failing_check_kind", "failing_check_detail", "brain_summary"}
+
+
+def test_user_question_payload_shape():
+    from app.pipeline.strategist import UserQuestionPayload, GateResult, BrainSummary
+    summary: BrainSummary = {
+        "tool_calls": 0, "findings": 0, "hypothesis_count": 0,
+        "duration_ms": 0, "invoked_tools": [],
+    }
+    gr: GateResult = {
+        "passed": False, "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {}, "brain_summary": summary,
+    }
+    p: UserQuestionPayload = {
+        "summary": "test",
+        "detail": gr,
+        "run_id": "abc-123",
+        "phase_id": "extract",
+    }
+    assert set(p.keys()) == {"summary", "detail", "run_id", "phase_id"}
+
+
+def test_build_brain_summary_zero_work():
+    """A phase with zero findings and zero tool calls produces a zero-work summary."""
+    from app.pipeline.strategist import _build_brain_summary, PhaseOutput
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"hypotheses_explored": 1, "duration_ms": 73, "tool_calls": 0},
+    )
+    summary = _build_brain_summary(po)
+    assert summary["tool_calls"] == 0
+    assert summary["findings"] == 0
+    assert summary["hypothesis_count"] == 0  # nothing survived
+    assert summary["duration_ms"] == 73
+    assert summary["invoked_tools"] == []
+
+
+def test_phase_output_has_gate_result_field():
+    """PhaseOutput supports an optional gate_result attribute."""
+    from app.pipeline.strategist import PhaseOutput
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={},
+    )
+    assert hasattr(po, "gate_result")
+    assert po.gate_result is None
+
+
+def test_build_brain_summary_truncates_invoked_tools():
+    from app.pipeline.strategist import _build_brain_summary, PhaseOutput
+    tools = [f"tool_{i}" for i in range(60)]
+    po = PhaseOutput(
+        phase_id="gather",
+        aggregated_findings=[{"x": 1}],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 60, "invoked_tools": tools, "duration_ms": 1234},
+    )
+    summary = _build_brain_summary(po)
+    assert len(summary["invoked_tools"]) == 10
+
+
+def test_run_gate_no_brain_work_invariant_fires_on_zero_zero():
+    """A phase with tool_calls=0 AND findings=0 fails the gate, regardless of strategy checks."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "extract"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0, "duration_ms": 73, "invoked_tools": []},
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    assert result["passed"] is False
+    assert result["failing_check_kind"] == "no_brain_work"
+    assert result["failing_check_detail"] == {"tool_calls": 0, "findings": 0}
+    assert result["brain_summary"]["tool_calls"] == 0
+    assert result["brain_summary"]["findings"] == 0
+
+
+def test_run_gate_one_tool_call_one_finding_skips_invariant():
+    """tool_calls > 0 OR findings > 0 skips the invariant; per-strategy checks decide."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "gather"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="gather",
+        aggregated_findings=[{"x": 1}],
+        distinct_candidate_names=["A"],
+        metadata={"tool_calls": 1, "duration_ms": 500, "invoked_tools": ["run_web_search"]},
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    assert result["passed"] is True
+    assert result["failing_check_kind"] is None
+
+
+def test_run_gate_tool_calls_zero_findings_one_skips_invariant():
+    """AND semantics — only 0/0 trips the invariant. Findings>0 alone is enough."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "synthesize"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="synthesize",
+        aggregated_findings=[{"x": 1}],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0, "duration_ms": 200, "invoked_tools": []},
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    assert result["passed"] is True
+
+
+def test_no_brain_work_failing_kind_flows_to_corrective_hint_path():
+    """When the no_brain_work invariant fires, downstream code that reads
+    phase_output.gate_result['failing_check_kind'] sees 'no_brain_work',
+    not the pre-existing _get_failing_check_kind helper's 'unknown' result.
+    """
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "extract"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0, "duration_ms": 50, "invoked_tools": []},
+    )
+    gr = _run_gate(po, _MockPhase(), envelope={})
+    po.gate_result = gr  # mimic strategist's attach
+    # Downstream consumers should read this directly
+    assert (po.gate_result or {}).get("failing_check_kind") == "no_brain_work"
+
+
+def test_ask_user_emits_structured_payload_for_no_brain_work():
+    """When the no_brain_work invariant fires, RunResult.user_question is structured."""
+    from unittest.mock import patch
+    # Build a phase whose gate will fail via the no_brain_work invariant
+    phase = _make_phase(
+        "extract",
+        on_fail="ask_user",
+        checks=[],  # only the invariant runs
+    )
+    strategy = _make_strategy([phase])
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        # Force 0 tool_calls + 0 findings — must trip the invariant.
+        return {
+            "findings": [],
+            "candidates": [],
+            "metadata": {
+                "tool_calls": 0,
+                "duration_ms": 50,
+                "invoked_tools": [],
+                "surviving_hypothesis_count": 0,
+            },
+        }
+
+    strategist = _make_strategist(strategy)
+
+    with patch("app.pipeline.strategist.wallet.consume"):
+        result = run_sync(strategist.execute("test query", {}, fake_tactician))
+
+    assert result.status == "ask_user"
+    assert isinstance(result.user_question, dict), f"got {type(result.user_question)}"
+    payload = result.user_question
+    assert payload["run_id"]
+    assert payload["phase_id"] == "extract"
+    assert payload["summary"].startswith("The system didn't gather")
+    assert payload["detail"]["failing_check_kind"] == "no_brain_work"
+    assert payload["detail"]["brain_summary"]["tool_calls"] == 0
+
+
+# ---------------------------------------------------------------------------
+# test_strategist_emits_gate_result_log_per_phase
+# Defends: every gate evaluation emits a structured log line at INFO so
+# ops/SREs can aggregate across runs (e.g. "how often is no_brain_work
+# firing this week?"). Trails cover per-run forensics; logs cover trends.
+# ---------------------------------------------------------------------------
+def test_strategist_emits_gate_result_log_per_phase(caplog):
+    """A full strategist.execute() emits at least one strategist.gate_result log line."""
+    import logging
+    from unittest.mock import patch
+
+    phase = _make_phase("extract", on_fail="ask_user", checks=[])
+    strategy = _make_strategy([phase])
+
+    async def fake_tactician(phase, unit_of_work, slot_idx):
+        return {
+            "findings": [],
+            "candidates": [],
+            "metadata": {
+                "tool_calls": 0,
+                "duration_ms": 50,
+                "invoked_tools": [],
+                "surviving_hypothesis_count": 0,
+            },
+        }
+
+    strategist = _make_strategist(strategy)
+
+    with caplog.at_level(logging.INFO, logger="app.pipeline.strategist"):
+        with patch("app.pipeline.strategist.wallet.consume"):
+            run_sync(strategist.execute("test query", {}, fake_tactician))
+
+    gate_logs = [
+        r for r in caplog.records
+        if "strategist.gate_result" in r.getMessage() or r.msg == "strategist.gate_result"
+    ]
+    assert len(gate_logs) >= 1, (
+        f"expected at least one strategist.gate_result log, got: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )

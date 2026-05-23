@@ -5,6 +5,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from './StatusBadge'
+import { RunBadge } from './RunBadge'
 import { DownloadMenu } from './DownloadMenu'
 import { RotateCcw } from 'lucide-react'
 import { cancelPipelineRun } from '@/api/v3'
@@ -86,6 +87,7 @@ export function RunListTable({ rows, onShow, onRerun }: Props) {
             <TableCell>
               <span className="inline-flex items-center gap-1.5">
                 <StatusBadge status={row.status} />
+                <RunBadge runId={row.id} />
                 {stuck && (
                   <span
                     className="text-[10px] px-1 py-px rounded border border-amber-700/60 text-amber-300 bg-amber-950/30"
