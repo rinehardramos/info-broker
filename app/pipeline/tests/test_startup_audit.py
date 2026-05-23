@@ -231,3 +231,25 @@ def test_phasespec_preferred_tactic_id_strips_whitespace():
         preferred_tactic_id="  listings_gather  ",
     )
     assert p.preferred_tactic_id == "listings_gather"
+
+
+def test_apify_listings_search_loads_through_catalog_loader():
+    """The technique passes Pydantic validation when loaded via the catalog loader.
+
+    Regression test for the BLOCKER found in Task 3 review (commit 3861b2d):
+    missing output_schema caused CatalogValidationError at startup.
+    """
+    from app.pipeline.catalogs.loader import load_catalog
+    from pathlib import Path
+    techniques_dir = Path(__file__).resolve().parents[2] / "pipeline" / "catalogs" / "registries" / "techniques"
+    techniques = load_catalog("technique", techniques_dir)
+    assert "apify_listings_search" in techniques
+    t = techniques["apify_listings_search"]
+    assert (t.id if hasattr(t, "id") else t.get("id")) == "apify_listings_search"
+    # Verify actor_slug survived Pydantic validation (was silently dropped before schema fix)
+    assert t.actor_slug == "apify/zillow-search-scraper"
+    # Verify schemas are proper JSON Schema dicts (not prose strings)
+    assert isinstance(t.input_schema, dict)
+    assert t.input_schema.get("type") == "object"
+    assert isinstance(t.output_schema, dict)
+    assert t.output_schema.get("type") == "object"

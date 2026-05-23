@@ -215,6 +215,8 @@ class Technique(BaseModel):
     cost_class: str
     failure_modes: list[str] = []
     retry_policy: dict[str, Any] = {}
+    actor_slug: str = ""
+    cost_per_call_ru: int = 0
 
 
 # ---------------------------------------------------------------------------
