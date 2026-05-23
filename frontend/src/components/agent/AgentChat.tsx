@@ -16,8 +16,147 @@ import { brainApi } from '@/api/brain'
 import { cn } from '@/lib/utils'
 import { BrainSuggestionBanner } from '@/components/results/BrainSuggestionBanner'
 import { PreflightPanel } from '@/components/preflight'
+import { RunBadge } from '../runs/RunBadge'
+import { AdminGateDetail } from './AdminGateDetail'
+import { useGateDetail } from '../../hooks/useGateDetail'
 
 let _msgCounter = 0
+
+// ---------------------------------------------------------------------------
+// QuestionBubble — extracted so useGateDetail can be called as a proper hook
+// (hooks cannot live inside conditional .map() branches).
+// ---------------------------------------------------------------------------
+
+interface QuestionBubbleProps {
+  m: Message & {
+    payload?: {
+      summary?: string
+      question?: string   // legacy
+      phase_id?: string
+      options?: string[]
+      run_id?: string
+    }
+  }
+  isAdmin: boolean
+  answered: string | undefined
+  customVal: string
+  onAnswer: (runId: string, answer: string, msgId: string) => void
+  onCustomChange: (msgId: string, value: string) => void
+  onCustomSubmit: (msgId: string, runId: string, value: string) => void
+}
+
+function QuestionBubble({ m, isAdmin, answered, customVal, onAnswer, onCustomChange, onCustomSubmit }: QuestionBubbleProps) {
+  const p = m.payload ?? {}
+  const runId = (p.run_id ?? '') as string
+  const summary = (p.summary ?? p.question ?? m.content ?? '') as string
+  const phaseId = (p.phase_id ?? '') as string
+  const options = (p.options ?? []) as string[]
+
+  const gateDetail = useGateDetail(runId, isAdmin)
+
+  return (
+    <div style={{ margin: '6px 0 10px' }}>
+      {/* Agent question bubble — left-aligned like agent messages */}
+      <div style={{
+        display: 'inline-block', maxWidth: '85%',
+        background: 'var(--panel2)', border: '1px solid var(--border)',
+        borderRadius: '4px 12px 12px 12px',
+        padding: '8px 12px', fontSize: 11, color: 'var(--text)', lineHeight: 1.5,
+      }}>
+        <span style={{ fontSize: 8, color: 'var(--accent)', fontWeight: 700, display: 'block', marginBottom: 3, letterSpacing: '0.06em' }}>
+          CLARIFYING
+        </span>
+        {summary}
+        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {runId && <RunBadge runId={runId} />}
+          {phaseId && (
+            <span style={{ fontSize: 9, color: 'var(--muted)' }}>
+              phase: <code style={{ background: 'var(--panel2)', borderRadius: 2, padding: '0 3px' }}>{phaseId}</code>
+            </span>
+          )}
+        </div>
+        {isAdmin && (
+          <AdminGateDetail detail={gateDetail.data?.gate_result ?? null} />
+        )}
+      </div>
+
+      {/* Quick-reply options or answered state */}
+      {answered ? (
+        <div style={{ marginTop: 4, marginLeft: 2 }}>
+          <span style={{
+            fontSize: 9, color: 'var(--muted)', fontStyle: 'italic',
+          }}>
+            ✓ {answered}
+          </span>
+        </div>
+      ) : (
+        <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {/* Option chips */}
+          {options.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+              {options.map((opt: string, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => onAnswer(runId, opt, m.id)}
+                  style={{
+                    padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 500,
+                    border: '1px solid var(--accent)', background: 'transparent',
+                    color: 'var(--accent)', cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => {
+                    (e.target as HTMLElement).style.background = 'var(--accent)'
+                    ;(e.target as HTMLElement).style.color = '#000'
+                  }}
+                  onMouseLeave={e => {
+                    (e.target as HTMLElement).style.background = 'transparent'
+                    ;(e.target as HTMLElement).style.color = 'var(--accent)'
+                  }}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Custom text answer */}
+          <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+            <input
+              type="text"
+              placeholder="Or type your answer…"
+              value={customVal}
+              onChange={e => onCustomChange(m.id, e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && customVal.trim()) {
+                  onCustomSubmit(m.id, runId, customVal.trim())
+                }
+              }}
+              style={{
+                flex: 1, fontSize: 10, padding: '4px 8px', borderRadius: 8,
+                border: '1px solid var(--border)', background: 'var(--panel2)',
+                color: 'var(--text)', outline: 'none',
+              }}
+            />
+            <button
+              onClick={() => {
+                if (customVal.trim()) {
+                  onCustomSubmit(m.id, runId, customVal.trim())
+                }
+              }}
+              disabled={!customVal.trim()}
+              style={{
+                padding: '4px 10px', borderRadius: 8, fontSize: 10,
+                border: '1px solid var(--border)', background: customVal.trim() ? 'var(--accent)' : 'transparent',
+                color: customVal.trim() ? '#000' : 'var(--muted)',
+                cursor: customVal.trim() ? 'pointer' : 'default',
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function AgentChat() {
   const chatMessages = useChatStore(s => s.messages)
@@ -123,7 +262,7 @@ export default function AgentChat() {
 
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())
-  const { activeJobId, setActiveJobId, setAgentInput } = useSessionStore()
+  const { activeJobId, setActiveJobId, setAgentInput, isAdmin } = useSessionStore()
   const hasActiveRun = useRunStreamStore(
     (s) => !!activeJobId && s.runsById[activeJobId]?.status === 'running'
   )
@@ -204,7 +343,14 @@ export default function AgentChat() {
       ])
     }
     if (event.type === 'brain.question') {
-      const qEvent = event as WsEvent & { question?: string; options?: string[] }
+      const qEvent = event as WsEvent & {
+        summary?: string
+        question?: string   // legacy; kept for rollout compat
+        phase_id?: string
+        options?: string[]
+      }
+      // Prefer the new `summary` field; fall back to legacy `question` if seen.
+      const summary = qEvent.summary ?? qEvent.question ?? ''
       // Track that this run has a question — prevents "Researching…" from being added later
       if (event.run_id) pendingQuestionsRef.current.add(event.run_id)
       setMessages(prev => {
@@ -215,9 +361,17 @@ export default function AgentChat() {
         return [...filtered, {
           id: `q-${Date.now()}`,
           role: 'agent',
-          content: qEvent.question ?? '',
+          content: summary,
           type: 'question',
-          payload: { question: qEvent.question, options: qEvent.options ?? [], run_id: event.run_id },
+          payload: {
+            summary,
+            phase_id: qEvent.phase_id ?? '',
+            options: qEvent.options ?? [],
+            run_id: event.run_id,
+            // keep `question` key on payload for any downstream consumers that
+            // still read it during rollout
+            question: summary,
+          },
         }]
       })
     }
@@ -542,103 +696,20 @@ export default function AgentChat() {
         {messages.map(m => {
           // Question message — conversational feedback loop bubble
           if (m.type === 'question') {
-            const runId = (m.payload?.run_id ?? '') as string
-            const options = (m.payload?.options ?? []) as string[]
-            const answered = answeredQuestions[m.id]
-            const customVal = customAnswers[m.id] ?? ''
-
             return (
-              <div key={m.id} style={{ margin: '6px 0 10px' }}>
-                {/* Agent question bubble — left-aligned like agent messages */}
-                <div style={{
-                  display: 'inline-block', maxWidth: '85%',
-                  background: 'var(--panel2)', border: '1px solid var(--border)',
-                  borderRadius: '4px 12px 12px 12px',
-                  padding: '8px 12px', fontSize: 11, color: 'var(--text)', lineHeight: 1.5,
-                }}>
-                  <span style={{ fontSize: 8, color: 'var(--accent)', fontWeight: 700, display: 'block', marginBottom: 3, letterSpacing: '0.06em' }}>
-                    CLARIFYING
-                  </span>
-                  {m.content}
-                </div>
-
-                {/* Quick-reply options or answered state */}
-                {answered ? (
-                  <div style={{ marginTop: 4, marginLeft: 2 }}>
-                    <span style={{
-                      fontSize: 9, color: 'var(--muted)', fontStyle: 'italic',
-                    }}>
-                      ✓ {answered}
-                    </span>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {/* Option chips */}
-                    {options.length > 0 && (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                        {options.map((opt: string, i: number) => (
-                          <button
-                            key={i}
-                            onClick={() => handleBrainAnswer(runId, opt, m.id)}
-                            style={{
-                              padding: '5px 12px', borderRadius: 16, fontSize: 10, fontWeight: 500,
-                              border: '1px solid var(--accent)', background: 'transparent',
-                              color: 'var(--accent)', cursor: 'pointer', transition: 'all 0.15s',
-                            }}
-                            onMouseEnter={e => {
-                              (e.target as HTMLElement).style.background = 'var(--accent)'
-                              ;(e.target as HTMLElement).style.color = '#000'
-                            }}
-                            onMouseLeave={e => {
-                              (e.target as HTMLElement).style.background = 'transparent'
-                              ;(e.target as HTMLElement).style.color = 'var(--accent)'
-                            }}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {/* Custom text answer */}
-                    <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                      <input
-                        type="text"
-                        placeholder="Or type your answer…"
-                        value={customVal}
-                        onChange={e => setCustomAnswers(prev => ({ ...prev, [m.id]: e.target.value }))}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && customVal.trim()) {
-                            handleBrainAnswer(runId, customVal.trim(), m.id)
-                            setCustomAnswers(prev => ({ ...prev, [m.id]: '' }))
-                          }
-                        }}
-                        style={{
-                          flex: 1, fontSize: 10, padding: '4px 8px', borderRadius: 8,
-                          border: '1px solid var(--border)', background: 'var(--panel2)',
-                          color: 'var(--text)', outline: 'none',
-                        }}
-                      />
-                      <button
-                        onClick={() => {
-                          if (customVal.trim()) {
-                            handleBrainAnswer(runId, customVal.trim(), m.id)
-                            setCustomAnswers(prev => ({ ...prev, [m.id]: '' }))
-                          }
-                        }}
-                        disabled={!customVal.trim()}
-                        style={{
-                          padding: '4px 10px', borderRadius: 8, fontSize: 10,
-                          border: '1px solid var(--border)', background: customVal.trim() ? 'var(--accent)' : 'transparent',
-                          color: customVal.trim() ? '#000' : 'var(--muted)',
-                          cursor: customVal.trim() ? 'pointer' : 'default',
-                        }}
-                      >
-                        Send
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <QuestionBubble
+                key={m.id}
+                m={m}
+                isAdmin={isAdmin}
+                answered={answeredQuestions[m.id]}
+                customVal={customAnswers[m.id] ?? ''}
+                onAnswer={handleBrainAnswer}
+                onCustomChange={(msgId, value) => setCustomAnswers(prev => ({ ...prev, [msgId]: value }))}
+                onCustomSubmit={(msgId, runId, value) => {
+                  handleBrainAnswer(runId, value, msgId)
+                  setCustomAnswers(prev => ({ ...prev, [msgId]: '' }))
+                }}
+              />
             )
           }
 

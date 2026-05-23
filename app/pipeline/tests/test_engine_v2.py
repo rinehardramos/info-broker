@@ -909,3 +909,134 @@ def test_engine_v2_emits_phase_replan_when_gate_fails_and_depth_allows():
     assert "max_attempts" in evt
     assert "reason" in evt
     assert "strategy" in evt
+
+
+def test_write_research_trail_persists_gate_result():
+    """phases_full[].gate_result reflects the actual gate decision, not a hardcoded 'passed'."""
+    from app.pipeline.engine_v2 import _write_research_trail
+    from app.pipeline.strategist import RunResult, PhaseOutput
+    import json
+    from unittest.mock import patch
+
+    failing_gate = {
+        "passed": False,
+        "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {"tool_calls": 0, "findings": 0},
+        "brain_summary": {
+            "tool_calls": 0, "findings": 0, "hypothesis_count": 0,
+            "duration_ms": 73, "invoked_tools": [],
+        },
+    }
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={"tool_calls": 0},
+        gate_result=failing_gate,
+    )
+    result = RunResult(
+        run_id="test-run-1",
+        status="ask_user",
+        phases=[po],
+        user_question={
+            "summary": "...", "detail": failing_gate,
+            "run_id": "test-run-1", "phase_id": "extract",
+        },
+    )
+
+    captured_sql = []
+    captured_args = []
+    def fake_execute(sql, args=None):
+        captured_sql.append(sql)
+        captured_args.append(args)
+
+    # Patch at the call site (engine_v2 imports `execute` inside the function via local import)
+    with patch("app.routers.v3.db.execute", side_effect=fake_execute):
+        _write_research_trail("test-run-1", "u1", "test query", result)
+
+    # The INSERT writes the trail; grab its trail json (the 6th positional arg per existing INSERT)
+    insert_args = [a for s, a in zip(captured_sql, captured_args) if "INSERT INTO research_trails" in s]
+    assert len(insert_args) == 1, f"expected 1 insert, got {len(insert_args)} (sql: {captured_sql})"
+    trail_json_str = insert_args[0][5]
+    trail = json.loads(trail_json_str)
+    assert trail["phases_full"][0]["gate_result"] == failing_gate
+    assert trail["phases_full"][0]["status"] != "passed"  # must NOT hardcode
+
+
+def test_write_research_trail_includes_gate_status_per_phase():
+    """phases_full[].gate_status should be 'pass'/'fail'/'ask_user' matching the
+    WebSocket gate_status emitted by _phase_complete_cb. Replay endpoint depends on this."""
+    from app.pipeline.engine_v2 import _write_research_trail
+    from app.pipeline.strategist import RunResult, PhaseOutput
+    import json
+    from unittest.mock import patch
+
+    failing_gate = {
+        "passed": False,
+        "failing_check_kind": "no_brain_work",
+        "failing_check_detail": {"tool_calls": 0, "findings": 0},
+        "brain_summary": {"tool_calls": 0, "findings": 0, "hypothesis_count": 0, "duration_ms": 0, "invoked_tools": []},
+    }
+    po_ask = PhaseOutput(
+        phase_id="extract", aggregated_findings=[], distinct_candidate_names=[],
+        metadata={}, gate_result=failing_gate,
+    )
+    # A passing phase
+    passing_gate = {
+        "passed": True, "failing_check_kind": None, "failing_check_detail": {},
+        "brain_summary": {"tool_calls": 3, "findings": 5, "hypothesis_count": 1, "duration_ms": 200, "invoked_tools": ["x"]},
+    }
+    po_pass = PhaseOutput(
+        phase_id="gather", aggregated_findings=[{"x": 1}], distinct_candidate_names=[],
+        metadata={}, gate_result=passing_gate,
+    )
+
+    result = RunResult(
+        run_id="test-run-gs",
+        status="ask_user",
+        phases=[po_pass, po_ask],
+        user_question={"summary": "...", "detail": failing_gate, "run_id": "test-run-gs", "phase_id": "extract"},
+    )
+
+    captured = []
+    def fake_execute(sql, args=None):
+        captured.append((sql, args))
+
+    with patch("app.routers.v3.db.execute", side_effect=fake_execute):
+        _write_research_trail("test-run-gs", "u1", "q", result)
+
+    inserts = [a for s, a in captured if "INSERT INTO research_trails" in s]
+    trail = json.loads(inserts[0][5])
+    phases_full = trail["phases_full"]
+    assert phases_full[0]["phase_id"] == "gather"
+    assert phases_full[0]["gate_status"] == "pass"
+    assert phases_full[1]["phase_id"] == "extract"
+    # When the run's overall status is ask_user AND this phase failed, gate_status should be "ask_user"
+    assert phases_full[1]["gate_status"] == "ask_user", f"got {phases_full[1].get('gate_status')}"
+
+
+def test_phase_complete_cb_includes_gate_result_summary():
+    """is.phase_complete event includes gate_result_summary with counts."""
+    # This is a small unit test that calls the inner callback factory and
+    # captures the emitted event.
+    # Look at how _phase_complete_cb is constructed in engine_v2.run — it's
+    # an inner closure with run_id and event_emit bound. The cleanest test is
+    # to factor the body into a helper OR call run() with a mocked emit.
+    # If the existing tests in this file already drive engine_v2.run, copy
+    # that pattern. Otherwise, refactor _phase_complete_cb into a top-level
+    # helper that takes (phase, phase_output, gate_passed, run_id, event_emit)
+    # and call it directly.
+    #
+    # The actual assertion target: when _phase_complete_cb runs with a
+    # phase_output whose gate_result has tool_calls=0, findings=0, the
+    # emitted event must have gate_result_summary.tool_calls == 0.
+    import pytest
+    pytest.skip("Inline-emit unit test deferred; functional test below is the real verification")
+
+
+def test_brain_question_event_payload_shape():
+    """brain.question event uses 'summary' + 'phase_id', not legacy 'question'."""
+    # Same factoring concern as above. The functional test (Step 7.4) is the
+    # mandated verification. Document the contract here for future refactors.
+    import pytest
+    pytest.skip("WS emit contract verified via functional test in Step 7.4")

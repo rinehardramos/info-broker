@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import IconRail from '@/components/layout/IconRail'
 import { StatusBadge } from '@/components/runs/StatusBadge'
+import { RunBadge } from '@/components/runs/RunBadge'
 import { DownloadMenu } from '@/components/runs/DownloadMenu'
 import { RunCostBreakdown } from '@/components/wallet/RunCostBreakdown'
 import { listRuns, type RunRow } from '@/api/v3'
@@ -171,7 +172,10 @@ export default function Runs() {
                         {row.pipeline_name ? 'pipeline' : 'IS'}
                       </td>
                       <td style={{ padding: '8px 10px' }}>
-                        <StatusBadge status={row.status} />
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <StatusBadge status={row.status} />
+                          <RunBadge runId={row.id} />
+                        </span>
                       </td>
                       <td style={{ padding: '8px 10px', color: 'var(--muted)', fontSize: 11 }}>
                         {relativeTime(row.created_at)}

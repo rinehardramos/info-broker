@@ -335,11 +335,26 @@ async def run_engine_v2(
         else:
             gate_status = "fail"
 
+        # Surface a brain-summary cue so live phase UIs can show "0 tool calls"
+        # hints. Counts only — no detail strings. Admin detail is fetched via
+        # the GET /v3/pipelines/runs/{run_id}/gate-detail endpoint (Task 8).
+        gate_result_summary = None
+        gr = getattr(phase_output, "gate_result", None)
+        if gr is not None:
+            bs = gr.get("brain_summary") or {}
+            gate_result_summary = {
+                "tool_calls": bs.get("tool_calls", 0),
+                "findings": bs.get("findings", 0),
+                "duration_ms": bs.get("duration_ms", 0),
+                "failing_check_kind": gr.get("failing_check_kind"),  # kind name only
+            }
+
         await _emit(event_emit, {
             "type": "is.phase_complete",
             "run_id": run_id,
             "phase_id": phase.id,
             "gate_status": gate_status,
+            "gate_result_summary": gate_result_summary,  # NEW
             "distinct_candidate_names": phase_output.distinct_candidate_names,
             "n_tacticians": phase_output.metadata.get("num_tacticians", 0),
         })
@@ -533,12 +548,22 @@ async def run_engine_v2(
     # `brain.question` event for AgentChat in addition to the question on
     # the run_complete payload so existing consumers keep working.
     if result.status == "ask_user" and getattr(result, "user_question", None):
-        run_complete_payload["user_question"] = result.user_question
+        payload = result.user_question  # UserQuestionPayload dict
+        # run_complete carries the user_question as a structured object (sans detail).
+        # detail field intentionally omitted from WS — admin fetches via REST endpoint.
+        run_complete_payload["user_question"] = {
+            "summary": payload.get("summary", ""),
+            "run_id": payload.get("run_id", run_id),
+            "phase_id": payload.get("phase_id", ""),
+        }
+        # brain.question event drops legacy 'question: str' in favor of 'summary' + 'phase_id'.
+        # AgentChat.tsx is updated in lockstep in Task 13.
         await _emit(event_emit, {
             "type": "brain.question",
             "run_id": run_id,
             "job_id": run_id,
-            "question": result.user_question,
+            "summary": payload.get("summary", ""),  # was: 'question': str
+            "phase_id": payload.get("phase_id", ""),
             "options": [],
         })
 
@@ -632,11 +657,31 @@ def _write_research_trail(
     # Rich phase metadata for replay reconstruction
     phases_full: list[dict] = []
     for p in result.phases:
+        gate_result = getattr(p, "gate_result", None)
+        if gate_result is not None:
+            if gate_result.get("passed"):
+                phase_status = "passed"
+                gate_status = "pass"
+            else:
+                phase_status = "failed"
+                # Derive gate_status from the run's overall status: if the run is
+                # "ask_user" AND this is the last (failing) phase, this phase's gate
+                # is the one that triggered the ask_user escalation. Match the
+                # live _phase_complete_cb mapping.
+                is_last_failing = (p is result.phases[-1] and result.status == "ask_user")
+                gate_status = "ask_user" if is_last_failing else "fail"
+        else:
+            # Pre-spec / absent gate data — fall back to execution-passed
+            # (the only way phases reach this point in the legacy flow).
+            phase_status = "passed"
+            gate_status = "pass"
         phases_full.append({
             "phase_id": p.phase_id,
-            "status": "passed",  # only completed phases reach this point
+            "status": phase_status,
+            "gate_status": gate_status,  # NEW — for replay endpoint
             "distinct_candidate_names": p.distinct_candidate_names,
             "metadata": p.metadata,
+            "gate_result": gate_result,  # None for legacy phases
         })
 
     # ACH matrix (P5) — serialize if present

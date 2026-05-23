@@ -309,6 +309,44 @@ async def cancel_pipeline_run(run_id: str, user: dict = Depends(get_current_user
     )
 
 
+@router.get("/runs/{run_id}/gate-detail")
+def get_run_gate_detail(
+    run_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return the GateResult for the most recent failing phase of `run_id`.
+
+    Admin-only — returns 403 for non-admin users regardless of run ownership,
+    because gate detail may include strategy internals not appropriate for end users.
+    Spec: docs/superpowers/specs/2026-05-22-gather-ask-user-diagnostic-design.md.
+    """
+    is_admin = bool(current_user.get("is_admin", False)) or current_user.get("role", "") == "admin"
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="admin-only resource")
+
+    row = fetch_one(
+        "SELECT trail FROM research_trails WHERE run_id = %s ORDER BY created_at DESC LIMIT 1",
+        (run_id,),
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"no trail for run_id={run_id}")
+
+    raw_trail = row["trail"] if isinstance(row["trail"], dict) else json.loads(row["trail"])
+    phases_full = raw_trail.get("phases_full") or []
+    failing = next(
+        (p for p in reversed(phases_full) if (p.get("gate_result") or {}).get("passed") is False),
+        phases_full[-1] if phases_full else None,
+    )
+    if failing is None:
+        raise HTTPException(status_code=404, detail="no phases in trail")
+
+    return {
+        "run_id": run_id,
+        "phase_id": failing.get("phase_id"),
+        "gate_result": failing.get("gate_result"),  # may be None for pre-spec rows
+    }
+
+
 @router.get("/runs/{run_id}", response_model=PipelineRunDetailOut)
 def get_run(run_id: str, user: dict = Depends(get_current_user)):
     from app.routers.v3.models import ResearchTrailOut

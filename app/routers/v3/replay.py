@@ -53,7 +53,8 @@ def get_replay(run_id: str, user: dict = Depends(get_current_user)) -> dict[str,
             "status": p.get("status", "passed"),
             "n_tacticians": p.get("metadata", {}).get("num_tacticians", 1),
             "distinct_candidate_names": p.get("distinct_candidate_names", []),
-            "gate_status": "pass" if p.get("status") == "passed" else (
+            "gate_status": p.get("gate_status") or (
+                "pass" if p.get("status") == "passed" else
                 "fail" if p.get("status") == "failed" else "ask_user"
             ),
         }
