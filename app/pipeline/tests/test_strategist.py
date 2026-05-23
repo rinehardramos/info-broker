@@ -1349,3 +1349,57 @@ def test_ask_user_escalation_does_not_replan():
     assert result.user_question is not None
     # Only 1 attempt — ask_user never replans
     assert attempt_count[0] == 1
+
+
+# ---------------------------------------------------------------------------
+# Task 5: _select_tactic honors preferred_tactic_id
+# ---------------------------------------------------------------------------
+
+
+def test_select_tactic_honors_preferred_tactic_id():
+    """When phase.preferred_tactic_id is set AND compatible, return it."""
+    from app.pipeline.tactician import _select_tactic
+    from app.pipeline.catalogs.registries.tactics.gather_default import TACTIC as GATHER_DEFAULT
+    from app.pipeline.catalogs.registries.tactics.listings_gather import TACTIC as LISTINGS_GATHER
+
+    class _MockPhase:
+        id = "gather"
+        preferred_tactic_id = "listings_gather"
+
+    tactics = {"gather_default": GATHER_DEFAULT, "listings_gather": LISTINGS_GATHER}
+    selected = _select_tactic(slot_idx=0, unit_of_work={}, tactics_catalog=tactics, phase=_MockPhase())
+    assert selected is not None
+    assert selected.id == "listings_gather"
+
+
+def test_select_tactic_ignores_non_compatible_preferred():
+    """If preferred_tactic_id is set but NOT compatible, fall back to existing prefs."""
+    from app.pipeline.tactician import _select_tactic
+    from app.pipeline.catalogs.registries.tactics.gather_default import TACTIC as GATHER_DEFAULT
+    from app.pipeline.catalogs.registries.tactics.listings_gather import TACTIC as LISTINGS_GATHER
+
+    class _MockPhase:
+        id = "extract"   # preferred_tactic_id points at a gather-only tactic
+        preferred_tactic_id = "listings_gather"
+
+    tactics = {"gather_default": GATHER_DEFAULT, "listings_gather": LISTINGS_GATHER}
+    selected = _select_tactic(slot_idx=0, unit_of_work={}, tactics_catalog=tactics, phase=_MockPhase())
+    # extract has no compatible tactic in this stub catalog → None
+    assert selected is None
+
+
+def test_select_tactic_no_preferred_uses_existing_pref_logic():
+    """When phase.preferred_tactic_id is None, existing slot-0 + hypothesis_first_search logic applies."""
+    from app.pipeline.tactician import _select_tactic
+    from app.pipeline.catalogs.registries.tactics.hypothesis_first_search import TACTIC as HFS
+    # NOTE: this test runs BEFORE Task 8 re-binds hypothesis_first_search's phase_compatibility.
+    # Use phase id "broaden" so the existing tactic is compatible.
+    class _MockPhase:
+        id = "broaden"
+        preferred_tactic_id = None
+
+    tactics = {"hypothesis_first_search": HFS}
+    selected = _select_tactic(slot_idx=1, unit_of_work={}, tactics_catalog=tactics, phase=_MockPhase())
+    assert selected is not None
+    # HFS is a dict; the returned object should be the same dict
+    assert (selected.get("id") if isinstance(selected, dict) else selected.id) == "hypothesis_first_search"

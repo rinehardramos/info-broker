@@ -112,6 +112,15 @@ def _technique_to_source_class(technique_id: str) -> str:
 # Tactic selection (deterministic, MVP — no LLM call)
 # ---------------------------------------------------------------------------
 
+def _phase_compat(tactic) -> list[str]:
+    """Tolerate both dict-form and Pydantic-form tactic entries."""
+    if hasattr(tactic, "phase_compatibility"):
+        return list(tactic.phase_compatibility)
+    if isinstance(tactic, dict):
+        return list(tactic.get("phase_compatibility", []))
+    return []
+
+
 def _select_tactic(
     slot_idx: int,
     unit_of_work: dict[str, Any],
@@ -120,24 +129,31 @@ def _select_tactic(
 ) -> Tactic | None:
     """Deterministically pick a tactic for this slot.
 
-    Rules:
-    - Filter tactics_catalog to entries whose phase_compatibility includes phase.id.
-    - slot_idx == 0 AND unit_of_work has a non-empty 'prior_research_summary'
-      → prefer 'prior_research_seed' if present in filtered set.
-    - slot_idx >= 1 (or slot 0 without prior_research_summary)
-      → prefer 'hypothesis_first_search' if present in filtered set.
-    - Fall back to the first compatible tactic if the preferred id is absent.
-    - Returns None if no compatible tactic exists.
+    Resolution order:
+    1. If phase.preferred_tactic_id is set AND in the compatible set, return it.
+       (Cross-reference is enforced at startup audit; this runtime check is
+       defensive — if audit passed, the override is always compatible.)
+    2. slot_idx == 0 AND unit_of_work has a non-empty 'prior_research_summary'
+       → prefer 'prior_research_seed' if present in filtered set.
+    3. slot_idx >= 1 (or slot 0 without prior_research_summary)
+       → prefer 'hypothesis_first_search' if present in filtered set.
+    4. Fall back to the first compatible tactic if no preferred id is present.
+    5. Returns None if no compatible tactic exists.
 
     Note: MVP uses deterministic selection. Full design may add LLM tactic
     selection driven by tactic_bias weights from OptimizationMode (§4.4).
     """
     compatible = {
         tid: t for tid, t in tactics_catalog.items()
-        if phase.id in t.phase_compatibility
+        if phase.id in _phase_compat(t)
     }
     if not compatible:
         return None
+
+    # NEW: honor strategy author's explicit override first.
+    preferred_override = getattr(phase, "preferred_tactic_id", None)
+    if preferred_override and preferred_override in compatible:
+        return compatible[preferred_override]
 
     has_prior = bool(unit_of_work.get("prior_research_summary"))
     preferred_id = (
