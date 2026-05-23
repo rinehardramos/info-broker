@@ -10,7 +10,7 @@ from app.pipeline.catalogs import Tactic
 
 TACTIC = Tactic(
     id="ach_rank",
-    phase_compatibility=["rank_verify"],
+    phase_compatibility=["synthesize"],
     accepts={
         "ach_inputs_from_red_team": "ranked hypotheses with disconfirm evidence",
         "pir_criteria": "primary information requirements + signal weights",

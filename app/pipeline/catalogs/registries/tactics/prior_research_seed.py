@@ -17,7 +17,7 @@ from __future__ import annotations
 
 TACTIC = {
     "id": "prior_research_seed",
-    "phase_compatibility": ["broaden"],
+    "phase_compatibility": ["gather"],
     "accepts": {
         "signals": "dict — parsed signal hierarchy from signal_extraction phase",
         "query": "str — original query string passed through from the run context",

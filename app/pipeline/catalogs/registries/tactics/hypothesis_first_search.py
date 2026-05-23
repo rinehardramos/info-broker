@@ -10,7 +10,7 @@ from __future__ import annotations
 
 TACTIC = {
     "id": "hypothesis_first_search",
-    "phase_compatibility": ["broaden"],
+    "phase_compatibility": ["gather"],
     "accepts": {
         "signals": "dict — parsed signal hierarchy from signal_extraction phase",
         "prior_research_summary": "optional — RAG summary string; treated as H_PRIOR seed, not answer",

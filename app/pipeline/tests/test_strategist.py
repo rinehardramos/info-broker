@@ -1392,10 +1392,10 @@ def test_select_tactic_no_preferred_uses_existing_pref_logic():
     """When phase.preferred_tactic_id is None, existing slot-0 + hypothesis_first_search logic applies."""
     from app.pipeline.tactician import _select_tactic
     from app.pipeline.catalogs.registries.tactics.hypothesis_first_search import TACTIC as HFS
-    # NOTE: this test runs BEFORE Task 8 re-binds hypothesis_first_search's phase_compatibility.
-    # Use phase id "broaden" so the existing tactic is compatible.
+    # Task 8 re-bound hypothesis_first_search's phase_compatibility from ["broaden"] → ["gather"].
+    # Use phase id "gather" so the tactic is compatible.
     class _MockPhase:
-        id = "broaden"
+        id = "gather"
         preferred_tactic_id = None
 
     tactics = {"hypothesis_first_search": HFS}

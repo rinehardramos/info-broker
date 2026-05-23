@@ -260,3 +260,21 @@ def test_real_estate_gather_uses_listings_gather():
     from app.pipeline.catalogs.registries.strategies.real_estate import STRATEGY
     gather_phase = next(p for p in STRATEGY["phases"] if p["id"] == "gather")
     assert gather_phase.get("preferred_tactic_id") == "listings_gather"
+
+
+def test_hypothesis_first_search_phase_compat_migrated_to_gather():
+    from app.pipeline.catalogs.registries.tactics.hypothesis_first_search import TACTIC
+    from app.pipeline.catalogs.audit import _get_phase_compatibility
+    assert _get_phase_compatibility(TACTIC) == ["gather"]
+
+
+def test_prior_research_seed_phase_compat_migrated_to_gather():
+    from app.pipeline.catalogs.registries.tactics.prior_research_seed import TACTIC
+    from app.pipeline.catalogs.audit import _get_phase_compatibility
+    assert _get_phase_compatibility(TACTIC) == ["gather"]
+
+
+def test_ach_rank_phase_compat_migrated_to_synthesize():
+    from app.pipeline.catalogs.registries.tactics.ach_rank import TACTIC
+    from app.pipeline.catalogs.audit import _get_phase_compatibility
+    assert _get_phase_compatibility(TACTIC) == ["synthesize"]
