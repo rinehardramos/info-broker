@@ -130,6 +130,10 @@ services:
       # named volume claude_auth in CI/cloud where there's no host dir.
       # Set HOST_CLAUDE_DIR=/home/$USER/.claude in .env to enable bind-mount.
       - ${HOST_CLAUDE_DIR:-claude_auth}:/root/.claude
+      # NOTE: also need /root/.claude.json as a SIBLING FILE for the CLI to
+      # consider itself "logged in". Docker Desktop on WSL silently turns this
+      # bind into an overlay dir, so we populate it via a runtime entrypoint
+      # workaround OR via `docker cp` post-startup. See ops runbook.
       # Legacy: macOS / setup-token flow can drop creds at ~/.config/anthropic.
       # On WSL/Linux that path is usually empty (Claude CLI writes ~/.claude/),
       # but kept for compatibility. /dev/null default = effectively no mount.
