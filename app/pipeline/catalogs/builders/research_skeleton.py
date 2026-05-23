@@ -33,6 +33,11 @@ _DEFAULT_BRIEFINGS: dict[str, str] = {
         "and any structured registries appropriate to the query. Return raw "
         "evidence with source attribution."
     ),
+    "disconfirm": (
+        "Actively seek evidence that REFUTES the leading hypotheses from gather. "
+        "Per Heuer ACH: a hypothesis is only credible if it survives a deliberate "
+        "search for disconfirming evidence."
+    ),
     "synthesize": (
         "Rank and dedupe the gathered evidence. Return the final result set "
         "with sources cited per claim."
@@ -43,23 +48,43 @@ _DEFAULT_BRIEFINGS: dict[str, str] = {
 # extract reads the raw query, gather reads extract's signals, synthesize reads
 # gather's evidence.
 _DEFAULT_INPUTS: dict[str, list[str]] = {
-    "extract":   ["query", "classifier_output"],
-    "gather":    ["signals"],
+    "extract":    ["query", "classifier_output"],
+    "gather":     ["signals"],
+    "disconfirm": ["leading_hypotheses_from_gather"],
     "synthesize": ["evidence"],
 }
+
+# Recognised overlay keys — used to catch typos at build time.
+_RECOGNIZED_OVERLAY_KEYS: frozenset[str] = frozenset({
+    "briefing",
+    "gate_checks",
+    "on_fail",
+    "hypothesis_count_policy",
+    "inputs",
+    "preferred_tactic_id",
+})
 
 
 def _build_phase(phase_id: str, overlay: dict[str, Any] | None, depends_on: list[str]) -> dict[str, Any]:
     """Compose one phase dict from defaults + overlay.
 
-    Recognised overlay keys:
+    Recognised overlay keys (see _RECOGNIZED_OVERLAY_KEYS):
         briefing:                str — phase briefing
         gate_checks:             list[dict] — gate check specs ({kind, params})
         on_fail:                 str — "replan" | "swap_tactic" | "ask_user" | "terminate"
         hypothesis_count_policy: str — "fixed:N" | "from_dial" | "from_prior_phase"
         inputs:                  list[str] — override default phase inputs
+        preferred_tactic_id:     str | None — tactic to prefer for this phase
+
+    Raises ValueError on unknown overlay keys (typo guard).
     """
     ov = overlay or {}
+    unknown = set(ov.keys()) - _RECOGNIZED_OVERLAY_KEYS
+    if unknown:
+        raise ValueError(
+            f"Unknown overlay keys for phase {phase_id!r}: {sorted(unknown)}. "
+            f"Recognised: {sorted(_RECOGNIZED_OVERLAY_KEYS)}"
+        )
     return {
         "id": phase_id,
         "depends_on": depends_on,
@@ -78,6 +103,7 @@ def _build_phase(phase_id: str, overlay: dict[str, Any] | None, depends_on: list
             "checks": ov.get("gate_checks", []),
             "on_fail": ov.get("on_fail", "ask_user"),
         },
+        "preferred_tactic_id": ov.get("preferred_tactic_id"),
     }
 
 
@@ -88,23 +114,38 @@ def build_research_strategy(
     hypothesis_count: str = "single",
     extract: dict[str, Any] | None = None,
     gather: dict[str, Any] | None = None,
+    disconfirm: dict[str, Any] | None = None,
     synthesize: dict[str, Any] | None = None,
     ach_signals: list[dict[str, Any]] | None = None,
     applies_to: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build a 3-phase research-strategy STRATEGY dict.
+    """Build a research-strategy STRATEGY dict.
 
     Args:
         id:               strategy id (e.g. "real_estate")
         default_mode:     mode this strategy naturally aligns to
         hypothesis_count: ``budget_minimums.hypothesis_count`` value
         extract / gather / synthesize: per-phase overlays — see _build_phase
+        disconfirm:       optional 4th-phase overlay. When provided, the strategy
+                          emits 4 phases (extract → gather → disconfirm → synthesize)
+                          with synthesize depending on disconfirm instead of gather.
+                          When omitted (default), the 3-phase shape is preserved.
         ach_signals:      optional ACH signal list (rare for skeleton strategies)
         applies_to:       optional classifier-signal selector dict
 
     Returns:
         A STRATEGY dict ready for catalog loader validation.
     """
+    phases: list[dict[str, Any]] = [
+        _build_phase("extract", extract, depends_on=[]),
+        _build_phase("gather", gather, depends_on=["extract"]),
+    ]
+    if disconfirm is not None:
+        phases.append(_build_phase("disconfirm", disconfirm, depends_on=["gather"]))
+        phases.append(_build_phase("synthesize", synthesize, depends_on=["disconfirm"]))
+    else:
+        phases.append(_build_phase("synthesize", synthesize, depends_on=["gather"]))
+
     return {
         "id": id,
         "ach_signals": ach_signals or [
@@ -113,9 +154,5 @@ def build_research_strategy(
         "applies_to": applies_to or {"signals": [], "entity_types": []},
         "default_mode": default_mode,
         "budget_minimums": {"hypothesis_count": hypothesis_count},
-        "phases": [
-            _build_phase("extract",    extract,    depends_on=[]),
-            _build_phase("gather",     gather,     depends_on=["extract"]),
-            _build_phase("synthesize", synthesize, depends_on=["gather"]),
-        ],
+        "phases": phases,
     }
