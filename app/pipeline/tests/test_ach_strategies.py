@@ -62,19 +62,19 @@ class TestAchBackboneStructure:
     def test_four_phase_dag(self, catalog, strategy_id):
         phase_ids = [p.id for p in catalog[strategy_id].phases]
         assert phase_ids == [
-            "signal_extraction",
-            "broaden",
-            "red_team",
-            "rank_verify",
-        ], f"{strategy_id} must have the canonical ACH 4-phase DAG"
+            "extract",
+            "gather",
+            "disconfirm",
+            "synthesize",
+        ], f"{strategy_id} must have the canonical unified 4-phase DAG"
 
     @pytest.mark.parametrize("strategy_id", ACH_STRATEGIES)
     def test_phase_dependency_chain(self, catalog, strategy_id):
         phases = {p.id: p for p in catalog[strategy_id].phases}
-        assert phases["signal_extraction"].depends_on == []
-        assert phases["broaden"].depends_on == ["signal_extraction"]
-        assert phases["red_team"].depends_on == ["broaden"]
-        assert phases["rank_verify"].depends_on == ["red_team"]
+        assert phases["extract"].depends_on == []
+        assert phases["gather"].depends_on == ["extract"]
+        assert phases["disconfirm"].depends_on == ["gather"]
+        assert phases["synthesize"].depends_on == ["disconfirm"]
 
 
 # ---------------------------------------------------------------------------
@@ -84,44 +84,44 @@ class TestAchBackboneStructure:
 
 class TestAchGateContract:
     @pytest.mark.parametrize("strategy_id", ACH_STRATEGIES)
-    def test_signal_extraction_requires_min_primary_signals(self, catalog, strategy_id):
+    def test_extract_requires_min_primary_signals(self, catalog, strategy_id):
         phases = {p.id: p for p in catalog[strategy_id].phases}
-        kinds = {c.kind for c in phases["signal_extraction"].gate.checks}
+        kinds = {c.kind for c in phases["extract"].gate.checks}
         assert "min_primary_signals" in kinds, (
-            f"{strategy_id}.signal_extraction must require ≥1 primary signal"
+            f"{strategy_id}.extract must require ≥1 primary signal"
         )
 
     @pytest.mark.parametrize("strategy_id", ACH_STRATEGIES)
-    def test_broaden_gate_has_distinct_identity_and_live_source(self, catalog, strategy_id):
+    def test_gather_gate_has_distinct_identity_and_live_source(self, catalog, strategy_id):
         phases = {p.id: p for p in catalog[strategy_id].phases}
-        kinds = {c.kind for c in phases["broaden"].gate.checks}
+        kinds = {c.kind for c in phases["gather"].gate.checks}
         assert "distinct_identity_count" in kinds, (
-            f"{strategy_id}.broaden must enforce distinct hypothesis identities"
+            f"{strategy_id}.gather must enforce distinct hypothesis identities"
         )
         assert "per_hypothesis_live_source" in kinds, (
-            f"{strategy_id}.broaden must require a live source per hypothesis"
+            f"{strategy_id}.gather must require a live source per hypothesis"
         )
 
     @pytest.mark.parametrize("strategy_id", ACH_STRATEGIES)
-    def test_red_team_logs_disconfirm_per_hypothesis(self, catalog, strategy_id):
+    def test_disconfirm_logs_disconfirm_per_hypothesis(self, catalog, strategy_id):
         phases = {p.id: p for p in catalog[strategy_id].phases}
-        kinds = {c.kind for c in phases["red_team"].gate.checks}
+        kinds = {c.kind for c in phases["disconfirm"].gate.checks}
         assert "disconfirm_logged_per_hypothesis" in kinds, (
-            f"{strategy_id}.red_team must require a logged disconfirm per hypothesis"
+            f"{strategy_id}.disconfirm must require a logged disconfirm per hypothesis"
         )
 
     @pytest.mark.parametrize("strategy_id", ACH_STRATEGIES)
-    def test_rank_verify_checks_top_candidate_confidence(self, catalog, strategy_id):
+    def test_synthesize_checks_top_candidate_confidence(self, catalog, strategy_id):
         phases = {p.id: p for p in catalog[strategy_id].phases}
-        checks = {c.kind: c for c in phases["rank_verify"].gate.checks}
+        checks = {c.kind: c for c in phases["synthesize"].gate.checks}
         assert "top_candidate_confidence" in checks, (
-            f"{strategy_id}.rank_verify must check top_candidate_confidence"
+            f"{strategy_id}.synthesize must check top_candidate_confidence"
         )
         # Floor at 0.4 — below that, escalate to user (ask_user) rather than
         # commit to a low-confidence answer.
         assert checks["top_candidate_confidence"].params.get("min", 0) >= 0.4
-        assert phases["rank_verify"].gate.on_fail == "ask_user", (
-            f"{strategy_id}.rank_verify low-confidence path must escalate (ask_user)"
+        assert phases["synthesize"].gate.on_fail == "ask_user", (
+            f"{strategy_id}.synthesize low-confidence path must escalate (ask_user)"
         )
 
 

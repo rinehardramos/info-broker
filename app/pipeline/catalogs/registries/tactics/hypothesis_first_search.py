@@ -1,7 +1,7 @@
 """Tactic catalog entry: hypothesis_first_search.
 
 Picks live-search techniques (web, image, news) to generate evidence for a
-single hypothesis in the BROADEN phase.  The tactician instantiates one set of
+single hypothesis in the GATHER phase.  The tactician instantiates one set of
 these tasks per hypothesis it is responsible for.
 
 Design ref: docs/intelligence/three-tier-brain-architecture.md §4.2, §9
@@ -12,13 +12,13 @@ TACTIC = {
     "id": "hypothesis_first_search",
     "phase_compatibility": ["gather"],
     "accepts": {
-        "signals": "dict — parsed signal hierarchy from signal_extraction phase",
+        "signals": "dict — parsed signal hierarchy from extract phase",
         "prior_research_summary": "optional — RAG summary string; treated as H_PRIOR seed, not answer",
         "forbidden_candidates": "optional list — identities forbidden as primary hypothesis (adversarial mode)",
     },
     "cost_class": "moderate",
     "required_techniques": ["web_search", "image_search", "google_news"],
-    # Hard floor checked by the broaden gate — the tactician must surface at
+    # Hard floor checked by the gather gate — the tactician must surface at
     # least this many distinct identity candidates across all its tasks.
     "enforcement": {
         "min_distinct_outputs": 3,

@@ -488,19 +488,19 @@ async def execute_tactician(
     disconfirm_findings_count = sum(1 for f in findings if f.get("is_disconfirm"))
 
     # Phase-specific signal-count derivation:
-    # - signal_extraction: the brain analyzes the query (no tool calls expected).
+    # - extract: the brain analyzes the query (no tool calls expected).
     #   If we got HERE without error, signals were extracted — count as 1.
-    # - broaden / red_team / rank_verify: use number of live findings as the
+    # - gather / disconfirm / synthesize: use number of live findings as the
     #   primary-signal proxy. A candidate with a live source counts as a
     #   distinct primary signal evidenced.
-    if phase.id == "signal_extraction":
+    if phase.id == "extract":
         primary_signals_count = 1
     else:
         primary_signals_count = live_findings_count
 
-    # surviving_hypothesis_count: each red_team tactician is scoped to one
+    # surviving_hypothesis_count: each disconfirm tactician is scoped to one
     # surviving hypothesis. For other phases, leave at 0 (gate ignores).
-    surviving_hypothesis_count = 1 if phase.id == "red_team" else 0
+    surviving_hypothesis_count = 1 if phase.id == "disconfirm" else 0
 
     return TacticianOutput(
         slot_idx=slot_idx,

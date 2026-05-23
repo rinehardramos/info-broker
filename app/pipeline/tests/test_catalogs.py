@@ -62,9 +62,9 @@ def _valid_strategy() -> dict:
         "id": "media_identification",
         "applies_to": {"entity_type": "media", "query_type": "identification"},
         "phases": [
-            _phase("broaden"),
-            _phase("red_team", depends_on=["broaden"]),
-            _phase("rank", depends_on=["red_team"]),
+            _phase("gather"),
+            _phase("disconfirm", depends_on=["gather"]),
+            _phase("synthesize", depends_on=["disconfirm"]),
         ],
         "default_mode": "investigation",
         "budget_minimums": {"depth": "search", "hypothesis_count": "competing"},
@@ -74,7 +74,7 @@ def _valid_strategy() -> dict:
 def _valid_tactic() -> dict:
     return {
         "id": "hypothesis_first_search",
-        "phase_compatibility": ["broaden"],
+        "phase_compatibility": ["gather"],
         "accepts": {"objective": "str", "scope_in": "list"},
         "produces": [
             {
@@ -128,7 +128,7 @@ class TestStrategySchema:
         s = Strategy.model_validate(_valid_strategy())
         assert s.id == "media_identification"
         assert len(s.phases) == 3
-        assert s.phases[0].id == "broaden"
+        assert s.phases[0].id == "gather"
 
     def test_strategy_schema_rejects_missing_phases(self):
         data = _valid_strategy()
@@ -146,21 +146,21 @@ class TestStrategySchema:
         """A → B → A cycle must be caught at schema validation time."""
         data = _valid_strategy()
         data["phases"] = [
-            _phase("a", depends_on=["b"]),
-            _phase("b", depends_on=["a"]),
+            _phase("gather", depends_on=["disconfirm"]),
+            _phase("disconfirm", depends_on=["gather"]),
         ]
         with pytest.raises(Exception, match="cycle"):
             Strategy.model_validate(data)
 
     def test_phase_unknown_dependency_rejected(self):
         data = _valid_strategy()
-        data["phases"] = [_phase("broaden", depends_on=["nonexistent"])]
+        data["phases"] = [_phase("gather", depends_on=["nonexistent"])]
         with pytest.raises(Exception):
             Strategy.model_validate(data)
 
     def test_phase_self_loop_rejected(self):
         data = _valid_strategy()
-        data["phases"] = [_phase("broaden", depends_on=["broaden"])]
+        data["phases"] = [_phase("gather", depends_on=["gather"])]
         with pytest.raises(Exception):
             Strategy.model_validate(data)
 
@@ -296,7 +296,7 @@ class TestLoader:
                     "applies_to": {"entity_type": "test"},
                     "phases": [
                         {
-                            "id": "discover",
+                            "id": "gather",
                             "depends_on": [],
                             "unit_of_work_contract": {"objective": "find things"},
                             "hypothesis_count_policy": "from_dial",

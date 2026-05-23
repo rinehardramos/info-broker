@@ -6,8 +6,10 @@ This factory emits the boilerplate so each domain strategy file only has
 to supply per-phase overlays (briefing + gate checks + the occasional
 hypothesis-count tweak).
 
-Strategies that need the ACH backbone (broaden / red_team / rank_verify)
-do NOT use this skeleton — they stay hand-written. See media_identification.
+All domain strategies now use this skeleton via build_research_strategy().
+Previously, ACH-backbone strategies (gather / disconfirm / synthesize) were
+hand-written — they have since been migrated to the unified taxonomy (Tasks 9-11)
+and now also use build_research_strategy().
 
 Convention contract with the catalog loader:
     Each strategy module exports ``STRATEGY = build_research_strategy(...)``

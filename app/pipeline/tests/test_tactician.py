@@ -45,7 +45,7 @@ from app.pipeline.tactician import execute_tactician
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_phase(phase_id: str = "broaden") -> PhaseSpec:
+def _make_phase(phase_id: str = "gather") -> PhaseSpec:
     return PhaseSpec(
         id=phase_id,
         depends_on=[],
@@ -62,7 +62,7 @@ def _make_tactic(
     tactic_id: str,
     phase_ids: list[str] | None = None,
 ) -> Tactic:
-    _phases = phase_ids if phase_ids is not None else ["broaden"]
+    _phases = phase_ids if phase_ids is not None else ["gather"]
     return Tactic.model_validate({
         "id": tactic_id,
         "phase_compatibility": _phases,
@@ -128,7 +128,7 @@ def _run(coro):
 class TestTacticSelection:
     def test_slot0_with_prior_research_selects_prior_research_seed(self):
         """slot_idx==0 with prior_research_summary -> prior_research_seed is picked."""
-        phase = _make_phase("broaden")
+        phase = _make_phase("gather")
         tactics = {
             "hypothesis_first_search": _make_tactic("hypothesis_first_search"),
             "prior_research_seed": _make_tactic("prior_research_seed"),
@@ -166,7 +166,7 @@ class TestTacticSelection:
 
     def test_slot1_selects_hypothesis_first_search(self):
         """slot_idx==1 -> hypothesis_first_search regardless of prior_research_summary."""
-        phase = _make_phase("broaden")
+        phase = _make_phase("gather")
         tactics = {
             "hypothesis_first_search": _make_tactic("hypothesis_first_search"),
             "prior_research_seed": _make_tactic("prior_research_seed"),
@@ -210,7 +210,7 @@ class TestTacticSelection:
 class TestSpecialistDispatch:
     def test_specialist_fn_called_once_per_task_call(self):
         """specialist_fn is invoked exactly once per task_call from tactic_runner_fn."""
-        phase = _make_phase("broaden")
+        phase = _make_phase("gather")
         tactics = {"hypothesis_first_search": _make_tactic("hypothesis_first_search")}
         techniques = {"web_search": _make_technique()}
 
@@ -246,7 +246,7 @@ class TestSpecialistDispatch:
 class TestCandidateExtraction:
     def test_extracts_distinct_candidate_names_from_findings(self):
         """candidate_names is deduped; duplicate names from findings are collapsed."""
-        phase = _make_phase("broaden")
+        phase = _make_phase("gather")
         tactics = {"hypothesis_first_search": _make_tactic("hypothesis_first_search")}
         techniques = {"web_search": _make_technique()}
 
@@ -276,7 +276,7 @@ class TestCandidateExtraction:
 
     def test_returns_correct_specialist_call_count(self):
         """TacticianOutput.specialist_calls equals actual number of specialist invocations."""
-        phase = _make_phase("broaden")
+        phase = _make_phase("gather")
         tactics = {"hypothesis_first_search": _make_tactic("hypothesis_first_search")}
         techniques = {"web_search": _make_technique()}
 
@@ -338,7 +338,7 @@ class TestBudgetEnforcement:
 
         3 tasks x 3 RU each, budget=5 RU -> only 1 call fits (3 <= 5; 3+3=6 > 5).
         """
-        phase = _make_phase("broaden")
+        phase = _make_phase("gather")
         tactics = {"hypothesis_first_search": _make_tactic("hypothesis_first_search")}
         techniques = {"web_search": _make_technique()}
 
@@ -377,10 +377,10 @@ class TestNoCompatibleTactic:
         detect the gap and decide whether to replan or terminate.
         tactic_runner_fn and specialist_fn must NOT be called.
         """
-        phase = _make_phase("rank_verify")
-        # Tactics only cover "broaden", not "rank_verify"
+        phase = _make_phase("synthesize")
+        # Tactics only cover "gather", not "synthesize"
         tactics = {
-            "hypothesis_first_search": _make_tactic("hypothesis_first_search", ["broaden"]),
+            "hypothesis_first_search": _make_tactic("hypothesis_first_search", ["gather"]),
         }
         techniques = {"web_search": _make_technique()}
 

@@ -115,9 +115,9 @@ def test_executes_phases_in_dependency_order():
     """Phase execution order respects depends_on edges."""
     execution_order: list[str] = []
 
-    phase_a = _make_phase("phase_a", depends_on=[])
-    phase_b = _make_phase("phase_b", depends_on=["phase_a"])
-    phase_c = _make_phase("phase_c", depends_on=["phase_b"])
+    phase_a = _make_phase("extract", depends_on=[])
+    phase_b = _make_phase("gather", depends_on=["extract"])
+    phase_c = _make_phase("disconfirm", depends_on=["gather"])
     strategy = _make_strategy([phase_c, phase_b, phase_a])  # deliberately shuffled
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
@@ -130,7 +130,7 @@ def test_executes_phases_in_dependency_order():
         result = run_sync(strategist.execute("query", {}, fake_tactician))
 
     assert result.status == "completed"
-    assert execution_order == ["phase_a", "phase_b", "phase_c"]
+    assert execution_order == ["extract", "gather", "disconfirm"]
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ def test_spawns_n_tacticians_per_hypothesis_count_dial(dial, expected_calls):
     """N parallel tacticians are spawned according to the hypothesis_count dial."""
     call_count = 0
 
-    phase = _make_phase("broaden", hypothesis_count_policy="from_dial")
+    phase = _make_phase("gather", hypothesis_count_policy="from_dial")
     strategy = _make_strategy([phase])
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
@@ -178,7 +178,7 @@ def test_spawns_n_tacticians_per_hypothesis_count_dial(dial, expected_calls):
 def test_gate_fail_terminate_returns_terminated_status():
     """Gate failure with on_fail=terminate yields RunResult(status='terminated')."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="terminate",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],  # impossible
     )
@@ -194,7 +194,7 @@ def test_gate_fail_terminate_returns_terminated_status():
 
     assert result.status == "terminated"
     assert result.terminate_reason is not None
-    assert "broaden" in result.terminate_reason
+    assert "gather" in result.terminate_reason
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +206,7 @@ def test_gate_fail_terminate_returns_terminated_status():
 def test_gate_fail_ask_user_returns_ask_user_status():
     """Gate failure with on_fail=ask_user yields RunResult(status='ask_user')."""
     phase = _make_phase(
-        "signal_extraction",
+        "extract",
         on_fail="ask_user",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],  # impossible
     )
@@ -235,7 +235,7 @@ def test_gate_fail_ask_user_returns_ask_user_status():
 def test_replan_on_fail_with_no_budget_terminates_immediately():
     """on_fail=replan with depth=shallow (0 replans) terminates without replanning."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
     )
@@ -280,7 +280,7 @@ def test_distinct_identity_count_gate_resolves_dial():
 
     # 2 distinct candidates
     po = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[],
         distinct_candidate_names=["Alice", "Bob"],
         metadata={},
@@ -307,7 +307,7 @@ def test_per_hypothesis_live_source_gate_rejects_all_rag_findings():
 
     # Three distinct candidates, but ALL findings come from prior_research or training_knowledge
     po = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {"candidate_name": "Zhao Lusi", "source_class": "prior_research"},
             {"candidate_name": "Wonyoung", "source_class": "training_knowledge"},
@@ -328,7 +328,7 @@ def test_per_hypothesis_live_source_gate_passes_with_live_sources():
     params = {"min": 1}
 
     po = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {"candidate_name": "Zhao Lusi", "source_class": "web_search"},
             {"candidate_name": "Wonyoung", "source_class": "web_search"},
@@ -349,8 +349,8 @@ def test_per_hypothesis_live_source_gate_passes_with_live_sources():
 
 def test_strategist_calls_consume_after_each_phase():
     """wallet.consume() is called once per phase that completes."""
-    phase_a = _make_phase("phase_a", depends_on=[])
-    phase_b = _make_phase("phase_b", depends_on=["phase_a"])
+    phase_a = _make_phase("extract", depends_on=[])
+    phase_b = _make_phase("gather", depends_on=["extract"])
     strategy = _make_strategy([phase_a, phase_b])
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
@@ -367,14 +367,14 @@ def test_strategist_calls_consume_after_each_phase():
     # Verify idempotency keys are distinct and contain phase ids
     idem_keys = [c.kwargs["idempotency_key"] for c in mock_consume.call_args_list]
     assert idem_keys[0] != idem_keys[1]
-    assert "phase_a" in idem_keys[0]
-    assert "phase_b" in idem_keys[1]
+    assert "extract" in idem_keys[0]
+    assert "gather" in idem_keys[1]
 
 
 def test_strategist_consume_called_on_terminated_phase():
     """wallet.consume() is still called even when the phase gate fails (cost was incurred)."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="terminate",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
     )
@@ -401,7 +401,7 @@ def test_strategist_consume_called_on_terminated_phase():
 
 def test_raw_tool_output_not_in_aggregated_findings():
     """Strategist strips raw_tool_output (and any non-whitelisted keys) from aggregated findings."""
-    phase = _make_phase("broaden")
+    phase = _make_phase("gather")
     strategy = _make_strategy([phase])
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
@@ -476,17 +476,17 @@ def test_gate_dispatch_map_covers_all_expected_kinds():
 
 def test_from_prior_phase_policy_uses_surviving_candidates():
     """from_prior_phase resolves n_tacticians from distinct_candidate_names of parent phase."""
-    broaden_phase = _make_phase("broaden", depends_on=[], hypothesis_count_policy="from_dial")
-    red_team_phase = _make_phase(
-        "red_team", depends_on=["broaden"], hypothesis_count_policy="from_prior_phase"
+    gather_phase = _make_phase("gather", depends_on=[], hypothesis_count_policy="from_dial")
+    disconfirm_phase = _make_phase(
+        "disconfirm", depends_on=["gather"], hypothesis_count_policy="from_prior_phase"
     )
-    strategy = _make_strategy([broaden_phase, red_team_phase])
+    strategy = _make_strategy([gather_phase, disconfirm_phase])
 
-    call_counts: dict[str, int] = {"broaden": 0, "red_team": 0}
+    call_counts: dict[str, int] = {"gather": 0, "disconfirm": 0}
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
         call_counts[phase.id] += 1
-        # Broaden returns 2 distinct candidates
+        # Gather returns 2 distinct candidates
         return {
             "findings": [
                 {"candidate_name": "Alice", "source_class": "web_search"},
@@ -501,20 +501,20 @@ def test_from_prior_phase_policy_uses_surviving_candidates():
             },
         }
 
-    # competing = 3 tacticians for broaden; red_team should derive from broaden's 2 candidates
+    # competing = 3 tacticians for gather; disconfirm should derive from gather's 2 candidates
     strategist = _make_strategist(strategy, hypothesis_count="competing")
 
     with patch("app.pipeline.strategist.wallet.consume"):
         result = run_sync(strategist.execute("query", {}, fake_tactician))
 
     assert result.status == "completed"
-    assert call_counts["broaden"] == 3      # from_dial (competing=3)
-    assert call_counts["red_team"] == 2     # from_prior_phase: 2 distinct candidates from broaden
+    assert call_counts["gather"] == 3      # from_dial (competing=3)
+    assert call_counts["disconfirm"] == 2     # from_prior_phase: 2 distinct candidates from gather
 
 
 def test_completed_run_returns_last_phase_ranked_candidates():
     """RunResult.ranked_candidates is populated from the last phase's output (enriched shape)."""
-    phase = _make_phase("rank_verify")
+    phase = _make_phase("synthesize")
     strategy = _make_strategy([phase])
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
@@ -556,7 +556,7 @@ def test_signal_scores_heuristic_match_and_unknown():
     from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
 
     phase_output = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
@@ -564,7 +564,7 @@ def test_signal_scores_heuristic_match_and_unknown():
                 "confidence": 0.75,
                 "evidence_snippet": "Alice confirmed",
                 "source_url": "https://example.com/alice",
-                "phase_id": "broaden",
+                "phase_id": "gather",
                 "hypothesis_slot": 0,
             },
             {
@@ -572,7 +572,7 @@ def test_signal_scores_heuristic_match_and_unknown():
                 "source_class": "training_knowledge",
                 "confidence": 0.5,
                 "evidence_snippet": "Bob maybe",
-                "phase_id": "broaden",
+                "phase_id": "gather",
                 "hypothesis_slot": 1,
             },
         ],
@@ -601,28 +601,28 @@ def test_evidence_collected_from_aggregated_findings():
     from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
 
     phase_output = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
                 "source_class": "live_search",
                 "confidence": 0.8,
                 "evidence_snippet": "Alice ev 1",
-                "phase_id": "broaden",
+                "phase_id": "gather",
             },
             {
                 "candidate_name": "Alice",
                 "source_class": "primary_official",
                 "confidence": 0.9,
                 "evidence_snippet": "Alice ev 2",
-                "phase_id": "broaden",
+                "phase_id": "gather",
             },
             {
                 "candidate_name": "Bob",
                 "source_class": "live_search",
                 "confidence": 0.7,
                 "evidence_snippet": "Bob ev 1",
-                "phase_id": "broaden",
+                "phase_id": "gather",
             },
         ],
         distinct_candidate_names=["Alice", "Bob"],
@@ -644,18 +644,18 @@ def test_evidence_collected_from_aggregated_findings():
 
 
 def test_disconfirm_findings_flagged_in_evidence():
-    """Findings from red_team or disconfirm phases have is_disconfirm=True in evidence."""
+    """Findings from disconfirm phase have is_disconfirm=True in evidence."""
     from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
 
-    broaden_output = PhaseOutput(
-        phase_id="broaden",
+    gather_output = PhaseOutput(
+        phase_id="gather",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
                 "source_class": "live_search",
                 "confidence": 0.8,
                 "evidence_snippet": "Supporting evidence",
-                "phase_id": "broaden",
+                "phase_id": "gather",
             },
         ],
         distinct_candidate_names=["Alice"],
@@ -663,15 +663,15 @@ def test_disconfirm_findings_flagged_in_evidence():
         ranked_candidates=[],
     )
 
-    red_team_output = PhaseOutput(
-        phase_id="red_team",
+    disconfirm_output = PhaseOutput(
+        phase_id="disconfirm",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
                 "source_class": "live_search",
                 "confidence": 0.7,
                 "evidence_snippet": "Contradicting evidence",
-                "phase_id": "red_team",
+                "phase_id": "disconfirm",
             },
         ],
         distinct_candidate_names=["Alice"],
@@ -681,7 +681,7 @@ def test_disconfirm_findings_flagged_in_evidence():
 
     raw_ranked = [{"name": "Alice", "confidence": 0.8}]
     enriched, _matrix = _enrich_ranked_candidates(
-        raw_ranked, [broaden_output, red_team_output]
+        raw_ranked, [gather_output, disconfirm_output]
     )
 
     alice = enriched[0]
@@ -691,7 +691,7 @@ def test_disconfirm_findings_flagged_in_evidence():
     assert alice["evidence"][0]["is_disconfirm"] is False
     assert alice["evidence"][0]["snippet"] == "Supporting evidence"
 
-    # Red-team evidence is last, flagged as disconfirm
+    # Disconfirm evidence is last, flagged as disconfirm
     assert alice["evidence"][1]["is_disconfirm"] is True
     assert alice["evidence"][1]["snippet"] == "Contradicting evidence"
 
@@ -702,14 +702,14 @@ def test_slot_idx_lowest_wins_for_consensus_candidate():
 
     # Two slots both found "Alice" but at different slot positions
     phase_output = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
                 "source_class": "live_search",
                 "confidence": 0.8,
                 "evidence_snippet": "Alice slot 2",
-                "phase_id": "broaden",
+                "phase_id": "gather",
                 "hypothesis_slot": 2,
             },
             {
@@ -717,7 +717,7 @@ def test_slot_idx_lowest_wins_for_consensus_candidate():
                 "source_class": "live_search",
                 "confidence": 0.75,
                 "evidence_snippet": "Alice slot 0",
-                "phase_id": "broaden",
+                "phase_id": "gather",
                 "hypothesis_slot": 0,
             },
         ],
@@ -813,7 +813,7 @@ def test_forbidden_per_slot_injected_into_tactician_unit_of_work():
     """Integration: each slot's unit_of_work has the correct forbidden_candidates list."""
     captured_uow: dict[int, list[str]] = {}
 
-    phase = _make_phase("broaden", hypothesis_count_policy="from_dial")
+    phase = _make_phase("gather", hypothesis_count_policy="from_dial")
     strategy = _make_strategy([phase])
 
     priors = {
@@ -851,7 +851,7 @@ def test_forbidden_per_slot_injected_into_tactician_unit_of_work():
 
 def test_strategist_emits_ach_matrix_in_run_result():
     """RunResult.ach_matrix is populated when the run completes with candidates."""
-    phase = _make_phase("rank_verify")
+    phase = _make_phase("synthesize")
     strategy = _make_strategy([phase])
 
     async def fake_tactician(phase, unit_of_work, slot_idx):
@@ -862,7 +862,7 @@ def test_strategist_emits_ach_matrix_in_run_result():
                     "source_class": "live_search",
                     "confidence": 0.9,
                     "evidence_snippet": "Alice live evidence",
-                    "phase_id": "rank_verify",
+                    "phase_id": "synthesize",
                 }
             ],
             "metadata": {
@@ -892,14 +892,14 @@ def test_signal_scores_derived_from_ach_matrix():
     from app.pipeline.strategist import _enrich_ranked_candidates, PhaseOutput
 
     phase_output = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
                 "source_class": "live_search",
                 "confidence": 0.8,
                 "evidence_snippet": "Live evidence Alice",
-                "phase_id": "broaden",
+                "phase_id": "gather",
                 "hypothesis_slot": 0,
             },
         ],
@@ -908,15 +908,15 @@ def test_signal_scores_derived_from_ach_matrix():
         ranked_candidates=[],
     )
 
-    red_team_output = PhaseOutput(
-        phase_id="red_team",
+    disconfirm_output = PhaseOutput(
+        phase_id="disconfirm",
         aggregated_findings=[
             {
                 "candidate_name": "Bob",
                 "source_class": "live_search",
                 "confidence": 0.75,
                 "evidence_snippet": "Bob disconfirmed",
-                "phase_id": "red_team",
+                "phase_id": "disconfirm",
                 "hypothesis_slot": 1,
             },
         ],
@@ -930,7 +930,7 @@ def test_signal_scores_derived_from_ach_matrix():
         {"name": "Bob", "confidence": 0.5},
     ]
     enriched, matrix = _enrich_ranked_candidates(
-        raw_ranked, [phase_output, red_team_output]
+        raw_ranked, [phase_output, disconfirm_output]
     )
 
     assert matrix is not None
@@ -941,7 +941,7 @@ def test_signal_scores_derived_from_ach_matrix():
     # Alice: live_search + conf 0.8 → primary consistent → signal_scores match
     assert alice["signal_scores"]["primary"] == "match"
 
-    # Bob: findings are all in red_team phase (disconfirm) → primary inconsistent → mismatch
+    # Bob: findings are all in disconfirm phase → primary inconsistent → mismatch
     # Bob has a disconfirm finding with confidence 0.75 >= 0.5 → inconsistent
     assert bob["signal_scores"]["primary"] == "mismatch"
 
@@ -968,14 +968,14 @@ def test_ach_uses_strategy_signal_weights():
     ]
 
     phase_output = PhaseOutput(
-        phase_id="broaden",
+        phase_id="gather",
         aggregated_findings=[
             {
                 "candidate_name": "Alice",
                 "source_class": "live_search",
                 "confidence": 0.85,
                 "evidence_snippet": "Alice is consistent",
-                "phase_id": "broaden",
+                "phase_id": "gather",
             }
         ],
         distinct_candidate_names=["Alice"],
@@ -1036,7 +1036,7 @@ def _make_strategist_with_depth(strategy, depth):
 def test_shallow_depth_zero_replans_terminates_immediately():
     """depth=shallow → 0 replans; gate fail on first attempt terminates immediately."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1066,7 +1066,7 @@ def test_shallow_depth_zero_replans_terminates_immediately():
 def test_search_depth_one_replan_then_terminate():
     """depth=search → 1 replan; gate fails twice → terminates after 2 total attempts."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1096,7 +1096,7 @@ def test_search_depth_one_replan_then_terminate():
 def test_deep_depth_three_replans_then_terminate():
     """depth=deep → 3 replans; gate fails 4 times → terminates after 4 total attempts."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1126,7 +1126,7 @@ def test_deep_depth_three_replans_then_terminate():
 def test_replan_with_corrective_hint_added_to_unit_of_work():
     """on_fail=replan injects corrective_hint into unit_of_work on second attempt."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "distinct_identity_count", "params": {"min": 3}}],
@@ -1161,7 +1161,7 @@ def test_replan_with_corrective_hint_added_to_unit_of_work():
 def test_swap_tactic_picks_alternative_from_catalog():
     """on_fail=swap_tactic swaps to an alternative tactic from the catalog."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="swap_tactic",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1180,11 +1180,11 @@ def test_swap_tactic_picks_alternative_from_catalog():
             "ranked_candidates": [],
         }
 
-    # Inject a fake tactics catalog with 2 broaden-compatible tactics
+    # Inject a fake tactics catalog with 2 gather-compatible tactics
     from app.pipeline.catalogs.schemas import Tactic, TaskSpec
     fake_tactic_a = Tactic(
         id="fake_tactic_a",
-        phase_compatibility=["broaden"],
+        phase_compatibility=["gather"],
         accepts={},
         produces=[TaskSpec(technique_id="web_search", params_template={}, budget_ru=1)],
         cost_class="cheap",
@@ -1193,7 +1193,7 @@ def test_swap_tactic_picks_alternative_from_catalog():
     )
     fake_tactic_b = Tactic(
         id="fake_tactic_b",
-        phase_compatibility=["broaden"],
+        phase_compatibility=["gather"],
         accepts={},
         produces=[TaskSpec(technique_id="web_search", params_template={}, budget_ru=1)],
         cost_class="moderate",
@@ -1219,7 +1219,7 @@ def test_swap_tactic_picks_alternative_from_catalog():
 def test_swap_tactic_returns_terminated_when_no_alternative():
     """swap_tactic with no alternatives → terminate with no_alt_tactic_available."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="swap_tactic",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1248,7 +1248,7 @@ def test_swap_tactic_returns_terminated_when_no_alternative():
 def test_replan_succeeds_when_corrected_attempt_passes_gate():
     """Replan loop exits cleanly when the corrected attempt passes the gate."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
@@ -1280,7 +1280,7 @@ def test_replan_succeeds_when_corrected_attempt_passes_gate():
 def test_replan_emits_is_phase_replan_event():
     """Replan attempt emits is.phase_replan event with correct fields."""
     phase = _make_phase(
-        "broaden",
+        "gather",
         on_fail="replan",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1312,7 +1312,7 @@ def test_replan_emits_is_phase_replan_event():
     evt = replan_events[0]
     assert evt["type"] == "is.phase_replan"
     assert evt["run_id"] == "run-test-p3"
-    assert evt["phase_id"] == "broaden"
+    assert evt["phase_id"] == "gather"
     assert evt["attempt"] == 1
     assert evt["max_attempts"] == DEPTH_TO_REPLAN_BUDGET["search"]
     assert "reason" in evt
@@ -1322,7 +1322,7 @@ def test_replan_emits_is_phase_replan_event():
 def test_ask_user_escalation_does_not_replan():
     """on_fail=ask_user always returns ask_user immediately — no replan loop entered."""
     phase = _make_phase(
-        "signal_extraction",
+        "extract",
         on_fail="ask_user",
         hypothesis_count_policy="fixed:1",
         checks=[{"kind": "min_primary_signals", "params": {"min": 99}}],
@@ -1392,7 +1392,7 @@ def test_select_tactic_no_preferred_uses_existing_pref_logic():
     """When phase.preferred_tactic_id is None, existing slot-0 + hypothesis_first_search logic applies."""
     from app.pipeline.tactician import _select_tactic
     from app.pipeline.catalogs.registries.tactics.hypothesis_first_search import TACTIC as HFS
-    # Task 8 re-bound hypothesis_first_search's phase_compatibility from ["broaden"] → ["gather"].
+    # Task 8 re-bound hypothesis_first_search's phase_compatibility from the legacy ["broaden"] → ["gather"].
     # Use phase id "gather" so the tactic is compatible.
     class _MockPhase:
         id = "gather"

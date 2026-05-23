@@ -593,8 +593,10 @@ def _run_gate(
 # Source classes that count as "live" for the primary signal heuristic
 _PRIMARY_LIVE_CLASSES = frozenset({"live_search", "primary_official"})
 
-# Phases whose findings count as disconfirm evidence
-_DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})
+# Phases whose findings count as disconfirm evidence.
+# "red_team" is preserved for historical research_trails rows written before the
+# 2026-05-23 taxonomy rename — new rows use "disconfirm".
+_DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
 
 # Years within which a finding's date field is considered "recent"
 _RECENCY_YEARS = 2
@@ -1077,15 +1079,15 @@ class Strategist:
         last = completed_phases[-1] if completed_phases else None
         raw_ranked = last.ranked_candidates if last else []
 
-        # If rank_verify is a pure-analysis tactic (no tool calls, no
+        # If synthesize is a pure-analysis tactic (no tool calls, no
         # produces), it won't populate ranked_candidates directly. Fall
-        # back to deriving the candidate list from the BROADEN phase's
+        # back to deriving the candidate list from the GATHER phase's
         # distinct_candidate_names (those are the hypotheses that entered
-        # red_team). _enrich_ranked_candidates then computes ACH scores
+        # disconfirm). _enrich_ranked_candidates then computes ACH scores
         # from the aggregated_findings across all phases.
         if not raw_ranked:
             for p in completed_phases:
-                if p.phase_id == "broaden" and p.distinct_candidate_names:
+                if p.phase_id in ("gather", "broaden") and p.distinct_candidate_names:  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
                     raw_ranked = [
                         {"name": name, "confidence": 0.5}
                         for name in p.distinct_candidate_names

@@ -139,7 +139,7 @@ async def _run_engine_v2_with_fakes(
     from app.pipeline.tactician import TacticianOutput
 
     if phases is None:
-        phases = [_make_phase("signal_extraction")]
+        phases = [_make_phase("extract")]
 
     strategy = _make_strategy(phases)
     tactic = _make_tactic([p.id for p in phases])
@@ -226,10 +226,10 @@ async def _run_engine_v2_with_fakes(
 def test_engine_v2_runs_all_phases_in_order():
     """All phases defined in strategy execute in topological order."""
     phases = [
-        _make_phase("signal_extraction"),
-        _make_phase("broaden", depends_on=["signal_extraction"]),
-        _make_phase("disconfirm", depends_on=["broaden"]),
-        _make_phase("rank_verify", depends_on=["disconfirm"]),
+        _make_phase("extract"),
+        _make_phase("gather", depends_on=["extract"]),
+        _make_phase("disconfirm", depends_on=["gather"]),
+        _make_phase("synthesize", depends_on=["disconfirm"]),
     ]
 
     result, emitted, *_ = asyncio.run(_run_engine_v2_with_fakes(phases=phases))
@@ -237,7 +237,7 @@ def test_engine_v2_runs_all_phases_in_order():
     assert result.status == "completed"
     assert len(result.phases) == 4
     phase_ids = [p.phase_id for p in result.phases]
-    assert phase_ids == ["signal_extraction", "broaden", "disconfirm", "rank_verify"]
+    assert phase_ids == ["extract", "gather", "disconfirm", "synthesize"]
 
 
 def test_engine_v2_emits_expected_events():
@@ -346,8 +346,8 @@ def test_engine_v2_refunds_on_system_error():
 def test_engine_v2_consumes_ru_per_phase():
     """run_complete event includes non-negative ru_consumed reflecting phase spending."""
     phases = [
-        _make_phase("signal_extraction"),
-        _make_phase("broaden", depends_on=["signal_extraction"]),
+        _make_phase("extract"),
+        _make_phase("gather", depends_on=["extract"]),
     ]
 
     result, emitted, *_ = asyncio.run(_run_engine_v2_with_fakes(phases=phases))
@@ -377,24 +377,24 @@ def test_89_regression_simulation_with_canned_data():
 
     Proves that the strategist's distinct_identity_count and
     per_hypothesis_live_source gates PASS when the brain provides proper
-    multi-candidate broaden output -- which was the failure mode in #89.
+    multi-candidate gather output -- which was the failure mode in #89.
 
     This is the SIMULATED regression.  Real #89 end-to-end verification is
     the manual smoke test in docs/intelligence/mvp-m9-smoke-test.md.
     """
     from app.pipeline.tactician import TacticianOutput
 
-    broaden_checks = [
+    gather_checks = [
         {"kind": "distinct_identity_count", "params": {"min": 3}},
         {"kind": "per_hypothesis_live_source", "params": {"min": 1}},
     ]
     phases = [
-        _make_phase("signal_extraction"),
+        _make_phase("extract"),
         _make_phase(
-            "broaden",
-            depends_on=["signal_extraction"],
+            "gather",
+            depends_on=["extract"],
             hypothesis_count_policy="fixed:3",
-            checks=broaden_checks,
+            checks=gather_checks,
         ),
     ]
 
@@ -418,8 +418,8 @@ def test_89_regression_simulation_with_canned_data():
         budget_ru,
         tactic_runner_fn,
     ):
-        if phase.id == "signal_extraction":
-            # Signal extraction: return all three candidates so broaden can diverge
+        if phase.id == "extract":
+            # Extract: return all three candidates so gather can diverge
             all_findings = [
                 {
                     "candidate": cand,
@@ -440,7 +440,7 @@ def test_89_regression_simulation_with_canned_data():
                 metadata={"hypotheses_explored": 3, "ru_spent": 3, "budget_ru": budget_ru},
             )
 
-        # broaden: each slot_idx maps to a distinct candidate
+        # gather: each slot_idx maps to a distinct candidate
         idx = slot_counter[0] % len(canned_candidates)
         slot_counter[0] += 1
         cand, src = canned_candidates[idx]
@@ -469,21 +469,21 @@ def test_89_regression_simulation_with_canned_data():
 
     assert result.status == "completed", f"Expected completed, got {result.status}: {result.terminate_reason}"
 
-    # Verify broaden phase output meets the #89 fix criteria
-    broaden_output = next(
-        (p for p in result.phases if p.phase_id == "broaden"), None
+    # Verify gather phase output meets the #89 fix criteria
+    gather_output = next(
+        (p for p in result.phases if p.phase_id == "gather"), None
     )
-    assert broaden_output is not None
+    assert gather_output is not None
 
     # Gate 1: distinct_identity_count >= 3 (structural anti-tunnel property)
-    assert len(broaden_output.distinct_candidate_names) >= 3, (
-        f"Expected >= 3 distinct candidates, got {broaden_output.distinct_candidate_names}"
+    assert len(gather_output.distinct_candidate_names) >= 3, (
+        f"Expected >= 3 distinct candidates, got {gather_output.distinct_candidate_names}"
     )
 
     # Gate 2: per_hypothesis_live_source -- none of the source_classes are
     # 'prior_research' or 'training_knowledge' (live sources only)
     dead_sources = {"prior_research", "training_knowledge"}
-    for finding in broaden_output.aggregated_findings:
+    for finding in gather_output.aggregated_findings:
         assert finding.get("source_class") not in dead_sources, (
             f"Finding for {finding.get('candidate_name')} has dead source: "
             f"{finding.get('source_class')}"
@@ -491,9 +491,9 @@ def test_89_regression_simulation_with_canned_data():
 
     # Verify none of the candidates is the known-tunnel candidate from #89
     zhoa_lusi_variants = {"zhao lusi", "zhao-lusi", "zhaolusi"}
-    for name in broaden_output.distinct_candidate_names:
+    for name in gather_output.distinct_candidate_names:
         assert name.lower() not in zhoa_lusi_variants, (
-            f"#89 tunnel candidate leaked into broaden output: {name}"
+            f"#89 tunnel candidate leaked into gather output: {name}"
         )
 
     # run_complete event carries ranked_candidates or status
@@ -506,7 +506,7 @@ def test_engine_v2_gate_fail_terminates_run():
     # Require 1000 primary signals -- impossible with canned single finding
     phases = [
         _make_phase(
-            "signal_extraction",
+            "extract",
             checks=[{"kind": "min_primary_signals", "params": {"min": 1000}}],
         ),
     ]
@@ -535,7 +535,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
     from app.pipeline.catalogs.schemas import GateSpec, CheckSpec, PhaseSpec, Strategy
 
     phase = _make_phase(
-        "broaden",
+        "gather",
         hypothesis_count_policy="fixed:2",
         checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
     )
@@ -549,7 +549,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
             "source_url": "https://example.com/candidate-a",
             "evidence_snippet": "Evidence for Candidate A",
             "confidence": 0.82,
-            "phase_id": "broaden",
+            "phase_id": "gather",
             "hypothesis_slot": 0,
         },
         {
@@ -558,7 +558,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
             "source_url": "https://example.com/candidate-b",
             "evidence_snippet": "Evidence for Candidate B",
             "confidence": 0.71,
-            "phase_id": "broaden",
+            "phase_id": "gather",
             "hypothesis_slot": 1,
         },
     ]
@@ -566,7 +566,7 @@ def test_89_regression_run_complete_has_enriched_ranked_candidates():
     async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None, event_emit=None):
         """Return a RunResult as if the strategist ran 2 slots and produced 2 candidates."""
         phase_out = PhaseOutput(
-            phase_id="broaden",
+            phase_id="gather",
             aggregated_findings=canned_findings,
             distinct_candidate_names=["Candidate A", "Candidate B"],
             metadata={"primary_signals_count": 2, "actual_ru": 4, "num_tacticians": 2,
@@ -706,7 +706,7 @@ def test_engine_v2_run_complete_includes_ach_matrix():
     from app.pipeline.ach import ACHMatrix as ACHMatrixType
 
     phase = _make_phase(
-        "broaden",
+        "gather",
         hypothesis_count_policy="fixed:2",
         checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
     )
@@ -720,7 +720,7 @@ def test_engine_v2_run_complete_includes_ach_matrix():
             "source_url": "https://example.com/candidate-a",
             "evidence_snippet": "Live evidence for Candidate A",
             "confidence": 0.82,
-            "phase_id": "broaden",
+            "phase_id": "gather",
             "hypothesis_slot": 0,
         },
         {
@@ -729,14 +729,14 @@ def test_engine_v2_run_complete_includes_ach_matrix():
             "source_url": "https://example.com/candidate-b",
             "evidence_snippet": "Evidence for Candidate B",
             "confidence": 0.71,
-            "phase_id": "broaden",
+            "phase_id": "gather",
             "hypothesis_slot": 1,
         },
     ]
 
     async def _fake_strategist_execute(query, classifier_output, tactician_fn, phase_complete_cb=None, event_emit=None):
         phase_out = PhaseOutput(
-            phase_id="broaden",
+            phase_id="gather",
             aggregated_findings=canned_findings,
             distinct_candidate_names=["Candidate A", "Candidate B"],
             metadata={"primary_signals_count": 2, "actual_ru": 4, "num_tacticians": 2,
@@ -840,7 +840,7 @@ def test_engine_v2_emits_phase_replan_when_gate_fails_and_depth_allows():
     # Phase with a gate that first fails (0 signals) then passes (1 signal)
     phases = [
         _make_phase(
-            "signal_extraction",
+            "extract",
             hypothesis_count_policy="fixed:1",
             on_fail="replan",
             checks=[{"kind": "min_primary_signals", "params": {"min": 1}}],
@@ -904,7 +904,7 @@ def test_engine_v2_emits_phase_replan_when_gate_fails_and_depth_allows():
     assert evt["type"] == "is.phase_replan"
     assert "run_id" in evt
     assert "phase_id" in evt
-    assert evt["phase_id"] == "signal_extraction"
+    assert evt["phase_id"] == "extract"
     assert "attempt" in evt
     assert "max_attempts" in evt
     assert "reason" in evt

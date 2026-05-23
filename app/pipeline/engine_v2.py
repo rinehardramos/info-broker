@@ -282,10 +282,10 @@ async def run_engine_v2(
         # Pass tactician metadata through verbatim; only derive missing
         # fields (preserves test fakes that don't include them).
         meta = dict(output.metadata)
-        # signal_extraction has no tool calls — the brain just analyzes.
+        # extract has no tool calls — the brain just analyzes.
         # Fall back to "1 if we got any output" rather than len(findings).
         if "primary_signals_count" not in meta:
-            if phase.id == "signal_extraction":
+            if phase.id == "extract":
                 meta["primary_signals_count"] = 1
             else:
                 meta["primary_signals_count"] = len(output.findings)
@@ -398,14 +398,14 @@ async def run_engine_v2(
 
     # Backfill ranked_candidates + ach_matrix when the strategist exited via an
     # early-return path (ask_user, terminated) that bypassed enrichment. The
-    # broaden phase's distinct_candidate_names are the surviving hypotheses;
+    # gather phase's distinct_candidate_names are the surviving hypotheses;
     # ACH scoring works from the aggregated findings regardless of which exit
     # path was taken.
     if not result.ranked_candidates and result.phases:
         try:
             from app.pipeline.strategist import _enrich_ranked_candidates
             from app.pipeline.ach import ACHSignal
-            broaden = next((p for p in result.phases if p.phase_id == "broaden"), None)
+            broaden = next((p for p in result.phases if p.phase_id in ("gather", "broaden")), None)  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
             raw_ranked: list[dict] = []
             if broaden and broaden.distinct_candidate_names:
                 raw_ranked = [
@@ -435,7 +435,7 @@ async def run_engine_v2(
                     if ach is not None:
                         result.ach_matrix = ach
                     log.info(
-                        "engine_v2: backfilled %d ranked_candidates + ACH matrix from broaden phase",
+                        "engine_v2: backfilled %d ranked_candidates + ACH matrix from gather phase",
                         len(ranked),
                     )
         except Exception as exc:

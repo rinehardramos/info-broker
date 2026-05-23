@@ -16,8 +16,10 @@ ACHMark = Literal["consistent", "inconsistent", "neutral", "unknown"]
 # Source classes that carry "live" authority for primary/supporting signals
 _LIVE_SOURCE_CLASSES = frozenset({"live_search", "primary_official"})
 
-# Phase ids whose findings are treated as disconfirm evidence
-_DISCONFIRM_PHASE_IDS = frozenset({"red_team", "disconfirm"})
+# Phase ids whose findings are treated as disconfirm evidence.
+# "red_team" is preserved for historical research_trails rows written before the
+# 2026-05-23 taxonomy rename — new rows use "disconfirm".
+_DISCONFIRM_PHASE_IDS = frozenset({"red_team", "disconfirm"})  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
 
 # Years within which a finding's date field is considered "recent"
 _RECENCY_YEARS = 2
@@ -132,22 +134,22 @@ def _mark_medium(
     """
     Determine ACH mark for the 'medium' signal.
     Consistent if strategy is media_identification AND any finding from the
-    broaden phase has a live source_class.
+    gather phase has a live source_class.
     """
     # Collect phase_id from phase_outputs metadata
-    broaden_finding_ids: set[str] = set()
+    gather_finding_ids: set[str] = set()
     for po in phase_outputs:
-        if hasattr(po, "phase_id") and po.phase_id in ("broaden",):
+        if hasattr(po, "phase_id") and po.phase_id in ("gather", "broaden"):  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
             for f in po.aggregated_findings:
                 url = f.get("source_url") or ""
                 if url:
-                    broaden_finding_ids.add(url)
+                    gather_finding_ids.add(url)
 
     if "media_identification" in strategy_id:
         for f in candidate_findings:
             phase_id = f.get("phase_id", "")
             source_class = f.get("source_class", "")
-            if phase_id == "broaden" and source_class in _LIVE_SOURCE_CLASSES:
+            if phase_id in ("gather", "broaden") and source_class in _LIVE_SOURCE_CLASSES:  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
                 finding_id = f.get("source_url") or f.get("evidence_snippet", "")[:40] or None
                 return "consistent", finding_id
 
