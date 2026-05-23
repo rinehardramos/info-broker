@@ -297,3 +297,15 @@ def test_person_strategy_uses_ach_rank_for_synthesize():
     from app.pipeline.catalogs.registries.strategies.person import STRATEGY
     synth = next(p for p in STRATEGY["phases"] if p["id"] == "synthesize")
     assert synth.get("preferred_tactic_id") == "ach_rank"
+
+
+def test_due_diligence_strategy_uses_unified_phase_ids():
+    from app.pipeline.catalogs.registries.strategies.due_diligence import STRATEGY
+    phase_ids = [p["id"] for p in STRATEGY["phases"]]
+    assert set(phase_ids) == {"extract", "gather", "disconfirm", "synthesize"}
+
+
+def test_due_diligence_uses_ach_rank_for_synthesize():
+    from app.pipeline.catalogs.registries.strategies.due_diligence import STRATEGY
+    synth = next(p for p in STRATEGY["phases"] if p["id"] == "synthesize")
+    assert synth.get("preferred_tactic_id") == "ach_rank"
