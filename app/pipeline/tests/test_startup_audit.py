@@ -109,3 +109,37 @@ def test_audit_error_includes_strategy_id_phase_id_and_compatible_set():
 def test_audit_error_class_extends_runtime_error():
     """StrategyTacticAuditError must be a RuntimeError so existing handlers see it."""
     assert issubclass(StrategyTacticAuditError, RuntimeError)
+
+
+def test_default_tactics_exist_with_correct_phase_compatibility():
+    """All 4 default tactics are importable and declare the right phases."""
+    from app.pipeline.catalogs.registries.tactics.extract_default import TACTIC as EXTRACT
+    from app.pipeline.catalogs.registries.tactics.gather_default import TACTIC as GATHER
+    from app.pipeline.catalogs.registries.tactics.disconfirm_default import TACTIC as DISCONFIRM
+    from app.pipeline.catalogs.registries.tactics.synthesize_default import TACTIC as SYNTHESIZE
+
+    from app.pipeline.catalogs.audit import _get_phase_compatibility
+
+    assert _get_phase_compatibility(EXTRACT) == ["extract"]
+    assert _get_phase_compatibility(GATHER) == ["gather"]
+    assert _get_phase_compatibility(DISCONFIRM) == ["disconfirm"]
+    assert _get_phase_compatibility(SYNTHESIZE) == ["synthesize"]
+
+
+def test_extract_default_requires_no_techniques():
+    """extract phase is pure analysis — no tool calls."""
+    from app.pipeline.catalogs.registries.tactics.extract_default import TACTIC
+    required = TACTIC.required_techniques if hasattr(TACTIC, "required_techniques") else TACTIC.get("required_techniques", [])
+    assert required == []
+
+
+def test_synthesize_default_requires_no_techniques():
+    from app.pipeline.catalogs.registries.tactics.synthesize_default import TACTIC
+    required = TACTIC.required_techniques if hasattr(TACTIC, "required_techniques") else TACTIC.get("required_techniques", [])
+    assert required == []
+
+
+def test_gather_default_uses_web_search_and_google_news():
+    from app.pipeline.catalogs.registries.tactics.gather_default import TACTIC
+    required = TACTIC.required_techniques if hasattr(TACTIC, "required_techniques") else TACTIC.get("required_techniques", [])
+    assert set(required) == {"web_search", "google_news"}
