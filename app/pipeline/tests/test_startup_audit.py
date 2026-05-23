@@ -319,3 +319,24 @@ def test_media_identification_uses_unified_phase_ids():
     assert set(phase_ids).issubset(legal)
     # Must have at least extract / gather / synthesize
     assert {"extract", "gather", "synthesize"}.issubset(set(phase_ids))
+
+
+def test_phasespec_id_validator_rejects_legacy_ids():
+    """PhaseSpec construction with a legacy phase id raises ValidationError."""
+    from app.pipeline.catalogs.schemas import PhaseSpec, GateSpec, CheckSpec
+    from pydantic import ValidationError
+
+    gate = GateSpec(checks=[CheckSpec(kind="min_primary_signals", params={"min": 1})], on_fail="ask_user")
+
+    for legacy in ("signal_extraction", "broaden", "red_team", "rank_verify"):
+        with pytest.raises(ValidationError, match=r"LEGAL_PHASE_IDS"):
+            PhaseSpec(id=legacy, unit_of_work_contract={}, hypothesis_count_policy="fixed:1", gate=gate)
+
+
+def test_phasespec_id_validator_accepts_unified_ids():
+    """All 4 LEGAL_PHASE_IDS are accepted."""
+    from app.pipeline.catalogs.schemas import PhaseSpec, GateSpec, CheckSpec
+    gate = GateSpec(checks=[CheckSpec(kind="min_primary_signals", params={"min": 1})], on_fail="ask_user")
+    for legal in ("extract", "gather", "disconfirm", "synthesize"):
+        p = PhaseSpec(id=legal, unit_of_work_contract={}, hypothesis_count_policy="fixed:1", gate=gate)
+        assert p.id == legal

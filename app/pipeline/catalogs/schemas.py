@@ -85,6 +85,20 @@ class PhaseSpec(BaseModel):
                 return v
         return v
 
+    @field_validator("id")
+    @classmethod
+    def _validate_phase_id_is_legal(cls, v: str) -> str:
+        """Reject legacy phase ids. Per spec 2026-05-23, the unified taxonomy is
+        LEGAL_PHASE_IDS = {extract, gather, disconfirm, synthesize}."""
+        from app.pipeline.catalogs.constants import LEGAL_PHASE_IDS
+        if v not in LEGAL_PHASE_IDS:
+            raise ValueError(
+                f"Phase id {v!r} is not in LEGAL_PHASE_IDS={sorted(LEGAL_PHASE_IDS)}. "
+                f"Legacy ids (signal_extraction/broaden/red_team/rank_verify) were "
+                f"retired in spec 2026-05-23."
+            )
+        return v
+
     @field_validator("preferred_tactic_id")
     @classmethod
     def _validate_tactic_id_format(cls, v: str | None) -> str | None:
