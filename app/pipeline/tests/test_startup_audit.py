@@ -278,3 +278,22 @@ def test_ach_rank_phase_compat_migrated_to_synthesize():
     from app.pipeline.catalogs.registries.tactics.ach_rank import TACTIC
     from app.pipeline.catalogs.audit import _get_phase_compatibility
     assert _get_phase_compatibility(TACTIC) == ["synthesize"]
+
+
+def test_person_strategy_uses_unified_phase_ids():
+    """After migration, person.py declares extract/gather/disconfirm/synthesize."""
+    from app.pipeline.catalogs.registries.strategies.person import STRATEGY
+    phase_ids = [p["id"] for p in STRATEGY["phases"]]
+    assert set(phase_ids) == {"extract", "gather", "disconfirm", "synthesize"}
+
+
+def test_person_strategy_uses_hypothesis_first_search_for_gather():
+    from app.pipeline.catalogs.registries.strategies.person import STRATEGY
+    gather = next(p for p in STRATEGY["phases"] if p["id"] == "gather")
+    assert gather.get("preferred_tactic_id") == "hypothesis_first_search"
+
+
+def test_person_strategy_uses_ach_rank_for_synthesize():
+    from app.pipeline.catalogs.registries.strategies.person import STRATEGY
+    synth = next(p for p in STRATEGY["phases"] if p["id"] == "synthesize")
+    assert synth.get("preferred_tactic_id") == "ach_rank"
