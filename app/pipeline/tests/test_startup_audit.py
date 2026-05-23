@@ -309,3 +309,13 @@ def test_due_diligence_uses_ach_rank_for_synthesize():
     from app.pipeline.catalogs.registries.strategies.due_diligence import STRATEGY
     synth = next(p for p in STRATEGY["phases"] if p["id"] == "synthesize")
     assert synth.get("preferred_tactic_id") == "ach_rank"
+
+
+def test_media_identification_uses_unified_phase_ids():
+    from app.pipeline.catalogs.registries.strategies.media_identification import STRATEGY
+    phase_ids = [p["id"] for p in STRATEGY["phases"]]
+    # Allow either 3-phase or 4-phase shape; assert all ids are legal
+    legal = {"extract", "gather", "disconfirm", "synthesize"}
+    assert set(phase_ids).issubset(legal)
+    # Must have at least extract / gather / synthesize
+    assert {"extract", "gather", "synthesize"}.issubset(set(phase_ids))

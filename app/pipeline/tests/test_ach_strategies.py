@@ -1,17 +1,17 @@
 """Shared invariants for ACH-shaped strategy modules.
 
 The ACH backbone (signal_extraction → broaden → red_team → rank_verify) is
-the hand-written, non-skeleton strategy shape. Two strategies still use it
-today (pending migration): media_identification, due_diligence.
+the hand-written, non-skeleton strategy shape. All three ACH-shaped strategies
+have now been migrated to the unified taxonomy (extract → gather → disconfirm →
+synthesize) — person (Task 9), due_diligence (Task 10), media_identification
+(Task 11).
 
-person.py has been migrated to the unified taxonomy
-(extract → gather → disconfirm → synthesize) per spec 2026-05-23.
-Its structural invariants are now asserted in the
-TestPersonUnifiedTaxonomy class below.
+ACH_STRATEGIES is now empty. Structural invariants for each migrated strategy
+are asserted in their respective TestXxxUnifiedTaxonomy classes below.
 
-These tests pin the structural contract so any new ACH-shaped strategy
-that gets added must conform — no silent skipping of red_team or the
-top_candidate_confidence gate.
+These tests continue to pin the structural contract so any new ACH-shaped
+strategy added in future must conform — no silent skipping of disconfirm or
+the top_candidate_confidence gate.
 """
 from __future__ import annotations
 
@@ -34,7 +34,8 @@ MODES_DIR = (
 # unified taxonomy (extract → gather → disconfirm → synthesize).
 # person migrated 2026-05-23 (Task 9) — see TestPersonUnifiedTaxonomy below.
 # due_diligence migrated 2026-05-23 (Task 10) — see TestDueDiligenceUnifiedTaxonomy below.
-ACH_STRATEGIES = ["media_identification"]
+# media_identification migrated 2026-05-23 (Task 11) — see TestMediaIdentificationUnifiedTaxonomy below.
+ACH_STRATEGIES: list[str] = []
 
 
 @pytest.fixture(scope="module")
@@ -393,3 +394,97 @@ class TestDueDiligenceUnifiedTaxonomy:
     def test_investigation_mode_suggests_due_diligence(self, mode_catalog):
         suggestions = mode_catalog["investigation"].strategy_suggestions
         assert "due_diligence" in suggestions
+
+
+# ---------------------------------------------------------------------------
+# media_identification — unified taxonomy invariants (migrated 2026-05-23, Task 11)
+# ---------------------------------------------------------------------------
+
+
+class TestMediaIdentificationUnifiedTaxonomy:
+    """After migration media_identification.py uses extract/gather/disconfirm/synthesize.
+
+    These tests replace the legacy ACH backbone assertions that were
+    removed from ACH_STRATEGIES above.  Gate checks, briefings, and
+    preferred_tactic_ids are verified to confirm no semantic content
+    was lost during migration.
+    """
+
+    @pytest.fixture(scope="class")
+    def media_id(self, catalog):
+        return catalog["media_identification"]
+
+    @pytest.fixture(scope="class")
+    def phases(self, media_id):
+        return {p.id: p for p in media_id.phases}
+
+    def test_four_phase_unified_dag(self, phases):
+        assert list(phases.keys()) == ["extract", "gather", "disconfirm", "synthesize"]
+
+    def test_dependency_chain(self, phases):
+        assert phases["extract"].depends_on == []
+        assert phases["gather"].depends_on == ["extract"]
+        assert phases["disconfirm"].depends_on == ["gather"]
+        assert phases["synthesize"].depends_on == ["disconfirm"]
+
+    def test_extract_requires_min_primary_signals(self, phases):
+        kinds = {c.kind for c in phases["extract"].gate.checks}
+        assert "min_primary_signals" in kinds
+
+    def test_extract_on_fail_is_ask_user(self, phases):
+        assert phases["extract"].gate.on_fail == "ask_user"
+
+    def test_gather_gate_has_distinct_identity_and_live_source(self, phases):
+        kinds = {c.kind for c in phases["gather"].gate.checks}
+        assert "distinct_identity_count" in kinds
+        assert "per_hypothesis_live_source" in kinds
+
+    def test_gather_on_fail_is_terminate(self, phases):
+        assert phases["gather"].gate.on_fail == "terminate"
+
+    def test_gather_preferred_tactic_is_hypothesis_first_search(self, phases):
+        assert phases["gather"].preferred_tactic_id == "hypothesis_first_search"
+
+    def test_gather_hypothesis_count_policy_from_dial(self, phases):
+        assert phases["gather"].hypothesis_count_policy == "from_dial"
+
+    def test_disconfirm_logs_disconfirm_per_hypothesis(self, phases):
+        kinds = {c.kind for c in phases["disconfirm"].gate.checks}
+        assert "disconfirm_logged_per_hypothesis" in kinds
+
+    def test_disconfirm_on_fail_is_terminate(self, phases):
+        assert phases["disconfirm"].gate.on_fail == "terminate"
+
+    def test_disconfirm_hypothesis_count_policy_from_prior_phase(self, phases):
+        assert phases["disconfirm"].hypothesis_count_policy == "from_prior_phase"
+
+    def test_synthesize_checks_top_candidate_confidence(self, phases):
+        checks = {c.kind: c for c in phases["synthesize"].gate.checks}
+        assert "top_candidate_confidence" in checks
+        assert checks["top_candidate_confidence"].params.get("min", 0) >= 0.4
+
+    def test_synthesize_on_fail_is_ask_user(self, phases):
+        assert phases["synthesize"].gate.on_fail == "ask_user"
+
+    def test_synthesize_preferred_tactic_is_ach_rank(self, phases):
+        assert phases["synthesize"].preferred_tactic_id == "ach_rank"
+
+    def test_hypothesis_count_floor_at_least_competing(self, media_id):
+        tiers = ["single", "paired", "competing", "adversarial", "swarm"]
+        floor = media_id.budget_minimums.get("hypothesis_count")
+        assert floor is not None
+        assert tiers.index(floor) >= tiers.index("competing")
+
+    def test_has_five_ach_signals(self, media_id):
+        assert len(media_id.ach_signals) == 5
+
+    def test_ach_signal_weights_sum_to_one(self, media_id):
+        total = sum(s["weight"] for s in media_id.ach_signals)
+        assert abs(total - 1.0) < 0.01
+
+    def test_default_mode_is_investigation(self, media_id):
+        assert media_id.default_mode == "investigation"
+
+    def test_investigation_mode_suggests_media_identification(self, mode_catalog):
+        suggestions = mode_catalog["investigation"].strategy_suggestions
+        assert "media_identification" in suggestions
