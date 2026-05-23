@@ -1,9 +1,9 @@
-"""Tests for MVP-M4 broaden-phase tactic catalog entries.
+"""Tests for MVP-M4 gather-phase tactic catalog entries.
 
 Covers:
 - hypothesis_first_search loads and validates via load_catalog
 - prior_research_seed loads and validates via load_catalog
-- Both tactics declare "broaden" phase compatibility
+- Both tactics declare "gather" phase compatibility
 - hypothesis_first_search enforcement floor (min_distinct_outputs=3)
 - prior_research_seed anti-tunneling enforcement (seeds_h_prior_only)
 - required_techniques ids resolve in technique catalog (skipped if M5 absent)
@@ -61,18 +61,18 @@ def test_prior_research_seed_loads_via_catalog(tactics_catalog):
     assert len(tactic.produces) == 1
 
 
-def test_both_tactics_phase_compat_broaden(tactics_catalog):
+def test_both_tactics_phase_compat_gather(tactics_catalog):
     for tactic_id in ("hypothesis_first_search", "prior_research_seed"):
         tactic = tactics_catalog[tactic_id]
-        assert "broaden" in tactic.phase_compatibility, (
-            f"{tactic_id}.phase_compatibility does not include 'broaden'"
+        assert "gather" in tactic.phase_compatibility, (
+            f"{tactic_id}.phase_compatibility does not include 'gather'"
         )
 
 
 def test_hypothesis_first_search_min_distinct_outputs_3(tactics_catalog):
     tactic = tactics_catalog["hypothesis_first_search"]
     assert tactic.enforcement.get("min_distinct_outputs") == 3, (
-        "broaden gate floor must be 3 distinct identity candidates"
+        "gather gate floor must be 3 distinct identity candidates"
     )
 
 

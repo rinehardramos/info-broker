@@ -149,7 +149,7 @@ def _make_strategy_dict(id: str, broaden_checks: list) -> dict:
         "budget_minimums": {"hypothesis_count": "single"},
         "phases": [
             {
-                "id": "broaden",
+                "id": "gather",
                 "depends_on": [],
                 "unit_of_work_contract": {"inputs": [], "briefing": "test"},
                 "hypothesis_count_policy": "fixed:1",

@@ -159,7 +159,7 @@ def _resolve_strategy(intent: str, mode: str | None = None) -> str:
       3. **``generic_search``** — permissive single-phase retrieval floor.
          Prevents hard-fail on intents that have no dedicated module
          (regression-tested against the b0e457a4 run that died at the
-         media_identification broaden gate).
+         media_identification gather gate).
       4. **``media_identification``** — legacy fallback for the unlikely
          case where ``generic_search`` isn't registered yet.
       5. **First supported strategy** — absolute last resort.

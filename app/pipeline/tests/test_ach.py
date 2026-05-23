@@ -41,7 +41,7 @@ def _make_signals(
     ]
 
 
-def _live_finding(candidate: str, confidence: float = 0.8, phase_id: str = "broaden") -> dict:
+def _live_finding(candidate: str, confidence: float = 0.8, phase_id: str = "gather") -> dict:
     return {
         "candidate_name": candidate,
         "source_class": "live_search",
@@ -59,7 +59,7 @@ def _disconfirm_finding(candidate: str, confidence: float = 0.7) -> dict:
         "source_class": "live_search",
         "confidence": confidence,
         "evidence_snippet": f"Disconfirm evidence for {candidate}",
-        "phase_id": "red_team",
+        "phase_id": "disconfirm",
         "hypothesis_slot": 0,
     }
 
@@ -70,7 +70,7 @@ def _rag_finding(candidate: str) -> dict:
         "source_class": "prior_research",
         "confidence": 0.5,
         "evidence_snippet": f"RAG evidence for {candidate}",
-        "phase_id": "broaden",
+        "phase_id": "gather",
     }
 
 
@@ -86,7 +86,7 @@ def test_compute_ach_all_consistent_returns_max_score():
 
     # All signal marks will be computed from these findings; provide enough
     # coverage: live_search covers primary, supporting, live_source
-    # broaden phase covers medium (with media_identification strategy)
+    # gather phase covers medium (with media_identification strategy)
     # no date → recency will be neutral (0.5 not 1.0), so we add a dated finding
     dated_finding = {
         **f,
@@ -206,7 +206,7 @@ def test_compute_ach_zhao_lusi_vs_wonyoung_canned():
         "confidence": 0.85,
         "evidence_snippet": "IVE Wonyoung promotional image with curling iron",
         "source_url": "https://example.com/wonyoung-ad",
-        "phase_id": "broaden",
+        "phase_id": "gather",
         "date": "2025-03-01",
         "signals_matched": ["supporting"],
     }
@@ -216,7 +216,7 @@ def test_compute_ach_zhao_lusi_vs_wonyoung_canned():
         "source_class": "live_search",
         "confidence": 0.75,
         "evidence_snippet": "Zhao Lusi mole placement does not match ad description",
-        "phase_id": "red_team",
+        "phase_id": "disconfirm",
     }
 
     matrix = compute_ach_matrix(
@@ -331,7 +331,7 @@ def test_ach_disconfirm_below_confidence_threshold_not_inconsistent():
         "source_class": "live_search",
         "confidence": 0.3,  # below 0.5 threshold
         "evidence_snippet": "Weak disconfirm",
-        "phase_id": "red_team",
+        "phase_id": "disconfirm",
     }
 
     matrix = compute_ach_matrix(
@@ -405,7 +405,7 @@ def test_ach_consistent_mark_carries_evidence_finding_id():
         "confidence": 0.9,
         "evidence_snippet": "Live evidence",
         "source_url": url,
-        "phase_id": "broaden",
+        "phase_id": "gather",
     }
 
     matrix = compute_ach_matrix(

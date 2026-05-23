@@ -152,6 +152,25 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         _log.warning("GATE_AUDIT skipped: %s", exc)
 
+    # ---------------------------------------------------------------------------
+    # Strategy / tactic alignment audit (spec 2026-05-23)
+    # Fail-CLOSED unconditionally — there is no env-var escape hatch because
+    # misalignment yields silently-broken user-facing runs (per PR #116).
+    # ---------------------------------------------------------------------------
+    try:
+        from app.pipeline.catalogs.loader import load_catalog as _load_catalog2
+        from app.pipeline.catalogs.audit import run_audit_or_fail as _run_tactic_audit
+        from pathlib import Path as _Path2
+        _strat_dir2 = _Path2(__file__).resolve().parent / "pipeline" / "catalogs" / "registries" / "strategies"
+        _tactics_dir = _Path2(__file__).resolve().parent / "pipeline" / "catalogs" / "registries" / "tactics"
+        _strategies2 = _load_catalog2("strategy", _strat_dir2)
+        _tactics_catalog = _load_catalog2("tactic", _tactics_dir)
+        _run_tactic_audit(_strategies2, _tactics_catalog)
+        _log.info("Strategy/tactic catalog audit passed.")
+    except Exception as _audit_exc:
+        _log.error("Strategy/tactic catalog audit FAILED: %s", _audit_exc)
+        raise   # fail-CLOSED — API does not start
+
     os.makedirs("/tmp/exports", exist_ok=True)
 
     # Start graph materializer background task

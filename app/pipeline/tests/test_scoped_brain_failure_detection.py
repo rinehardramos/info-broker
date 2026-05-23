@@ -4,7 +4,7 @@ When the brain (Claude Code subprocess) hits an auth/HTTP/network error,
 its event stream still appears "complete" — it emits a synthetic assistant
 message, then a result event with is_error=true. The pre-existing
 scoped_brain diagnostic just logged "produced 0 task_calls" and the
-strategist's broaden gate then fails with "checks did not pass" — the
+strategist's gather gate then fails with "checks did not pass" — the
 real cause (a 401, a 429, a timeout) is invisible.
 
 These tests pin a structured failure-detector that surfaces the real

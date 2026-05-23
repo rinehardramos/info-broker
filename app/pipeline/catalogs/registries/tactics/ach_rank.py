@@ -1,7 +1,7 @@
 """ACH rank tactic — final ranking phase. Pure analysis, no tool calls.
 
 The strategist's _enrich_ranked_candidates() (which uses Heuer ACH) does
-the actual matrix computation. This tactic exists so the rank_verify phase
+the actual matrix computation. This tactic exists so the synthesize phase
 has a registered tactic to satisfy the phase-compatibility check; the
 brain's job is to emit a final ranking narrative + confidence summary.
 """
@@ -10,9 +10,9 @@ from app.pipeline.catalogs import Tactic
 
 TACTIC = Tactic(
     id="ach_rank",
-    phase_compatibility=["rank_verify"],
+    phase_compatibility=["synthesize"],
     accepts={
-        "ach_inputs_from_red_team": "ranked hypotheses with disconfirm evidence",
+        "ach_inputs_from_disconfirm": "ranked hypotheses with disconfirm evidence",
         "pir_criteria": "primary information requirements + signal weights",
     },
     produces=[],  # No tool calls; pure analytical reasoning

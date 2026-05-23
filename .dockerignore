@@ -28,6 +28,9 @@ dist/
 *.log
 .DS_Store
 
+# Frontend node_modules (not needed in API image)
+frontend/node_modules/
+
 # Data directories (bind-mounted or created by compose)
 data/
 qdrant_data/

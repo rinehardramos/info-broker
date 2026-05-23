@@ -59,6 +59,12 @@ class PhaseSpec(BaseModel):
     ``depends_on`` ids must not form a cycle — enforced by Strategy's validator.
     ``hypothesis_count_policy`` controls how many parallel tacticians the
     strategist spawns for this phase.
+
+    ``preferred_tactic_id`` is an optional override telling the resolver
+    which tactic to pick for this phase, bypassing the default preference
+    logic. The cross-reference check (does the tactic exist and declare
+    phase_compatibility for this phase?) happens at startup audit time —
+    see app/pipeline/catalogs/audit.py.
     """
 
     id: str
@@ -67,6 +73,7 @@ class PhaseSpec(BaseModel):
     hypothesis_count_policy: Literal["from_dial", "fixed:1", "fixed:2", "fixed:3",
                                      "fixed:4", "fixed:5", "from_prior_phase"]
     gate: GateSpec
+    preferred_tactic_id: str | None = None    # NEW
 
     @field_validator("hypothesis_count_policy", mode="before")
     @classmethod
@@ -76,6 +83,31 @@ class PhaseSpec(BaseModel):
             parts = v.split(":", 1)
             if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) > 0:
                 return v
+        return v
+
+    @field_validator("id")
+    @classmethod
+    def _validate_phase_id_is_legal(cls, v: str) -> str:
+        """Reject legacy phase ids. Per spec 2026-05-23, the unified taxonomy is
+        LEGAL_PHASE_IDS = {extract, gather, disconfirm, synthesize}."""
+        from app.pipeline.catalogs.constants import LEGAL_PHASE_IDS
+        if v not in LEGAL_PHASE_IDS:
+            raise ValueError(
+                f"Phase id {v!r} is not in LEGAL_PHASE_IDS={sorted(LEGAL_PHASE_IDS)}. "
+                f"Legacy ids (signal_extraction/broaden/red_team/rank_verify) were "
+                f"retired in spec 2026-05-23."
+            )
+        return v
+
+    @field_validator("preferred_tactic_id")
+    @classmethod
+    def _validate_tactic_id_format(cls, v: str | None) -> str | None:
+        """Format-only validation. Cross-reference happens in the startup audit."""
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("preferred_tactic_id, if set, must be a non-empty string after strip()")
         return v
 
 
@@ -197,6 +229,8 @@ class Technique(BaseModel):
     cost_class: str
     failure_modes: list[str] = []
     retry_policy: dict[str, Any] = {}
+    actor_slug: str = ""
+    cost_per_call_ru: int = 0
 
 
 # ---------------------------------------------------------------------------

@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 # stream-json event sequence still LOOKS structured: an init event, retries,
 # a synthetic assistant message, then a result event with is_error=true. The
 # legacy diagnostic just logged "produced 0 task_calls" at WARNING — so the
-# strategist's broaden gate failed with "checks did not pass" and the real
+# strategist's gather gate failed with "checks did not pass" and the real
 # 401 / 429 / 500 was invisible. This function pulls the failure out
 # explicitly so admin logs name the actual cause early.
 
@@ -279,7 +279,7 @@ def _build_scoped_prompt(
         f"tactic_id: {tactic.id}",
     ]
 
-    # Tactics with no `produces` (signal_extraction, rank_verify) are pure
+    # Tactics with no `produces` (extract, synthesize) are pure
     # analysis — explicitly tell the brain NOT to call tools.
     if not tactic.produces:
         lines += [

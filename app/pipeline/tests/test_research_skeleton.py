@@ -2,7 +2,7 @@
 emits.
 
 The factory at app/pipeline/catalogs/builders/research_skeleton.py composes
-a 3-phase Strategy dict (extract → gather → synthesize) from per-phase
+a Strategy dict (extract → gather → [disconfirm →] synthesize) from per-phase
 overlays. Each registry module imports it and supplies the diffs.
 
 These tests pin the factory contract so future strategy modules can't drift,
@@ -150,3 +150,73 @@ class TestGenericSearchInvariants:
         """generic_search must NOT impose a competing/adversarial floor; it
         is the cheap fallback."""
         assert catalog["generic_search"].budget_minimums == {"hypothesis_count": "single"}
+
+
+# ---------------------------------------------------------------------------
+# New tests: optional disconfirm phase + preferred_tactic_id (Task 6)
+# ---------------------------------------------------------------------------
+
+
+def test_build_research_strategy_accepts_optional_disconfirm():
+    """When disconfirm overlay is provided, the strategy has 4 phases."""
+    from app.pipeline.catalogs.builders.research_skeleton import build_research_strategy
+    strategy = build_research_strategy(
+        id="test_4phase",
+        default_mode="comprehensive_investigation",
+        hypothesis_count="multi",
+        extract={"briefing": "ex"},
+        gather={"briefing": "ga"},
+        disconfirm={"briefing": "di"},
+        synthesize={"briefing": "sy"},
+    )
+    phase_ids = [p["id"] for p in strategy["phases"]]
+    assert phase_ids == ["extract", "gather", "disconfirm", "synthesize"]
+    # synthesize depends on disconfirm in the 4-phase variant
+    synth = next(p for p in strategy["phases"] if p["id"] == "synthesize")
+    assert synth["depends_on"] == ["disconfirm"]
+
+
+def test_build_research_strategy_omits_disconfirm_by_default():
+    """When disconfirm is omitted, strategy has 3 phases and synthesize depends on gather."""
+    from app.pipeline.catalogs.builders.research_skeleton import build_research_strategy
+    strategy = build_research_strategy(
+        id="test_3phase",
+        default_mode="data_retrieval",
+        hypothesis_count="single",
+        extract={"briefing": "ex"},
+        gather={"briefing": "ga"},
+        synthesize={"briefing": "sy"},
+    )
+    phase_ids = [p["id"] for p in strategy["phases"]]
+    assert phase_ids == ["extract", "gather", "synthesize"]
+    synth = next(p for p in strategy["phases"] if p["id"] == "synthesize")
+    assert synth["depends_on"] == ["gather"]
+
+
+def test_build_phase_threads_preferred_tactic_id():
+    """The overlay key preferred_tactic_id is passed through to the phase dict."""
+    from app.pipeline.catalogs.builders.research_skeleton import build_research_strategy
+    strategy = build_research_strategy(
+        id="test_pref",
+        default_mode="data_retrieval",
+        hypothesis_count="single",
+        gather={
+            "preferred_tactic_id": "listings_gather",
+            "briefing": "use Apify Zillow",
+        },
+    )
+    gather = next(p for p in strategy["phases"] if p["id"] == "gather")
+    assert gather["preferred_tactic_id"] == "listings_gather"
+
+
+def test_build_phase_rejects_unknown_overlay_key():
+    """Typos in overlay dict are caught at build time, not runtime."""
+    from app.pipeline.catalogs.builders.research_skeleton import build_research_strategy
+    import pytest
+    with pytest.raises(ValueError, match=r"Unknown overlay keys"):
+        build_research_strategy(
+            id="test_typo",
+            default_mode="data_retrieval",
+            hypothesis_count="single",
+            gather={"breifing": "typo"},   # 'breifing' should be 'briefing'
+        )

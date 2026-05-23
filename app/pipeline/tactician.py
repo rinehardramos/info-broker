@@ -112,6 +112,15 @@ def _technique_to_source_class(technique_id: str) -> str:
 # Tactic selection (deterministic, MVP — no LLM call)
 # ---------------------------------------------------------------------------
 
+def _phase_compat(tactic) -> list[str]:
+    """Tolerate both dict-form and Pydantic-form tactic entries."""
+    if hasattr(tactic, "phase_compatibility"):
+        return list(tactic.phase_compatibility)
+    if isinstance(tactic, dict):
+        return list(tactic.get("phase_compatibility", []))
+    return []
+
+
 def _select_tactic(
     slot_idx: int,
     unit_of_work: dict[str, Any],
@@ -120,24 +129,31 @@ def _select_tactic(
 ) -> Tactic | None:
     """Deterministically pick a tactic for this slot.
 
-    Rules:
-    - Filter tactics_catalog to entries whose phase_compatibility includes phase.id.
-    - slot_idx == 0 AND unit_of_work has a non-empty 'prior_research_summary'
-      → prefer 'prior_research_seed' if present in filtered set.
-    - slot_idx >= 1 (or slot 0 without prior_research_summary)
-      → prefer 'hypothesis_first_search' if present in filtered set.
-    - Fall back to the first compatible tactic if the preferred id is absent.
-    - Returns None if no compatible tactic exists.
+    Resolution order:
+    1. If phase.preferred_tactic_id is set AND in the compatible set, return it.
+       (Cross-reference is enforced at startup audit; this runtime check is
+       defensive — if audit passed, the override is always compatible.)
+    2. slot_idx == 0 AND unit_of_work has a non-empty 'prior_research_summary'
+       → prefer 'prior_research_seed' if present in filtered set.
+    3. slot_idx >= 1 (or slot 0 without prior_research_summary)
+       → prefer 'hypothesis_first_search' if present in filtered set.
+    4. Fall back to the first compatible tactic if no preferred id is present.
+    5. Returns None if no compatible tactic exists.
 
     Note: MVP uses deterministic selection. Full design may add LLM tactic
     selection driven by tactic_bias weights from OptimizationMode (§4.4).
     """
     compatible = {
         tid: t for tid, t in tactics_catalog.items()
-        if phase.id in t.phase_compatibility
+        if phase.id in _phase_compat(t)
     }
     if not compatible:
         return None
+
+    # NEW: honor strategy author's explicit override first.
+    preferred_override = getattr(phase, "preferred_tactic_id", None)
+    if preferred_override and preferred_override in compatible:
+        return compatible[preferred_override]
 
     has_prior = bool(unit_of_work.get("prior_research_summary"))
     preferred_id = (
@@ -338,9 +354,9 @@ async def execute_tactician(
         resolved_source_class = _technique_to_source_class(
             task_calls[0].get("technique_id", "") if task_calls else ""
         )
-        # Tactic semantics: disconfirm_search produces refutation findings;
-        # the strategist's red_team gate counts these.
-        is_disconfirm_tactic = tactic.id == "disconfirm_search"
+        # Tactic semantics: disconfirm_default produces refutation findings;
+        # the strategist's disconfirm gate counts these.
+        is_disconfirm_tactic = tactic.id == "disconfirm_default"
         for sf in structured_findings:
             name = sf.get("candidate") or sf.get("name") or ""
             if not name:
@@ -472,19 +488,19 @@ async def execute_tactician(
     disconfirm_findings_count = sum(1 for f in findings if f.get("is_disconfirm"))
 
     # Phase-specific signal-count derivation:
-    # - signal_extraction: the brain analyzes the query (no tool calls expected).
+    # - extract: the brain analyzes the query (no tool calls expected).
     #   If we got HERE without error, signals were extracted — count as 1.
-    # - broaden / red_team / rank_verify: use number of live findings as the
+    # - gather / disconfirm / synthesize: use number of live findings as the
     #   primary-signal proxy. A candidate with a live source counts as a
     #   distinct primary signal evidenced.
-    if phase.id == "signal_extraction":
+    if phase.id == "extract":
         primary_signals_count = 1
     else:
         primary_signals_count = live_findings_count
 
-    # surviving_hypothesis_count: each red_team tactician is scoped to one
+    # surviving_hypothesis_count: each disconfirm tactician is scoped to one
     # surviving hypothesis. For other phases, leave at 0 (gate ignores).
-    surviving_hypothesis_count = 1 if phase.id == "red_team" else 0
+    surviving_hypothesis_count = 1 if phase.id == "disconfirm" else 0
 
     return TacticianOutput(
         slot_idx=slot_idx,

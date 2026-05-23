@@ -283,7 +283,7 @@ def _topo_sort(phases: list[PhaseSpec]) -> list[PhaseSpec]:
 # Each tactician slot spawns a Claude Code subprocess (~300 MB resident).
 # At mem_limit=1g the container OOM-kills if >3-4 run concurrently. The
 # unbounded ``asyncio.gather`` fan-out used previously hit this when
-# red_team had 10+ surviving hypotheses (15 disconfirm slots in one run).
+# disconfirm had 10+ surviving hypotheses (15 disconfirm slots in one run).
 # This semaphore-bounded helper keeps peak concurrency at a configurable N.
 
 _DEFAULT_MAX_PARALLEL_TACTICIANS = int(os.getenv("MAX_PARALLEL_TACTICIANS", "3"))
@@ -654,7 +654,18 @@ def _run_gate(
     brain_summary = _build_brain_summary(phase_output)
 
     # Top-level invariant: both tool_calls AND findings must be zero to trip.
-    if brain_summary["tool_calls"] == 0 and brain_summary["findings"] == 0:
+    # EXCEPT: phases whose tactic declared enforcement.no_tool_calls_required=True
+    # (e.g. extract_default / synthesize_default / ach_rank — pure analysis tactics).
+    # These legitimately have 0 tool_calls by design; the invariant was meant for
+    # the "wrong tactic catalog → silent no-op" pattern, not for analysis phases.
+    # Per-strategy gate checks (min_primary_signals, min_signal_classes_covered, etc.)
+    # are still applied below to catch real analysis failures.
+    no_tools_phase = bool(phase_output.metadata.get("no_tool_calls_required"))
+    if (
+        brain_summary["tool_calls"] == 0
+        and brain_summary["findings"] == 0
+        and not no_tools_phase
+    ):
         return {
             "passed": False,
             "failing_check_kind": "no_brain_work",
@@ -711,8 +722,10 @@ def _run_gate(
 # Source classes that count as "live" for the primary signal heuristic
 _PRIMARY_LIVE_CLASSES = frozenset({"live_search", "primary_official"})
 
-# Phases whose findings count as disconfirm evidence
-_DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})
+# Phases whose findings count as disconfirm evidence.
+# Legacy id red_team is kept for historical DB rows; allowlist 2026-05-23.
+# The 2026-05-23 taxonomy rename means new rows use disconfirm.
+_DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
 
 # Years within which a finding's date field is considered "recent"
 _RECENCY_YEARS = 2
@@ -1199,15 +1212,15 @@ class Strategist:
         last = completed_phases[-1] if completed_phases else None
         raw_ranked = last.ranked_candidates if last else []
 
-        # If rank_verify is a pure-analysis tactic (no tool calls, no
+        # If synthesize is a pure-analysis tactic (no tool calls, no
         # produces), it won't populate ranked_candidates directly. Fall
-        # back to deriving the candidate list from the BROADEN phase's
+        # back to deriving the candidate list from the GATHER phase's
         # distinct_candidate_names (those are the hypotheses that entered
-        # red_team). _enrich_ranked_candidates then computes ACH scores
+        # disconfirm). _enrich_ranked_candidates then computes ACH scores
         # from the aggregated_findings across all phases.
         if not raw_ranked:
             for p in completed_phases:
-                if p.phase_id == "broaden" and p.distinct_candidate_names:
+                if p.phase_id in ("gather", "broaden") and p.distinct_candidate_names:  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
                     raw_ranked = [
                         {"name": name, "confidence": 0.5}
                         for name in p.distinct_candidate_names
@@ -1338,6 +1351,11 @@ class Strategist:
             "disconfirm_count": 0,
             "surviving_hypothesis_count": 0,
             "actual_ru": 0,
+            # True iff every tactician for this phase ran a tactic that declared
+            # enforcement.no_tool_calls_required=True. The no_brain_work invariant
+            # in _run_gate honors this — extract/synthesize phases shouldn't fail
+            # the invariant just because they (by design) have 0 tool_calls.
+            "no_tool_calls_required": True if raw_outputs else False,
         }
         ranked_candidates: list[dict] = []
 
@@ -1366,6 +1384,14 @@ class Strategist:
 
             # Merge metadata counters
             meta = output.get("metadata", {})
+            # If ANY tactician ran a tools-using tactic, the phase is NOT
+            # "no_tool_calls_required" overall. Default the per-tactician value
+            # to False (a tactic without an enforcement dict, or one with no
+            # no_tool_calls_required key, is assumed to expect tool calls).
+            tactic_enforcement = meta.get("enforcement") or {}
+            per_tactician_no_tools = bool(tactic_enforcement.get("no_tool_calls_required"))
+            if not per_tactician_no_tools:
+                combined_metadata["no_tool_calls_required"] = False
             combined_metadata["hypotheses_explored"] += meta.get(
                 "hypotheses_explored", 0
             )
@@ -1378,7 +1404,7 @@ class Strategist:
             )
             combined_metadata["actual_ru"] += meta.get("actual_ru", 1)
 
-            # Ranked candidates come from the last phase (rank_verify)
+            # Ranked candidates come from the last phase (synthesize)
             if "ranked_candidates" in output:
                 ranked_candidates.extend(output["ranked_candidates"])
 

@@ -1,12 +1,12 @@
 """Tactic catalog entry: prior_research_seed.
 
 Seeds exactly ONE candidate hypothesis (H_PRIOR) from prior research (RAG)
-into the BROADEN phase.  This tactic is always paired with
+into the GATHER phase.  This tactic is always paired with
 ``hypothesis_first_search`` — it does NOT produce the answer; it occupies
 one slot among N competing hypotheses.
 
 Anti-tunneling property (§4.4, issue #89): ``seeds_h_prior_only=True``
-signals to the tactician selector and the broaden gate that this tactic
+signals to the tactician selector and the gather gate that this tactic
 contributes a single H_PRIOR candidate.  The remaining N-1 hypothesis
 slots MUST be filled by other tactics (e.g. ``hypothesis_first_search``)
 that derive candidates purely from signals — no RAG anchoring.
@@ -17,9 +17,9 @@ from __future__ import annotations
 
 TACTIC = {
     "id": "prior_research_seed",
-    "phase_compatibility": ["broaden"],
+    "phase_compatibility": ["gather"],
     "accepts": {
-        "signals": "dict — parsed signal hierarchy from signal_extraction phase",
+        "signals": "dict — parsed signal hierarchy from extract phase",
         "query": "str — original query string passed through from the run context",
     },
     "cost_class": "cheap",
