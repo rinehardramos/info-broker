@@ -143,3 +143,24 @@ def test_gather_default_uses_web_search_and_google_news():
     from app.pipeline.catalogs.registries.tactics.gather_default import TACTIC
     required = TACTIC.required_techniques if hasattr(TACTIC, "required_techniques") else TACTIC.get("required_techniques", [])
     assert set(required) == {"web_search", "google_news"}
+
+
+def test_listings_gather_tactic_registered():
+    from app.pipeline.catalogs.registries.tactics.listings_gather import TACTIC
+    from app.pipeline.catalogs.audit import _get_phase_compatibility
+    assert _get_phase_compatibility(TACTIC) == ["gather"]
+    required = TACTIC.required_techniques if hasattr(TACTIC, "required_techniques") else TACTIC.get("required_techniques", [])
+    assert required == ["apify_listings_search"]
+
+
+def test_apify_listings_search_technique_registered():
+    from app.pipeline.catalogs.registries.techniques.apify_listings_search import TECHNIQUE
+    actor_slug = TECHNIQUE.get("actor_slug") if isinstance(TECHNIQUE, dict) else getattr(TECHNIQUE, "actor_slug", None)
+    assert actor_slug == "apify/zillow-search-scraper"
+
+
+def test_listings_gather_uses_expensive_cost_class():
+    """Apify calls are paid — cost_class must signal that to the budget layer."""
+    from app.pipeline.catalogs.registries.tactics.listings_gather import TACTIC
+    cost_class = TACTIC.cost_class if hasattr(TACTIC, "cost_class") else TACTIC.get("cost_class")
+    assert cost_class == "expensive"
