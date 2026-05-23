@@ -1508,6 +1508,35 @@ def test_run_gate_no_brain_work_invariant_fires_on_zero_zero():
     assert result["brain_summary"]["findings"] == 0
 
 
+def test_run_gate_no_brain_work_invariant_skipped_for_no_tools_phases():
+    """Phases whose tactic declared no_tool_calls_required=True (extract_default,
+    synthesize_default, ach_rank) MUST skip the no_brain_work invariant — they
+    legitimately produce 0 tool_calls by design. Otherwise extract phases would
+    always trip the invariant and the run would never reach gather."""
+    from app.pipeline.strategist import _run_gate, PhaseOutput
+    class _MockGate:
+        on_fail = "ask_user"
+        checks: list = []
+    class _MockPhase:
+        id = "extract"
+        gate = _MockGate()
+    po = PhaseOutput(
+        phase_id="extract",
+        aggregated_findings=[],
+        distinct_candidate_names=[],
+        metadata={
+            "tool_calls": 0,
+            "duration_ms": 73,
+            "invoked_tools": [],
+            "no_tool_calls_required": True,   # tactic declared no-tools enforcement
+        },
+    )
+    result = _run_gate(po, _MockPhase(), envelope={})
+    # Invariant DOES NOT fire; with no per-strategy checks, gate passes.
+    assert result["passed"] is True
+    assert result["failing_check_kind"] is None
+
+
 def test_run_gate_one_tool_call_one_finding_skips_invariant():
     """tool_calls > 0 OR findings > 0 skips the invariant; per-strategy checks decide."""
     from app.pipeline.strategist import _run_gate, PhaseOutput

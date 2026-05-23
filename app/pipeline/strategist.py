@@ -654,7 +654,18 @@ def _run_gate(
     brain_summary = _build_brain_summary(phase_output)
 
     # Top-level invariant: both tool_calls AND findings must be zero to trip.
-    if brain_summary["tool_calls"] == 0 and brain_summary["findings"] == 0:
+    # EXCEPT: phases whose tactic declared enforcement.no_tool_calls_required=True
+    # (e.g. extract_default / synthesize_default / ach_rank — pure analysis tactics).
+    # These legitimately have 0 tool_calls by design; the invariant was meant for
+    # the "wrong tactic catalog → silent no-op" pattern, not for analysis phases.
+    # Per-strategy gate checks (min_primary_signals, min_signal_classes_covered, etc.)
+    # are still applied below to catch real analysis failures.
+    no_tools_phase = bool(phase_output.metadata.get("no_tool_calls_required"))
+    if (
+        brain_summary["tool_calls"] == 0
+        and brain_summary["findings"] == 0
+        and not no_tools_phase
+    ):
         return {
             "passed": False,
             "failing_check_kind": "no_brain_work",
@@ -1340,6 +1351,11 @@ class Strategist:
             "disconfirm_count": 0,
             "surviving_hypothesis_count": 0,
             "actual_ru": 0,
+            # True iff every tactician for this phase ran a tactic that declared
+            # enforcement.no_tool_calls_required=True. The no_brain_work invariant
+            # in _run_gate honors this — extract/synthesize phases shouldn't fail
+            # the invariant just because they (by design) have 0 tool_calls.
+            "no_tool_calls_required": True if raw_outputs else False,
         }
         ranked_candidates: list[dict] = []
 
@@ -1368,6 +1384,14 @@ class Strategist:
 
             # Merge metadata counters
             meta = output.get("metadata", {})
+            # If ANY tactician ran a tools-using tactic, the phase is NOT
+            # "no_tool_calls_required" overall. Default the per-tactician value
+            # to False (a tactic without an enforcement dict, or one with no
+            # no_tool_calls_required key, is assumed to expect tool calls).
+            tactic_enforcement = meta.get("enforcement") or {}
+            per_tactician_no_tools = bool(tactic_enforcement.get("no_tool_calls_required"))
+            if not per_tactician_no_tools:
+                combined_metadata["no_tool_calls_required"] = False
             combined_metadata["hypotheses_explored"] += meta.get(
                 "hypotheses_explored", 0
             )
