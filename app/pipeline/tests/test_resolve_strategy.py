@@ -8,7 +8,7 @@ Verifies the 4-step fallback chain that maps (intent, mode) → strategy_id:
     4. media_identification (legacy floor)         → ultimate fallback
 
 Catches regressions like the b0e457a4 run, where every non-media intent was
-silently routed through media_identification's broaden gate.
+silently routed through media_identification's gather gate.
 """
 from __future__ import annotations
 
@@ -89,7 +89,7 @@ class TestGenericSearchFloor:
 class TestClassifyQuery:
     def test_property_query_routes_to_real_estate(self):
         """The original b0e457a4 failing query must now route to real_estate
-        (not media_identification → broaden gate hard-fail)."""
+        (not media_identification → gather gate hard-fail)."""
         assert _classify_query("show me properties for rent in chicago") == "real_estate"
 
     def test_media_query_still_routes_to_media_identification(self):

@@ -3,7 +3,7 @@
 The scoped_brain runner already detects BRAIN_FAILURE (HTTP 401 / 429 /
 5xx / no-result) and logs at ERROR. But the run-level error_message
 still came from the strategist's gate-fail terminate_reason — so the UI
-showed "Gate failed on phase 'broaden': checks did not pass" instead of
+showed "Gate failed on phase 'gather': checks did not pass" instead of
 "Brain authentication failed (HTTP 401)". This module pins the new
 propagation path.
 

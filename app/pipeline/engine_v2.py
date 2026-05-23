@@ -189,7 +189,7 @@ async def run_engine_v2(
     # Populated by scoped_brain_runner's on_failure callback. After the run
     # terminates we override terminate_reason with the user-facing summary so
     # admins + the UI see "Brain authentication failed (HTTP 401)" instead of
-    # "Gate failed on phase 'broaden': checks did not pass".
+    # "Gate failed on phase 'gather': checks did not pass".
     brain_failures: list[BrainFailure] = []
 
     def _record_brain_failure(f: BrainFailure) -> None:
@@ -405,12 +405,12 @@ async def run_engine_v2(
         try:
             from app.pipeline.strategist import _enrich_ranked_candidates
             from app.pipeline.ach import ACHSignal
-            broaden = next((p for p in result.phases if p.phase_id in ("gather", "broaden")), None)  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
+            gather_phase = next((p for p in result.phases if p.phase_id in ("gather", "broaden")), None)  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
             raw_ranked: list[dict] = []
-            if broaden and broaden.distinct_candidate_names:
+            if gather_phase and gather_phase.distinct_candidate_names:
                 raw_ranked = [
                     {"name": n, "confidence": 0.5}
-                    for n in broaden.distinct_candidate_names
+                    for n in gather_phase.distinct_candidate_names
                 ]
             if raw_ranked:
                 ach_signals_dicts = getattr(strategy, "ach_signals", []) or []
@@ -468,7 +468,7 @@ async def run_engine_v2(
         }.get(result.status, "failed")
         # Override terminate_reason with the structured brain-failure summary
         # when one was recorded. Without this the user sees "Gate failed on
-        # phase 'broaden': checks did not pass" — the strategist's downstream
+        # phase 'gather': checks did not pass" — the strategist's downstream
         # symptom — instead of the actual upstream cause (auth / rate-limit /
         # upstream / no-result). Only kicks in for terminated runs; completed
         # and ask_user runs use the original reason.

@@ -80,11 +80,11 @@ def test_audit_fails_when_preferred_tactic_id_is_not_compatible():
 def test_audit_fails_when_tactic_declares_legacy_phase_id():
     strategies = {}
     tactics = {
-        "legacy_tactic": _stub_tactic("legacy_tactic", ["broaden"]),
+        "legacy_tactic": _stub_tactic("legacy_tactic", ["broaden"]),  # allowlist 2026-05-23: test fixture verifying audit rejects legacy ids
     }
     errors = audit_strategy_tactic_alignment(strategies, tactics)
     assert len(errors) == 1
-    assert "broaden" in errors[0]
+    assert "broaden" in errors[0]  # allowlist 2026-05-23: asserting the audit error names the offending legacy id
     assert "illegal" in errors[0].lower() or "legal:" in errors[0].lower()
 
 
@@ -328,7 +328,7 @@ def test_phasespec_id_validator_rejects_legacy_ids():
 
     gate = GateSpec(checks=[CheckSpec(kind="min_primary_signals", params={"min": 1})], on_fail="ask_user")
 
-    for legacy in ("signal_extraction", "broaden", "red_team", "rank_verify"):
+    for legacy in ("signal_extraction", "broaden", "red_team", "rank_verify"):  # allowlist 2026-05-23: test fixture verifying validator rejects each legacy id
         with pytest.raises(ValidationError, match=r"LEGAL_PHASE_IDS"):
             PhaseSpec(id=legacy, unit_of_work_contract={}, hypothesis_count_policy="fixed:1", gate=gate)
 

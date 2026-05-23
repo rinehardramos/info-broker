@@ -354,9 +354,9 @@ async def execute_tactician(
         resolved_source_class = _technique_to_source_class(
             task_calls[0].get("technique_id", "") if task_calls else ""
         )
-        # Tactic semantics: disconfirm_default (and legacy disconfirm_search)
-        # produce refutation findings; the strategist's disconfirm gate counts these.
-        is_disconfirm_tactic = tactic.id in ("disconfirm_default", "disconfirm_search")
+        # Tactic semantics: disconfirm_default produces refutation findings;
+        # the strategist's disconfirm gate counts these.
+        is_disconfirm_tactic = tactic.id == "disconfirm_default"
         for sf in structured_findings:
             name = sf.get("candidate") or sf.get("name") or ""
             if not name:

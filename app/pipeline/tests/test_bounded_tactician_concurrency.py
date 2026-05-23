@@ -1,7 +1,7 @@
 """Bounded-concurrency wrapper for tactician fan-out.
 
 When the strategist fans out N tacticians for a phase (e.g. 15 disconfirm
-slots for a 10-hypothesis red_team), every slot spawns a Claude Code
+slots for a 10-hypothesis disconfirm phase), every slot spawns a Claude Code
 subprocess of ~300 MB. With docker mem_limit=1g the container hit a
 memory-cgroup OOM and exited 137, orphaning every in-flight run
 (issue #113).

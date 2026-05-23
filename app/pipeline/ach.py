@@ -17,8 +17,8 @@ ACHMark = Literal["consistent", "inconsistent", "neutral", "unknown"]
 _LIVE_SOURCE_CLASSES = frozenset({"live_search", "primary_official"})
 
 # Phase ids whose findings are treated as disconfirm evidence.
-# "red_team" is preserved for historical research_trails rows written before the
-# 2026-05-23 taxonomy rename — new rows use "disconfirm".
+# Legacy id red_team is kept for historical DB rows; allowlist 2026-05-23.
+# The 2026-05-23 taxonomy rename means new rows use disconfirm.
 _DISCONFIRM_PHASE_IDS = frozenset({"red_team", "disconfirm"})  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
 
 # Years within which a finding's date field is considered "recent"

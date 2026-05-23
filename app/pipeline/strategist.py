@@ -227,7 +227,7 @@ def _topo_sort(phases: list[PhaseSpec]) -> list[PhaseSpec]:
 # Each tactician slot spawns a Claude Code subprocess (~300 MB resident).
 # At mem_limit=1g the container OOM-kills if >3-4 run concurrently. The
 # unbounded ``asyncio.gather`` fan-out used previously hit this when
-# red_team had 10+ surviving hypotheses (15 disconfirm slots in one run).
+# disconfirm had 10+ surviving hypotheses (15 disconfirm slots in one run).
 # This semaphore-bounded helper keeps peak concurrency at a configurable N.
 
 _DEFAULT_MAX_PARALLEL_TACTICIANS = int(os.getenv("MAX_PARALLEL_TACTICIANS", "3"))
@@ -594,8 +594,8 @@ def _run_gate(
 _PRIMARY_LIVE_CLASSES = frozenset({"live_search", "primary_official"})
 
 # Phases whose findings count as disconfirm evidence.
-# "red_team" is preserved for historical research_trails rows written before the
-# 2026-05-23 taxonomy rename — new rows use "disconfirm".
+# Legacy id red_team is kept for historical DB rows; allowlist 2026-05-23.
+# The 2026-05-23 taxonomy rename means new rows use disconfirm.
 _DISCONFIRM_PHASES = frozenset({"red_team", "disconfirm"})  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
 
 # Years within which a finding's date field is considered "recent"
@@ -1258,7 +1258,7 @@ class Strategist:
             )
             combined_metadata["actual_ru"] += meta.get("actual_ru", 1)
 
-            # Ranked candidates come from the last phase (rank_verify)
+            # Ranked candidates come from the last phase (synthesize)
             if "ranked_candidates" in output:
                 ranked_candidates.extend(output["ranked_candidates"])
 
