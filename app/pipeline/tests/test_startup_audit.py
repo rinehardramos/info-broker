@@ -164,3 +164,70 @@ def test_listings_gather_uses_expensive_cost_class():
     from app.pipeline.catalogs.registries.tactics.listings_gather import TACTIC
     cost_class = TACTIC.cost_class if hasattr(TACTIC, "cost_class") else TACTIC.get("cost_class")
     assert cost_class == "expensive"
+
+
+def test_phasespec_preferred_tactic_id_field_optional_and_defaults_none():
+    """PhaseSpec accepts None / valid string; defaults to None when omitted."""
+    from app.pipeline.catalogs.schemas import PhaseSpec, GateSpec, CheckSpec
+
+    gate = GateSpec(checks=[CheckSpec(kind="min_primary_signals", params={"min": 1})], on_fail="ask_user")
+
+    # Omitted entirely → None
+    p1 = PhaseSpec(
+        id="extract",
+        unit_of_work_contract={},
+        hypothesis_count_policy="fixed:1",
+        gate=gate,
+    )
+    assert p1.preferred_tactic_id is None
+
+    # Explicit None
+    p2 = PhaseSpec(
+        id="gather",
+        unit_of_work_contract={},
+        hypothesis_count_policy="fixed:1",
+        gate=gate,
+        preferred_tactic_id=None,
+    )
+    assert p2.preferred_tactic_id is None
+
+    # Valid string
+    p3 = PhaseSpec(
+        id="gather",
+        unit_of_work_contract={},
+        hypothesis_count_policy="fixed:1",
+        gate=gate,
+        preferred_tactic_id="listings_gather",
+    )
+    assert p3.preferred_tactic_id == "listings_gather"
+
+
+def test_phasespec_preferred_tactic_id_format_validator_rejects_empty():
+    """Empty / whitespace-only strings are rejected by the format validator."""
+    from app.pipeline.catalogs.schemas import PhaseSpec, GateSpec, CheckSpec
+    from pydantic import ValidationError
+
+    gate = GateSpec(checks=[CheckSpec(kind="min_primary_signals", params={"min": 1})], on_fail="ask_user")
+
+    with pytest.raises(ValidationError):
+        PhaseSpec(
+            id="gather",
+            unit_of_work_contract={},
+            hypothesis_count_policy="fixed:1",
+            gate=gate,
+            preferred_tactic_id="   ",
+        )
+
+
+def test_phasespec_preferred_tactic_id_strips_whitespace():
+    """Surrounding whitespace is stripped, content preserved."""
+    from app.pipeline.catalogs.schemas import PhaseSpec, GateSpec, CheckSpec
+    gate = GateSpec(checks=[CheckSpec(kind="min_primary_signals", params={"min": 1})], on_fail="ask_user")
+    p = PhaseSpec(
+        id="gather",
+        unit_of_work_contract={},
+        hypothesis_count_policy="fixed:1",
+        gate=gate,
+        preferred_tactic_id="  listings_gather  ",
+    )
+    assert p.preferred_tactic_id == "listings_gather"
