@@ -1,4 +1,4 @@
-"""Three-phase research-strategy skeleton: extract → gather → synthesize.
+"""Research-strategy skeleton: extract → gather → [disconfirm →] synthesize.
 
 Most domain strategies fit this shape — parse the query into typed signals,
 run live retrieval against those signals, then rank+dedupe the results.
@@ -125,7 +125,7 @@ def build_research_strategy(
         id:               strategy id (e.g. "real_estate")
         default_mode:     mode this strategy naturally aligns to
         hypothesis_count: ``budget_minimums.hypothesis_count`` value
-        extract / gather / synthesize: per-phase overlays — see _build_phase
+        extract / gather / disconfirm / synthesize: per-phase overlays — see _build_phase
         disconfirm:       optional 4th-phase overlay. When provided, the strategy
                           emits 4 phases (extract → gather → disconfirm → synthesize)
                           with synthesize depending on disconfirm instead of gather.

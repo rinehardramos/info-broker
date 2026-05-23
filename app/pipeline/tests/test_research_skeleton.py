@@ -2,7 +2,7 @@
 emits.
 
 The factory at app/pipeline/catalogs/builders/research_skeleton.py composes
-a 3-phase Strategy dict (extract → gather → synthesize) from per-phase
+a Strategy dict (extract → gather → [disconfirm →] synthesize) from per-phase
 overlays. Each registry module imports it and supplies the diffs.
 
 These tests pin the factory contract so future strategy modules can't drift,
