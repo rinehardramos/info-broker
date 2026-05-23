@@ -253,3 +253,10 @@ def test_apify_listings_search_loads_through_catalog_loader():
     assert t.input_schema.get("type") == "object"
     assert isinstance(t.output_schema, dict)
     assert t.output_schema.get("type") == "object"
+
+
+def test_real_estate_gather_uses_listings_gather():
+    """The real_estate strategy declares preferred_tactic_id='listings_gather' on its gather phase."""
+    from app.pipeline.catalogs.registries.strategies.real_estate import STRATEGY
+    gather_phase = next(p for p in STRATEGY["phases"] if p["id"] == "gather")
+    assert gather_phase.get("preferred_tactic_id") == "listings_gather"

@@ -26,6 +26,7 @@ STRATEGY = build_research_strategy(
         ),
     },
     gather={
+        "preferred_tactic_id": "listings_gather",
         "briefing": (
             "Query live property-listing sources (MLS portals, Zillow, "
             "Trulia, Realtor.com, Redfin, Craigslist housing) for listings "
