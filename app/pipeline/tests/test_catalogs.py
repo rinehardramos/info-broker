@@ -113,7 +113,7 @@ def _valid_mode() -> dict:
             "depth": "deep",
             "hypothesis_count": "adversarial",
         },
-        "tactic_bias": {"hypothesis_first_search": 1.5, "disconfirm_search": 1.2},
+        "tactic_bias": {"hypothesis_first_search": 1.5, "disconfirm_default": 1.2},
         "strategy_suggestions": ["media_identification", "person"],
     }
 
