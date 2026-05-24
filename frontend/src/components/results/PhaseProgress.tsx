@@ -17,7 +17,7 @@ interface PhaseProgressProps {
 }
 
 // Default placeholder order shown before the first is.phase_start arrives.
-const DEFAULT_PHASE_ORDER = ['signal_extraction', 'broaden', 'red_team', 'rank_verify']
+const DEFAULT_PHASE_ORDER = ['extract', 'gather', 'disconfirm', 'synthesize']
 
 function statusColor(status: PhaseState['status']): string {
   switch (status) {

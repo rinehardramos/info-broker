@@ -15,9 +15,9 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _LEGACY_IDS = ["signal_extraction", "broaden", "red_team", "rank_verify"]  # allowlist 2026-05-23
-# Match the string in source (with double quotes only — single-quoted strings
-# in frontend code are handled by a separate scan if needed).
-_PATTERN = re.compile(r'"(' + "|".join(_LEGACY_IDS) + r')"')
+# Match the string in source with either single or double quotes so that
+# single-quoted TS literals (e.g. 'signal_extraction') are also caught.  # allowlist 2026-05-23
+_PATTERN = re.compile(r'["\'](' + "|".join(_LEGACY_IDS) + r')["\']')
 
 
 def _scan_dir(path: Path, suffixes: tuple[str, ...]) -> list[tuple[Path, int, str]]:

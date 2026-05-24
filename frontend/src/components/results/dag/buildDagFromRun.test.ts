@@ -43,7 +43,7 @@ describe('buildDagFromRun', () => {
   it('produces query + phase nodes + edge for a single phase with no tacticians', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'passed', n_tacticians: 0, distinct_candidate_names: [], gate_status: 'pass' },
+        extract: { status: 'passed', n_tacticians: 0, distinct_candidate_names: [], gate_status: 'pass' },
       },
     })
     const g = buildDagFromRun(run)
@@ -53,16 +53,16 @@ describe('buildDagFromRun', () => {
     expect(kinds).toContain('phase')
     expect(g.edges).toHaveLength(1)
     expect(g.edges[0].sourceId).toBe('node__query')
-    expect(g.edges[0].targetId).toBe('node__phase__signal_extraction')
+    expect(g.edges[0].targetId).toBe('node__phase__extract')
   })
 
   it('produces tactician nodes and phase→tactician edges', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'running', n_tacticians: 2, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'running', n_tacticians: 2, distinct_candidate_names: [], gate_status: null },
       },
       tacticians: {
-        signal_extraction: {
+        extract: {
           0: { tactic_id: 't1', forbidden_candidates: [], candidate_names: ['Alice'], findings_count: 0, specialist_calls: 0 },
           1: { tactic_id: 't2', forbidden_candidates: ['Bob'], candidate_names: [], findings_count: 0, specialist_calls: 0 },
         },
@@ -73,17 +73,17 @@ describe('buildDagFromRun', () => {
     const tacNodes = g.nodes.filter(n => n.data.kind === 'tactician')
     expect(tacNodes).toHaveLength(2)
 
-    const phaseEdges = g.edges.filter(e => e.sourceId === 'node__phase__signal_extraction')
+    const phaseEdges = g.edges.filter(e => e.sourceId === 'node__phase__extract')
     expect(phaseEdges).toHaveLength(2)
   })
 
   it('caps finding nodes at MAX_FINDINGS_PER_TACTICIAN', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
       },
       tacticians: {
-        signal_extraction: {
+        extract: {
           0: {
             tactic_id: 't1',
             forbidden_candidates: [],
@@ -103,10 +103,10 @@ describe('buildDagFromRun', () => {
   it('produces no finding nodes when findings_count is 0', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
       },
       tacticians: {
-        signal_extraction: {
+        extract: {
           0: { tactic_id: 't1', forbidden_candidates: [], candidate_names: [], findings_count: 0, specialist_calls: 0 },
         },
       },
@@ -119,7 +119,7 @@ describe('buildDagFromRun', () => {
   it('produces top-3 candidate nodes from rankedCandidates', () => {
     const run = makeRun({
       phases: {
-        rank_verify: { status: 'passed', n_tacticians: 0, distinct_candidate_names: [], gate_status: 'pass' },
+        synthesize: { status: 'passed', n_tacticians: 0, distinct_candidate_names: [], gate_status: 'pass' },
       },
       rankedCandidates: [
         { name: 'Alice', confidence: 0.87, signal_scores: {}, evidence: [], slot_idx: 0 },
@@ -143,15 +143,15 @@ describe('buildDagFromRun', () => {
   it('places all nodes at non-negative x and y coordinates', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'passed', n_tacticians: 2, distinct_candidate_names: [], gate_status: 'pass' },
-        broaden: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'passed', n_tacticians: 2, distinct_candidate_names: [], gate_status: 'pass' },
+        gather: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
       },
       tacticians: {
-        signal_extraction: {
+        extract: {
           0: { tactic_id: 't1', forbidden_candidates: [], candidate_names: ['A'], findings_count: 2, specialist_calls: 0 },
           1: { tactic_id: 't2', forbidden_candidates: [], candidate_names: ['B'], findings_count: 1, specialist_calls: 0 },
         },
-        broaden: {
+        gather: {
           0: { tactic_id: 't3', forbidden_candidates: [], candidate_names: [], findings_count: 0, specialist_calls: 0 },
         },
       },
@@ -167,12 +167,12 @@ describe('buildDagFromRun', () => {
   it('does not produce edges past phase 1 when only 1 phase exists', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'running', n_tacticians: 0, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'running', n_tacticians: 0, distinct_candidate_names: [], gate_status: null },
       },
     })
     const g = buildDagFromRun(run)
 
-    // Only edge should be query → signal_extraction
+    // Only edge should be query → extract
     const nonQueryEdges = g.edges.filter(e => e.sourceId !== 'node__query')
     expect(nonQueryEdges).toHaveLength(0)
   })
@@ -180,14 +180,14 @@ describe('buildDagFromRun', () => {
   it('chains phase → phase edges for multiple phases', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'passed', n_tacticians: 0, distinct_candidate_names: [], gate_status: 'pass' },
-        broaden: { status: 'running', n_tacticians: 0, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'passed', n_tacticians: 0, distinct_candidate_names: [], gate_status: 'pass' },
+        gather: { status: 'running', n_tacticians: 0, distinct_candidate_names: [], gate_status: null },
       },
     })
     const g = buildDagFromRun(run)
 
     const p1ToP2 = g.edges.find(
-      e => e.sourceId === 'node__phase__signal_extraction' && e.targetId === 'node__phase__broaden'
+      e => e.sourceId === 'node__phase__extract' && e.targetId === 'node__phase__gather'
     )
     expect(p1ToP2).toBeDefined()
   })
@@ -195,10 +195,10 @@ describe('buildDagFromRun', () => {
   it('assigns consistent source_class round-robin for synthetic finding nodes', () => {
     const run = makeRun({
       phases: {
-        signal_extraction: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
+        extract: { status: 'running', n_tacticians: 1, distinct_candidate_names: [], gate_status: null },
       },
       tacticians: {
-        signal_extraction: {
+        extract: {
           0: { tactic_id: 't1', forbidden_candidates: [], candidate_names: [], findings_count: 3, specialist_calls: 0 },
         },
       },
