@@ -25,5 +25,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     globals: true,
+    // Only run unit/component tests under src/. Without this, vitest's default
+    // glob also collects the Playwright specs under e2e/ (which use the
+    // Playwright runner, not vitest) and reports them all as failures.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules', 'dist', 'e2e/**'],
   },
 })

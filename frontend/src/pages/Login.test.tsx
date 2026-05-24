@@ -26,15 +26,15 @@ function renderLogin() {
 describe('Login', () => {
   it('renders username and password fields', () => {
     renderLogin()
-    expect(screen.getByPlaceholderText('username')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('password')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/username/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument()
   })
 
   it('calls login on submit', async () => {
     const { login } = await import('../api/auth')
     renderLogin()
-    fireEvent.change(screen.getByPlaceholderText('username'), { target: { value: 'admin' } })
-    fireEvent.change(screen.getByPlaceholderText('password'), { target: { value: 'secret' } })
+    fireEvent.change(screen.getByPlaceholderText(/username/i), { target: { value: 'admin' } })
+    fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'secret' } })
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
     await waitFor(() => expect(login).toHaveBeenCalledWith('admin', 'secret'))
   })
