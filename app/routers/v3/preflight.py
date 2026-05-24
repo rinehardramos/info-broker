@@ -151,9 +151,21 @@ def _classify_query(query: str, mode: str | None = None) -> str:
 # enrichment instead of listings-only. Kept to explicit lead phrasing to avoid
 # steering ordinary searches into leads mode.
 _LEADS_MODE_SIGNALS = (
+    # Generic lead-gen phrasing
     "lead list", "leads list", "lead generation", "lead-gen", "leadgen",
     "generate leads", "find leads", "prospect list", "prospecting",
     "outreach list", "contact list", "build a list of contacts",
+    "rental leads", "sales leads", "real estate leads", "real-estate leads",
+    "property leads",
+    # Real-estate lead-gen idioms (owner/agent outreach sourcing).
+    # Kept specific (paired with "owner"/"agent"/"seller"/"landlord") so an
+    # ordinary "what's the contact info for X" query doesn't flip to leads mode.
+    "fsbo", "for sale by owner", "frbo", "for rent by owner",
+    "motivated seller", "motivated sellers", "off-market owner",
+    "owner contact", "owner contacts", "owners' contact", "agent contact",
+    "landlord contact", "broker contact", "seller contact",
+    "property owners", "list of owners", "find owners", "owner information",
+    "skip trace", "skip-trace",
 )
 
 

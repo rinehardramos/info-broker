@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
+
 from app.routers.v3.preflight import (
     _classify_query,
     _infer_mode,
@@ -44,6 +46,25 @@ class TestInferMode:
 
     def test_real_estate_without_lead_phrase_stays_real_estate(self):
         assert _resolve_strategy("real_estate", _infer_mode("rentals in chicago")) == "real_estate"
+
+    @pytest.mark.parametrize("query", [
+        "for sale by owner homes in austin",
+        "FRBO rental leads near downtown",
+        "motivated sellers list in dallas",
+        "find property owners in chicago with owner contact info",
+        "agent contact for listings in miami",
+    ])
+    def test_real_estate_lead_idioms_infer_leads_generation(self, query):
+        assert _infer_mode(query) == "leads_generation"
+        assert _resolve_strategy("real_estate", _infer_mode(query)) == "real_estate_leads"
+
+    @pytest.mark.parametrize("query", [
+        "show all properties for rent in chicago with a budget of 500 to 1000 near the metro studio",
+        "what is the contact info for openai support",
+    ])
+    def test_lead_idioms_do_not_over_trigger(self, query):
+        # Ordinary property/contact queries must NOT flip to leads mode.
+        assert _infer_mode(query) is None
 
 
 # ---------------------------------------------------------------------------
