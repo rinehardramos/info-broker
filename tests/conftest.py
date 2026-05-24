@@ -20,3 +20,13 @@ import psycopg2.extras  # noqa: F401
 import os as _os
 _os.environ.setdefault("TEMPORAL_HOST", "localhost")
 _os.environ.setdefault("IS_USE_TEMPORAL", "false")
+# Disable the slowapi rate limiter under test (#130): the suite makes hundreds
+# of requests from one client IP, tripping the 60/min default and causing flaky
+# 429s ("Rate limit exceeded: 60 per 1 minute") on login-heavy tests. Must be
+# set before app import so the Limiter is constructed with enabled=False.
+_os.environ.setdefault("DISABLE_RATE_LIMIT", "1")
+# Bypass the run admission gate under test (#130): GLOBAL_MAX_CONCURRENT is 2,
+# so any stuck/concurrent runs in the shared dev DB make `check_admission` 429
+# every /v3/agent/message in the suite. Tests shouldn't depend on global run
+# capacity. Read at admission_gate import time.
+_os.environ.setdefault("GATE_ENABLED", "false")
