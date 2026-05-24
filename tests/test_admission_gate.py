@@ -1,8 +1,35 @@
 """Tests for the pre-run admission gate (D1)."""
+import importlib
 import os
 from unittest.mock import patch
 
 import pytest
+
+# GATE_* env keys these tests mutate via _set_gate(). The autouse fixture below
+# snapshots + restores them (and reloads the module) so an enabled-gate config
+# doesn't bleed into later tests in the full suite — previously this left
+# GATE_ENABLED="true" set, causing /v3/agent/message tests to 429 (see #130).
+_GATE_ENV_KEYS = (
+    "GATE_GLOBAL_MAX_CONCURRENT",
+    "GATE_PER_USER_MAX_CONCURRENT",
+    "GATE_DAILY_RUN_CAP",
+    "GATE_ENABLED",
+    "GATE_BYPASS_USER_IDS",
+)
+
+
+@pytest.fixture(autouse=True)
+def _restore_gate_env():
+    saved = {k: os.environ.get(k) for k in _GATE_ENV_KEYS}
+    yield
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    # Reload so the module-level GATE_ENABLED reflects the restored (bypassed) env.
+    from app.services import admission_gate
+    importlib.reload(admission_gate)
 
 
 def _set_gate(global_max=2, per_user=1, daily=30, enabled=True, bypass=""):
