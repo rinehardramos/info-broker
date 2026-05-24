@@ -39,12 +39,11 @@ STRATEGY = build_research_strategy(
     gather={
         "preferred_tactic_id": "leads_enrich_gather",
         "briefing": (
-            "Execute a two-stage enrichment pipeline:\n\n"
-            "STAGE 1 — Listings: Query Zillow/MLS sources via apify_listings_search "
-            "for properties matching the extracted criteria. For each listing capture: "
-            "URL, address, price, beds/baths, sqft, listing type, and listing agent "
-            "name/brokerage if shown.\n\n"
-            "STAGE 2 — Contact enrichment (per listing):\n"
+            "STEP 1 — Get property listings FIRST: Call apify_listings_search "
+            "with the extracted location/price/type criteria. Capture address, price, "
+            "listing URL, beds/baths, and listing-agent name/brokerage for EACH listing. "
+            "Do NOT start enrichment until you have listings in hand.\n\n"
+            "STEP 2 — Contact enrichment (per listing, once you have the list):\n"
             "  a. Agent/owner discovery: run web_search for 'listing agent OR owner "
             "     contact <address>' to surface name, brokerage, and any contact info.\n"
             "  b. Email: if a brokerage domain is known, use hunter_email_search on "
@@ -54,9 +53,14 @@ STRATEGY = build_research_strategy(
             "  d. Owner background: if the listing shows an owner LLC or company, "
             "     use opencorporates_owner to find its officers and registration status; "
             "     if the owner has a web domain, use whois_owner for registrant info.\n\n"
-            "Run stage 2 in parallel across listings where budget allows. Skip enrichment "
+            "Run enrichment in parallel across listings where budget allows. Skip enrichment "
             "steps that clearly won't yield data (e.g. whois_owner without a domain). "
-            "Budget note: apify_listings_search costs 10 RU; enrichment tools cost 1-3 RU each."
+            "Budget note: apify_listings_search costs 10 RU; enrichment tools cost 1-3 RU each.\n\n"
+            "IMPORTANT: The property list from STEP 1 is ALWAYS the primary output. "
+            "Even if all enrichment steps fail (e.g. API keys not configured), "
+            "return the full property list with address + price + listing URL. "
+            "Mark missing contact fields as 'not found (or tool unavailable)' — "
+            "do not drop properties because enrichment was thin."
         ),
         "gate_checks": [
             {"kind": "min_listings_returned", "params": {"min": 1}},
@@ -64,19 +68,21 @@ STRATEGY = build_research_strategy(
     },
     synthesize={
         "briefing": (
-            "Produce a contactable leads table, one row per listing, with columns:\n"
-            "  - Property: address, price, beds/baths, listing URL\n"
-            "  - Listing agent: name, brokerage, email, phone, LinkedIn (if found)\n"
-            "  - Owner: name or LLC, email, phone (if different from agent)\n"
-            "  - Owner background: LLC registration state + status, other holdings count, "
-            "    WHOIS registrant (if applicable), OpenCorporates officers\n"
+            "Assemble a contactable leads table — one row per property — with these columns:\n"
+            "  - Property: address | price | listing URL | beds/baths\n"
+            "  - Listing agent: name | brokerage | email | phone | LinkedIn\n"
+            "  - Owner: name or LLC | email | phone (if different from agent)\n"
+            "  - Owner background: LLC registration state + status | other holdings count | "
+            "    WHOIS registrant | OpenCorporates officers\n"
             "  - Source URLs for every contact/background claim\n"
             "  - Confidence: HIGH (directly confirmed) / MEDIUM (cross-referenced) / "
             "    LOW (single source, unverified)\n\n"
-            "Dedupe by address. Mark rows where contact enrichment found nothing as "
-            "'no contact found' rather than dropping them. Sort by price ascending. "
-            "Append a 'data gaps' section listing listings that could not be enriched "
-            "and why (no brokerage domain, private listing, etc.)."
+            "CRITICAL: The property list is ALWAYS returned, even when enrichment is thin. "
+            "Mark every missing contact field as 'not found (or tool unavailable)' rather "
+            "than dropping the property row. Sort by price ascending. "
+            "Dedupe by address. Append a 'data gaps' section listing which enrichment "
+            "tools returned no data and why (key not configured, no brokerage domain, "
+            "private listing, etc.)."
         ),
     },
 )
