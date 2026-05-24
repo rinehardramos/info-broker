@@ -13,7 +13,7 @@
 #     authoritative_source: string URL — where this fact can be verified independently
 #     must_be_live      : bool — true = claim must come from a live tool call
 #                                (source_class NOT in {prior_research, training_knowledge})
-# domain      : string — one of: person | company | real_estate | due_diligence
+# domain      : string — one of: person | company | real_estate | real_estate_leads | due_diligence
 #
 # OPTIONAL FIELDS
 # ---------------

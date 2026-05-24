@@ -310,6 +310,81 @@ def _guard_rag_shortcut(
 
 
 # ---------------------------------------------------------------------------
+# Leads-gen richness metrics
+# ---------------------------------------------------------------------------
+
+#: Field set for per-lead completeness measurement.
+#: A "fully enriched" lead has all 10 fields populated.
+LEADS_GEN_FIELDS: tuple[str, ...] = (
+    "address",
+    "price",
+    "listing_url",
+    "agent_name",
+    "agent_email",
+    "agent_phone",
+    "owner_name",
+    "owner_email",
+    "owner_phone",
+    "owner_background",
+)
+
+
+def lead_richness(findings: list[dict], trail: dict) -> dict[str, Any]:
+    """Compute per-lead richness metrics from a leads-gen run.
+
+    Each finding is treated as one lead/property. Per-lead completeness is the
+    fraction of ``LEADS_GEN_FIELDS`` that are populated (non-empty string or
+    non-None value) in that finding dict.
+
+    Parameters
+    ----------
+    findings:
+        The findings list from the research_trails row (same format as ``score_item``).
+    trail:
+        The trail dict (not used for computation currently; included for future
+        phase-aware richness checks).
+
+    Returns
+    -------
+    dict with keys:
+        lead_count             : int   — number of distinct leads (= len(findings))
+        per_lead_completeness  : list[float] — completeness fraction per lead
+        avg_completeness       : float — mean of per_lead_completeness (0.0 if empty)
+        zero_enrichment_count  : int   — leads with 0 enrichment fields populated
+    """
+    if not findings:
+        return {
+            "lead_count": 0,
+            "per_lead_completeness": [],
+            "avg_completeness": 0.0,
+            "zero_enrichment_count": 0,
+        }
+
+    per_lead: list[float] = []
+    zero_count = 0
+
+    for finding in findings:
+        populated = sum(
+            1
+            for field in LEADS_GEN_FIELDS
+            if finding.get(field) not in (None, "", [], {})
+        )
+        completeness = populated / len(LEADS_GEN_FIELDS)
+        per_lead.append(completeness)
+        if populated == 0:
+            zero_count += 1
+
+    avg = sum(per_lead) / len(per_lead) if per_lead else 0.0
+
+    return {
+        "lead_count": len(findings),
+        "per_lead_completeness": per_lead,
+        "avg_completeness": round(avg, 4),
+        "zero_enrichment_count": zero_count,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Per-item scoring
 # ---------------------------------------------------------------------------
 
@@ -470,7 +545,10 @@ def aggregate_scores(
     Parameters
     ----------
     results:
-        List of dicts from ``score_item`` calls.
+        List of dicts from ``score_item`` calls. May optionally include:
+        - ``richness`` : dict from ``lead_richness()``
+        - ``cost``     : dict with ``ru_consumed`` (int/float) and ``duration_s`` (float)
+        - ``matched_facts_count`` : int (pre-computed for cost-per-fact)
     run_metadata:
         Optional list of per-item run metadata dicts (same index as results).
         Each may contain: strategy, mode, template, tactic_ids, technique_ids.
@@ -478,14 +556,23 @@ def aggregate_scores(
     Returns
     -------
     dict with keys:
-        overall   : {mean_score, total_items, gamed_items, gamed_pct}
-        by_domain : {domain: {mean_score, n}}
-        by_strategy : {strategy_id: {mean_score, n}}
-        by_mode   : {mode: {mean_score, n}}
+        overall      : {mean_score, total_items, gamed_items, gamed_pct}
+        by_domain    : {domain: {mean_score, n}}
+        by_strategy  : {strategy_id: {mean_score, n}}
+        by_mode      : {mode: {mean_score, n}}
         by_technique : {technique_id: {mean_score, n}}
+        cost_summary : {total_ru_consumed, cost_per_lead, cost_per_matched_fact, avg_duration_s}
     """
     if not results:
-        return {"overall": {"mean_score": 0.0, "total_items": 0, "gamed_items": 0, "gamed_pct": 0.0}}
+        return {
+            "overall": {"mean_score": 0.0, "total_items": 0, "gamed_items": 0, "gamed_pct": 0.0},
+            "cost_summary": {
+                "total_ru_consumed": 0,
+                "cost_per_lead": 0.0,
+                "cost_per_matched_fact": 0.0,
+                "avg_duration_s": 0.0,
+            },
+        }
 
     meta: list[dict] = run_metadata or [{} for _ in results]
 
@@ -507,6 +594,27 @@ def aggregate_scores(
         for tid in m.get("technique_ids") or []:
             by_technique.setdefault(tid, []).append(r["item_score"])
 
+    # Cost aggregation
+    total_ru = sum(
+        (r.get("cost") or {}).get("ru_consumed", 0) for r in results
+    )
+    total_leads = sum(
+        (r.get("richness") or {}).get("lead_count", 0) for r in results
+    )
+    total_matched = sum(r.get("matched_facts_count", 0) for r in results)
+    durations = [
+        (r.get("cost") or {}).get("duration_s", 0.0) for r in results
+        if (r.get("cost") or {}).get("duration_s") is not None
+    ]
+    avg_duration = sum(durations) / len(durations) if durations else 0.0
+
+    cost_summary = {
+        "total_ru_consumed": total_ru,
+        "cost_per_lead": round(total_ru / max(total_leads, 1), 4),
+        "cost_per_matched_fact": round(total_ru / max(total_matched, 1), 4),
+        "avg_duration_s": round(avg_duration, 2),
+    }
+
     return {
         "overall": {
             "mean_score": round(overall_mean, 4),
@@ -522,7 +630,229 @@ def aggregate_scores(
             k: {"mean_score": round(sum(v) / len(v), 4), "n": len(v)}
             for k, v in by_technique.items()
         },
+        "cost_summary": cost_summary,
     }
+
+
+# ---------------------------------------------------------------------------
+# Recommendations engine
+# ---------------------------------------------------------------------------
+
+#: Severity order for sorting (lower number = higher priority).
+_SEVERITY_ORDER: dict[str, int] = {
+    "critical": 0,
+    "error": 1,
+    "warning": 2,
+    "info": 3,
+}
+
+#: Cost-per-matched-fact threshold above which a "cost-outlier" rec fires.
+_COST_OUTLIER_THRESHOLD_RU = 500.0
+
+#: Richness threshold below which "low-richness" rec fires.
+_LOW_RICHNESS_THRESHOLD = 0.40
+
+
+def build_recommendations(
+    results: list[dict],
+    aggregates: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Auto-generate actionable recommendations from benchmark results.
+
+    Each recommendation is a dict:
+        severity  : "critical" | "error" | "warning" | "info"
+        category  : str — one of the category keys below
+        message   : str — human-readable action
+        evidence  : str — metric values that triggered this rec
+
+    Categories (in priority order):
+        missing-key              — live calls failing (training_only guard, inferred)
+        anti-gaming              — any guard trip
+        underperforming-component — 0 matched facts / wasted calls on non-gamed items
+        low-richness             — avg per-lead completeness below threshold
+        cost-outlier             — high cost-per-matched-fact
+        gold-set-gap             — zero score without gaming flag
+    """
+    recs: list[dict[str, Any]] = []
+
+    total_items = len(results)
+    if total_items == 0:
+        return recs
+
+    # ------------------------------------------------------------------
+    # Missing-key gaps (heuristic: training_only guard with 0 tool calls)
+    # These items had no live calls — likely no API key configured.
+    # ------------------------------------------------------------------
+    missing_key_items = [
+        r for r in results
+        if "training_only" in (r.get("gaming_flags") or [])
+    ]
+    if missing_key_items:
+        ids = ", ".join(r["item_id"] for r in missing_key_items[:3])
+        more = len(missing_key_items) - 3
+        evidence = f"Items: {ids}" + (f" (+{more} more)" if more > 0 else "")
+        recs.append({
+            "severity": "critical",
+            "category": "missing-key",
+            "message": (
+                f"{len(missing_key_items)} item(s) reached terminal with training_only guard — "
+                "configure the required API keys (search/enrichment) so live tool calls run. "
+                "Check BENCH_USERNAME env and the /admin action-items panel for unhealthy tools."
+            ),
+            "evidence": evidence,
+        })
+
+    # ------------------------------------------------------------------
+    # Anti-gaming trips (all guard types)
+    # ------------------------------------------------------------------
+    gamed_items = [r for r in results if r.get("gaming_flags")]
+    if gamed_items:
+        guard_counts: dict[str, int] = {}
+        for r in gamed_items:
+            for flag in (r.get("gaming_flags") or []):
+                guard_counts[flag] = guard_counts.get(flag, 0) + 1
+        for guard, count in sorted(guard_counts.items()):
+            recs.append({
+                "severity": "error",
+                "category": "anti-gaming",
+                "message": (
+                    f"{count} item(s) tripped the '{guard}' guard — "
+                    f"investigate brain prompt / strategy gate for '{guard}'."
+                ),
+                "evidence": f"Guard: {guard}, affected items: {count}/{total_items}",
+            })
+
+    # ------------------------------------------------------------------
+    # Underperforming components (0 matched facts on non-gamed items)
+    # ------------------------------------------------------------------
+    underperforming = [
+        r for r in results
+        if not r.get("gaming_flags")
+        and r.get("matched_facts_count", 0) == 0
+        and r.get("item_score", 0.0) == 0.0
+    ]
+    if underperforming:
+        ids = ", ".join(r["item_id"] for r in underperforming[:3])
+        recs.append({
+            "severity": "error",
+            "category": "underperforming-component",
+            "message": (
+                f"{len(underperforming)} non-gamed item(s) matched 0 facts — "
+                "review strategy/tactic/technique effectiveness; check that "
+                "enrichment tools have valid keys and that queries are well-formed."
+            ),
+            "evidence": f"Items with 0 matched facts: {ids}",
+        })
+
+    # ------------------------------------------------------------------
+    # Low richness (leads avg completeness below threshold)
+    # ------------------------------------------------------------------
+    low_richness_items = [
+        r for r in results
+        if (r.get("richness") or {}).get("avg_completeness", 1.0) < _LOW_RICHNESS_THRESHOLD
+    ]
+    zero_enrichment_total = sum(
+        (r.get("richness") or {}).get("zero_enrichment_count", 0) for r in results
+    )
+    if low_richness_items:
+        avg_vals = [
+            (r.get("richness") or {}).get("avg_completeness", 0.0)
+            for r in low_richness_items
+        ]
+        worst_avg = min(avg_vals)
+        recs.append({
+            "severity": "warning",
+            "category": "low-richness",
+            "message": (
+                f"{len(low_richness_items)} item(s) have avg per-lead completeness "
+                f"below {_LOW_RICHNESS_THRESHOLD:.0%} (worst: {worst_avg:.0%}) — "
+                "enrichment tools may not be returning contact fields. "
+                "Check agent_email/owner_phone enrichment techniques."
+            ),
+            "evidence": (
+                f"Low-richness items: {len(low_richness_items)}, "
+                f"zero-enrichment leads: {zero_enrichment_total}"
+            ),
+        })
+    elif zero_enrichment_total > 0:
+        recs.append({
+            "severity": "warning",
+            "category": "low-richness",
+            "message": (
+                f"{zero_enrichment_total} lead(s) have zero enrichment fields — "
+                "every list item must be enriched. "
+                "Review enrichment tactic coverage."
+            ),
+            "evidence": f"Zero-enrichment leads: {zero_enrichment_total}",
+        })
+
+    # ------------------------------------------------------------------
+    # Cost outliers (high cost-per-matched-fact)
+    # ------------------------------------------------------------------
+    cost_summary = aggregates.get("cost_summary") or {}
+    cost_per_fact = cost_summary.get("cost_per_matched_fact", 0.0)
+    if cost_per_fact > _COST_OUTLIER_THRESHOLD_RU:
+        recs.append({
+            "severity": "warning",
+            "category": "cost-outlier",
+            "message": (
+                f"Cost-per-matched-fact is {cost_per_fact:.1f} RU — "
+                "consider capping expensive techniques or switching to cheaper "
+                "alternatives for low-yield tactics."
+            ),
+            "evidence": (
+                f"cost_per_matched_fact={cost_per_fact:.1f}, "
+                f"total_ru={cost_summary.get('total_ru_consumed', 0)}, "
+                f"avg_duration={cost_summary.get('avg_duration_s', 0):.1f}s"
+            ),
+        })
+
+    # ------------------------------------------------------------------
+    # Gold-set gaps (zero score, no gaming, healthy run)
+    # ------------------------------------------------------------------
+    gap_items = [
+        r for r in results
+        if not r.get("gaming_flags")
+        and r.get("item_score", 0.0) == 0.0
+        and r.get("matched_facts_count", 0) == 0
+    ]
+    if gap_items:
+        ids = ", ".join(r["item_id"] for r in gap_items[:3])
+        recs.append({
+            "severity": "info",
+            "category": "gold-set-gap",
+            "message": (
+                f"{len(gap_items)} item(s) scored 0 with no gaming flag — "
+                "the expected facts may be unreachable with current tools/keys, "
+                "or the gold-set target is too hard. Review item definitions."
+            ),
+            "evidence": f"Gap items: {ids}",
+        })
+
+    # Sort by severity priority
+    recs.sort(key=lambda r: _SEVERITY_ORDER.get(r["severity"], 99))
+    return recs
+
+
+def render_recommendations(recs: list[dict[str, Any]]) -> str:
+    """Return a human-readable bulleted Recommendations section."""
+    if not recs:
+        return "RECOMMENDATIONS\n  (none — all items clean)\n"
+
+    lines: list[str] = []
+    lines.append("=" * 72)
+    lines.append("RECOMMENDATIONS (sorted by severity)")
+    lines.append("=" * 72)
+    for rec in recs:
+        sev = rec["severity"].upper()
+        cat = rec["category"]
+        msg = rec["message"]
+        ev = rec["evidence"]
+        lines.append(f"  [{sev}] [{cat}]")
+        lines.append(f"    {msg}")
+        lines.append(f"    Evidence: {ev}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +878,15 @@ def render_summary_table(
             f"{r['coverage']:>6.3f} {r['source_quality']:>6.3f} "
             f"{guard:<20}"
         )
+        # Richness sub-row (only if richness data present)
+        rich = r.get("richness")
+        if rich:
+            lc = rich.get("lead_count", 0)
+            ac = rich.get("avg_completeness", 0.0)
+            ze = rich.get("zero_enrichment_count", 0)
+            lines.append(
+                f"  {'':>26} leads={lc} avg_completeness={ac:.0%} zero={ze}"
+            )
     lines.append("=" * 72)
 
     ov = aggregates.get("overall", {})
@@ -556,6 +895,17 @@ def render_summary_table(
         f"items={ov.get('total_items', 0)}  "
         f"gamed={ov.get('gamed_items', 0)} ({ov.get('gamed_pct', 0):.1f}%)"
     )
+
+    # Cost summary
+    cs = aggregates.get("cost_summary") or {}
+    if cs.get("total_ru_consumed", 0) > 0:
+        lines.append(
+            f"COST     total_ru={cs.get('total_ru_consumed', 0)}  "
+            f"cost/lead={cs.get('cost_per_lead', 0):.1f}  "
+            f"cost/fact={cs.get('cost_per_matched_fact', 0):.1f}  "
+            f"avg_dur={cs.get('avg_duration_s', 0):.1f}s"
+        )
+
     lines.append("")
 
     for group_key in ("by_strategy", "by_mode", "by_domain"):

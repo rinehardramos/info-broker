@@ -1,0 +1,65 @@
+# Leads-generation gold-set — benchmark harness extension
+# Domain: real_estate_leads
+# Queries route to the real_estate_leads strategy/template.
+# expected_facts cover BOTH property facts AND per-lead contact/owner enrichment.
+# must_be_live: true for contact/owner facts (enrichment must be fresh).
+
+- id: leads-gen-fsbo-chicago-001
+  query: "Find for sale by owner properties in Chicago IL with owner and agent contact information"
+  template: real_estate_leads
+  mode: leads_generation
+  domain: real_estate_leads
+  notes: >
+    FSBO listings in Chicago. Property facts from public listing aggregators;
+    owner/agent contact from enrichment tools. Tests that both listing
+    discovery AND contact enrichment phases run.
+  expected_facts:
+    - claim: "Chicago Illinois has active for sale by owner residential listings"
+      authoritative_source: "https://www.zillow.com/chicago-il/fsbo/"
+      must_be_live: true
+    - claim: "FSBO listings in Chicago include owner contact phone or email"
+      authoritative_source: "https://www.forsalebyowner.com/homes-for-sale/il/chicago/"
+      must_be_live: true
+    - claim: "Chicago real estate listings include property address and asking price"
+      authoritative_source: "https://www.realtor.com/realestateandhomes-search/Chicago_IL/type-single-family-home/show-fsbo"
+      must_be_live: true
+
+- id: leads-gen-rental-austin-001
+  query: "Find rental property leads in Austin TX with landlord owner name and contact for property management outreach"
+  template: real_estate_leads
+  mode: leads_generation
+  domain: real_estate_leads
+  notes: >
+    Rental leads in Austin. Targets owner-occupied rental properties.
+    Owner background and contact enrichment are the primary signals.
+    Tests owner lookup and contact-enrichment tactics.
+  expected_facts:
+    - claim: "Austin Texas has active rental listings with landlord contact information"
+      authoritative_source: "https://www.zillow.com/austin-tx/rentals/"
+      must_be_live: true
+    - claim: "Rental properties in Austin include owner name or property management contact"
+      authoritative_source: "https://www.apartments.com/austin-tx/"
+      must_be_live: true
+    - claim: "Austin rental listings include property address and monthly rent price"
+      authoritative_source: "https://www.trulia.com/for_rent/Austin,TX/"
+      must_be_live: true
+
+- id: leads-gen-fsbo-phoenix-001
+  query: "Find for sale by owner homes in Phoenix AZ 85001 with agent name email phone and owner background"
+  template: real_estate_leads
+  mode: leads_generation
+  domain: real_estate_leads
+  notes: >
+    FSBO homes in Phoenix. Tests that agent/owner enrichment fields are
+    populated beyond just address/price. Specifically expects agent_email
+    or owner_phone to be discovered.
+  expected_facts:
+    - claim: "Phoenix Arizona has active for sale by owner home listings"
+      authoritative_source: "https://www.zillow.com/phoenix-az/fsbo/"
+      must_be_live: true
+    - claim: "Phoenix FSBO listings include seller contact information such as phone or email"
+      authoritative_source: "https://www.forsalebyowner.com/homes-for-sale/az/phoenix/"
+      must_be_live: true
+    - claim: "Phoenix real estate listings show listing price and property address"
+      authoritative_source: "https://www.realtor.com/realestateandhomes-search/Phoenix_AZ/type-single-family-home/show-fsbo"
+      must_be_live: true

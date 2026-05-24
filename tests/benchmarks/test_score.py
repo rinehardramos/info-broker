@@ -687,7 +687,7 @@ class TestGoldSetParsing:
         assert len(ids) == len(set(ids)), "Duplicate ids in gold-set"
 
     def test_domains_are_valid(self):
-        valid_domains = {"person", "company", "real_estate", "due_diligence"}
+        valid_domains = {"person", "company", "real_estate", "real_estate_leads", "due_diligence"}
         items_file = self.GOLDSET_DIR / "items.yaml"
         raw = yaml.safe_load(items_file.read_text())
         for item in raw:
