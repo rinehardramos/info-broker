@@ -943,6 +943,22 @@ CREATE INDEX IF NOT EXISTS ix_agent_sessions_user_org   ON agent_sessions (user_
 """
 
 
+_MIGRATION_API_KEY_VAULT = """
+CREATE TABLE IF NOT EXISTS api_key_vault (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    key_name        TEXT NOT NULL,
+    scope           TEXT NOT NULL CHECK (scope IN ('user', 'org', 'global')),
+    owner_id        UUID,
+    value_encrypted TEXT NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (key_name, scope, owner_id)
+);
+CREATE INDEX IF NOT EXISTS idx_api_key_vault_lookup
+    ON api_key_vault (key_name, scope, owner_id)
+"""
+
+
 def _split_sql_statements(sql: str) -> list[str]:
     """Split SQL on ';' but respect string literals and dollar-quoted blocks.
 
@@ -1050,7 +1066,7 @@ def _split_sql_statements(sql: str) -> list[str]:
 def run_migrations() -> None:
     # Ensure each migration block ends with ';' so concatenation doesn't merge
     # the last statement of one block with the first of the next.
-    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY]
+    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY, _MIGRATION_API_KEY_VAULT]
     all_sql = "\n".join(p.rstrip().rstrip(";") + ";\n" for p in parts)
     statements = _split_sql_statements(all_sql)
     with get_conn() as conn:

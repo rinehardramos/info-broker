@@ -18,24 +18,21 @@ _WHOIS_JSON_URL = "https://www.whoisxmlapi.com/whoisserver/WhoisService"
 _WHOIS_FREE_URL = "https://api.whois.vu/"
 
 
-def _resolve_api_key(config_key: str | None = None) -> str | None:
-    """Return WHOISXML API key if configured; None falls back to free endpoint."""
-    import os
+def _resolve_api_key(
+    config_key: str | None = None,
+    context: "RunContext | None" = None,
+) -> str | None:
+    """Return WHOISXML API key if configured; None falls back to free endpoint.
+
+    Resolution order: user-scoped vault → org-scoped vault → global vault →
+    core_settings → WHOISXML_API_KEY env var.  The resolved value is never logged.
+    """
     if config_key:
         return config_key
-    key = os.getenv("WHOISXML_API_KEY")
-    if key:
-        return key
-    try:
-        from app.routers.v3.db import fetch_one
-        row = fetch_one(
-            "SELECT value FROM core_settings WHERE key = 'whoisxml_api_key'", ()
-        )
-        if row and row.get("value"):
-            return row["value"]
-    except Exception:
-        pass
-    return None
+    from app.lib.api_keys import resolve_api_key
+    user_id = getattr(context, "user_id", None)
+    org_id = getattr(context, "org_id", None)
+    return resolve_api_key("whoisxml_api_key", user_id=user_id, org_id=org_id)
 
 
 class WhoisLookupNode:
@@ -61,7 +58,7 @@ class WhoisLookupNode:
     async def execute(
         self, config: dict, inputs: list[dict], context: RunContext
     ) -> list[dict]:
-        api_key = _resolve_api_key(config.get("api_key"))
+        api_key = _resolve_api_key(config.get("api_key"), context)
         loop = asyncio.get_running_loop()
         results: list[dict] = []
 
