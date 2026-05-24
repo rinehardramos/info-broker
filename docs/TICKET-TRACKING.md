@@ -1,6 +1,6 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-24** (PRs #118, #120–#129 merged; #68 closed; issues #130, #131 filed)
+> Last reconciled: **2026-05-24** (PRs #118, #120–#129, #132 merged; #68, #89 closed; issues #130, #131 filed)
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
@@ -28,11 +28,12 @@ Before citing a ticket, starting a "new" feature, or trusting a branch:
 
 | # | Type | Title | Code-verified state | Owning work | Regression notes |
 |---|------|-------|---------------------|-------------|------------------|
-| **#89** | hardening (was bug) | IS brain "tunnels" to RAG candidate; no BROADEN | **Does NOT reproduce** (verified 2026-05-24 after #123): brain broadened (3 hypothesis slots, 6 branches, live-search attempts) — no tunneling. Anti-tunneling machinery from #117 is firing. **Remaining latent items (no active symptom):** `tactician.py` seeds slot-0 from `prior_research_seed`; `fusion/ach.py` scores a lone hypothesis `high`. | Downgraded to hardening | Verify-first paid off — no speculative fix. Re-verify on prod once search keys + prior-RAG condition exist. |
 | **#131** | bug (infra) | Live search 429-blocked locally → research can't complete | Brave/Google return HTTP 429 / bot-block to the local stack IP; no Serper/Brave/Tavily keys. Gather gate then fails for lack of live sources even though the brain works. | Filed | Blocks ALL local research testing; prod likely has search keys. |
 | **#130** | bug (infra) | Login rate-limit (60/min) makes full pytest suite flaky | After #90's isolation fix, cumulative logins across the suite trip the 60/min limit → later tests' logins get 429. Files pass in isolation (`test_pipelines.py` 50/0) but flake in the full run. | Filed | Different mechanism than #90 (rate limiter, not fixtures). Bypass limiter under test, or share tokens. |
 
-**Recently closed:** #90 → #124. #110/#111 → #118. #94 → #119. #95, #91 → verified fixed. **Brain 100%-broken auth bug → #123** (kept env OAuth token). **Today's UI/agent work:** #127 (legacy phase order in v2 live + DAG + lint), #128 (mid-run injection persist+steer), #129 (#122 is_prompt assertion regression).
+> Only **infra** issues remain open — no product bugs.
+
+**Recently closed:** #89 → **closed (resolved by #117 taxonomy + gather gates; verified non-reproducing 2026-05-24).** Two latent hardening items (tactician slot-0 `prior_research_seed`; ACH lone-hypothesis "high") live in the regression watchlist below — no active symptom, file standalone only if needed. #90 → #124. #110/#111 → #118. #94 → #119. #95, #91 → verified fixed. **Brain 100%-broken auth bug → #123** (kept env OAuth token). **UI/agent work:** #127 (legacy phase order in v2 live + DAG + lint), #128 (mid-run injection persist+steer), #129 (#122 is_prompt assertion regression).
 
 > Issue "files likely to involve" lists are **stale** (pre-#117 taxonomy). Corrected file maps live in each issue's latest comment.
 
