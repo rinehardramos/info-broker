@@ -261,7 +261,7 @@ class PipelineEdgeOut(PipelineEdgeIn):
 
 
 class PipelineIn(BaseModel):
-    name: str = Field(..., max_length=255)
+    name: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(None, max_length=4000)
     nodes: list[PipelineNodeIn] = []
     edges: list[PipelineEdgeIn] = []

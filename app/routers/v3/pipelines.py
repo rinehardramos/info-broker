@@ -286,6 +286,10 @@ def list_all_pipeline_runs(user: dict = Depends(get_current_user)):
 
 @router.post("/runs/{run_id}/cancel", status_code=204)
 async def cancel_pipeline_run(run_id: str, user: dict = Depends(get_current_user)):
+    try:
+        uuid.UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="run_id must be a valid UUID")
     from temporalio.client import Client
     run = fetch_one(
         "SELECT * FROM pipeline_runs WHERE id = %s AND user_id = %s",
@@ -404,15 +408,15 @@ def create_pipeline(body: PipelineIn, user: dict = Depends(get_current_user)):
 
 @router.get("", response_model=list[PipelineOut])
 def list_pipelines(user: dict = Depends(get_current_user)):
-    clause, params = org_scope_clause(user)
+    # The `pipelines` table is scoped by user_id, not org_id.
+    # System pipelines (is_system=TRUE) are shared across all users.
     rows = fetch_all(
-        f"""
+        """
         SELECT * FROM pipelines
         WHERE (user_id = %s OR is_system = TRUE)
-          AND (TRUE {clause})
         ORDER BY is_system DESC, created_at DESC
-        """,  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
-        tuple([str(user["id"]), *params]),
+        """,  # noqa: S608 - user_id is parameterized
+        (str(user["id"]),),
     )
     return [PipelineOut(**dict(r)) for r in rows]
 
@@ -673,6 +677,10 @@ def create_plugin_from_request(request_id: str, user: dict = Depends(get_current
 
 @router.get("/{pipeline_id}", response_model=PipelineDetailOut)
 def get_pipeline(pipeline_id: str, user: dict = Depends(get_current_user)):
+    try:
+        uuid.UUID(pipeline_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="pipeline_id must be a valid UUID")
     row = fetch_one(
         "SELECT * FROM pipelines WHERE id = %s AND (user_id = %s OR is_system = true)",
         (pipeline_id, str(user["id"])),

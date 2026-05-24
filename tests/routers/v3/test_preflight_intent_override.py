@@ -62,8 +62,8 @@ def test_classify_intent_falls_back_for_ambiguous():
 # ---------------------------------------------------------------------------
 
 def test_resolve_strategy_clamps_unknown_to_media_identification():
-    # real_estate isn't registered in engine_v2 yet, so it clamps.
-    assert _resolve_strategy("real_estate") == "media_identification"
+    # real_estate is now a registered strategy, so it resolves directly.
+    assert _resolve_strategy("real_estate") == "real_estate"
 
 
 # ---------------------------------------------------------------------------

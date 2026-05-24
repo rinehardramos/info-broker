@@ -22,10 +22,10 @@ def test_all_nodes_have_correct_category():
     from app.pipeline.nodes.dropbox_search import DropboxSearchNode
     from app.pipeline.nodes.google_drive_search import GoogleDriveSearchNode
 
-    # Shodan was built before these issues; it uses category "enrich"
     assert ShodanSearchNode.category == "enrich"
-    assert DropboxSearchNode.category == "datastore"
-    assert GoogleDriveSearchNode.category == "datastore"
+    # Dropbox and Google Drive use category "source" (file/datastore source nodes)
+    assert DropboxSearchNode.category == "source"
+    assert GoogleDriveSearchNode.category == "source"
 
 
 def test_all_nodes_have_node_type():

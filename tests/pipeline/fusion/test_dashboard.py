@@ -62,10 +62,11 @@ def test_build_dashboard_with_data():
 
     # Best technique should be first (sorted by avg_numeric desc)
     assert result["techniques"][0]["tool"] in ("run_email_enumerator", "run_smtp_verifier")
-    assert result["techniques"][0]["avg_grade"] == "A"
+    # Single-letter input grades default credibility to "3", so avg_grade is Admiralty 2-letter.
+    assert result["techniques"][0]["avg_grade"] == "A3"
 
     # Tactic with grade A should be first
-    assert result["tactics"][0]["avg_grade"] == "A"
+    assert result["tactics"][0]["avg_grade"] == "A3"
 
 
 def test_build_dashboard_aggregates_across_runs():
@@ -95,9 +96,10 @@ def test_build_dashboard_aggregates_across_runs():
         result = build_dashboard()
 
     # hibp_lookup should aggregate: (A+C)/2 = (5+3)/2 = 4.0 = B
+    # Single-letter input grades default credibility to "3", so avg_grade is Admiralty 2-letter.
     hibp = next(t for t in result["techniques"] if t["tool"] == "run_hibp_lookup")
     assert hibp["runs"] == 2
-    assert hibp["avg_grade"] == "B"
+    assert hibp["avg_grade"] == "B3"
     assert hibp["total_results"] == 2
 
 
@@ -148,8 +150,9 @@ def test_build_dashboard_user_grade_takes_precedence():
         result = build_dashboard()
 
     # User graded A should dominate, not the auto_grade C
-    assert result["techniques"][0]["avg_grade"] == "A"
-    assert result["tactics"][0]["avg_grade"] == "A"
+    # Single-letter input grades default credibility to "3", so avg_grade is Admiralty 2-letter.
+    assert result["techniques"][0]["avg_grade"] == "A3"
+    assert result["tactics"][0]["avg_grade"] == "A3"
 
 
 def test_build_dashboard_skips_invalid_scorecards():

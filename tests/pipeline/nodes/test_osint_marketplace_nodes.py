@@ -33,7 +33,7 @@ def test_fullcontact_node_metadata():
     from app.pipeline.nodes.fullcontact_enrich import FullContactEnrichNode
     node = FullContactEnrichNode()
     assert node.node_type == "fullcontact_enrich"
-    assert node.category == "datastore"
+    assert node.category == "enrich"
     assert "lookup_type" in node.config_schema["properties"]
 
 
@@ -116,7 +116,7 @@ def test_intelligence_x_node_metadata():
     from app.pipeline.nodes.intelligence_x import IntelligenceXNode
     node = IntelligenceXNode()
     assert node.node_type == "intelligence_x"
-    assert node.category == "datastore"
+    assert node.category == "source"
 
 
 def test_intelligence_x_map_record():
@@ -167,7 +167,7 @@ def test_clearbit_node_metadata():
     from app.pipeline.nodes.clearbit_enrich import ClearbitEnrichNode
     node = ClearbitEnrichNode()
     assert node.node_type == "clearbit_enrich"
-    assert node.category == "datastore"
+    assert node.category == "enrich"
     assert "lookup_type" in node.config_schema["properties"]
 
 
@@ -245,7 +245,7 @@ def test_pipl_node_metadata():
     from app.pipeline.nodes.pipl_search import PiplSearchNode
     node = PiplSearchNode()
     assert node.node_type == "pipl_search"
-    assert node.category == "datastore"
+    assert node.category == "lookup"
 
 
 def test_pipl_build_search_spec_email():
@@ -317,5 +317,12 @@ def test_all_nodes_have_datastore_category():
     from app.pipeline.nodes.intelligence_x import IntelligenceXNode
     from app.pipeline.nodes.clearbit_enrich import ClearbitEnrichNode
     from app.pipeline.nodes.pipl_search import PiplSearchNode
-    for cls in [FullContactEnrichNode, IntelligenceXNode, ClearbitEnrichNode, PiplSearchNode]:
-        assert cls.category == "datastore", f"{cls.__name__} category should be datastore"
+    # These nodes use fine-grained categories instead of a generic "datastore"
+    expected = {
+        FullContactEnrichNode: "enrich",
+        IntelligenceXNode: "source",
+        ClearbitEnrichNode: "enrich",
+        PiplSearchNode: "lookup",
+    }
+    for cls, cat in expected.items():
+        assert cls.category == cat, f"{cls.__name__} category should be {cat!r}, got {cls.category!r}"

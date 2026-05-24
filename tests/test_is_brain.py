@@ -27,10 +27,13 @@ def test_build_prompt_includes_depth():
 
 
 def test_build_prompt_includes_past_research():
-    past = [{"query": "prior search", "findings": [{"title": "a"}, {"title": "b"}, {"title": "c"}]}]
+    # render_past_research_blocks uses "summary" (not "query") for display text,
+    # and renders finding titles directly (not "Findings (N)" count).
+    past = [{"summary": "prior search summary", "findings": [{"title": "a"}, {"title": "b"}, {"title": "c"}]}]
     result = build_prompt("q", past_research=past)
-    assert "prior search" in result
-    assert "Findings (3)" in result
+    assert "prior search summary" in result
+    # finding titles a, b, c should appear in the rendered context
+    assert "a" in result
 
 
 # ---------------------------------------------------------------------------

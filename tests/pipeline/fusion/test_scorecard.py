@@ -7,65 +7,72 @@ from app.pipeline.fusion.scorecard import (
 
 
 def test_auto_grade_technique_a():
-    assert auto_grade_technique(result_count=5, error=None) == "A"
+    # 5 results → completely reliable / confirmed = A1
+    assert auto_grade_technique(result_count=5, error=None) == "A1"
 
 
 def test_auto_grade_technique_b():
-    assert auto_grade_technique(result_count=1, error=None) == "B"
+    # 1 result → usually reliable / probably true = B2
+    assert auto_grade_technique(result_count=1, error=None) == "B2"
 
 
 def test_auto_grade_technique_c():
-    assert auto_grade_technique(result_count=0, error=None) == "C"
+    # 0 results, no error → fairly reliable / possibly true = C3
+    assert auto_grade_technique(result_count=0, error=None) == "C3"
 
 
 def test_auto_grade_technique_f_error():
-    assert auto_grade_technique(result_count=0, error="HTTP 403 blocked") == "F"
+    # hard error → unreliable / improbable = E5
+    assert auto_grade_technique(result_count=0, error="HTTP 403 blocked") == "E5"
 
 
 def test_auto_grade_technique_e_timeout():
-    assert auto_grade_technique(result_count=0, error="timeout") == "E"
+    # timeout → not usually reliable / doubtful = D4
+    assert auto_grade_technique(result_count=0, error="timeout") == "D4"
 
 
 def test_auto_grade_tactic_high_yield():
     techniques = [
-        {"tool": "run_email_enumerator", "result_count": 3, "auto_grade": "A"},
-        {"tool": "run_smtp_verifier", "result_count": 2, "auto_grade": "A"},
+        {"tool": "run_email_enumerator", "result_count": 3, "auto_grade": "A1"},
+        {"tool": "run_smtp_verifier", "result_count": 2, "auto_grade": "A2"},
     ]
-    assert auto_grade_tactic(techniques) in ("A", "B")
+    grade = auto_grade_tactic(techniques)
+    # High yield with multiple A grades → A1 or B2
+    assert grade[0] in ("A", "B")
 
 
 def test_auto_grade_tactic_all_failed():
     techniques = [
-        {"tool": "run_instagram_profile", "result_count": 0, "auto_grade": "F"},
+        {"tool": "run_instagram_profile", "result_count": 0, "auto_grade": "F6"},
     ]
-    assert auto_grade_tactic(techniques) == "F"
+    assert auto_grade_tactic(techniques) == "F6"
 
 
 def test_auto_grade_tactic_mixed():
     techniques = [
-        {"tool": "a", "result_count": 2, "auto_grade": "B"},
-        {"tool": "b", "result_count": 0, "auto_grade": "C"},
+        {"tool": "a", "result_count": 2, "auto_grade": "B2"},
+        {"tool": "b", "result_count": 0, "auto_grade": "C3"},
     ]
     grade = auto_grade_tactic(techniques)
-    assert grade in ("B", "C")
+    assert grade[0] in ("B", "C")
 
 
 def test_auto_grade_strategy_good():
     tactics = [
-        {"name": "email", "auto_grade": "A"},
-        {"name": "social", "auto_grade": "B"},
-        {"name": "neg_screen", "auto_grade": "A"},
+        {"name": "email", "auto_grade": "A1"},
+        {"name": "social", "auto_grade": "B2"},
+        {"name": "neg_screen", "auto_grade": "A2"},
     ]
     grade = auto_grade_strategy(tactics, completeness_pct=0.8)
-    assert grade in ("A", "B")
+    assert grade[0] in ("A", "B")
 
 
 def test_auto_grade_strategy_poor():
     tactics = [
-        {"name": "email", "auto_grade": "F"},
+        {"name": "email", "auto_grade": "F6"},
     ]
     grade = auto_grade_strategy(tactics, completeness_pct=0.1)
-    assert grade in ("E", "F")
+    assert grade[0] in ("E", "F")
 
 
 def test_build_scorecard_full():
@@ -93,7 +100,8 @@ def test_build_scorecard_full():
     assert "strategy" in scorecard
     assert "tactics" in scorecard
     assert scorecard["strategy"]["name"] == "person"
-    assert scorecard["strategy"]["auto_grade"] in "ABCDEF"
+    # Admiralty 2-letter code: source letter (A-F) + credibility digit (1-6)
+    assert scorecard["strategy"]["auto_grade"][0] in "ABCDEF"
     assert len(scorecard["tactics"]) >= 2
 
     # Each tactic should have techniques
@@ -107,7 +115,7 @@ def test_build_scorecard_full():
 
 def test_build_scorecard_empty_trail():
     scorecard = build_scorecard({"branches": []}, [], completeness_pct=0.0, entity_type="person")
-    assert scorecard["strategy"]["auto_grade"] == "F"
+    assert scorecard["strategy"]["auto_grade"] == "F6"
     assert scorecard["tactics"] == []
 
 
@@ -125,33 +133,39 @@ def test_build_scorecard_groups_by_tactic():
 
 
 def test_grade_comment_technique_a():
-    c = grade_comment_technique("run_hibp_lookup", "A", 5, None)
+    # A1 = completely reliable / confirmed → effective comment
+    c = grade_comment_technique("run_hibp_lookup", "A1", 5, None)
     assert "effective" in c.lower() or "prioritize" in c.lower()
 
 
 def test_grade_comment_technique_f():
-    c = grade_comment_technique("run_instagram_profile", "F", 0, "HTTP 403")
+    # E5 = unreliable / improbable (hard error) → FAILED comment with error detail
+    c = grade_comment_technique("run_instagram_profile", "E5", 0, "HTTP 403")
     assert "FAILED" in c or "failed" in c.lower()
     assert "403" in c
 
 
 def test_grade_comment_tactic_good():
-    c = grade_comment_tactic("email_investigation", "A", 0.8, ["A", "B"])
+    # A1 = completely reliable → effective comment
+    c = grade_comment_tactic("email_investigation", "A1", 0.8, ["A1", "B2"])
     assert "effective" in c.lower()
 
 
 def test_grade_comment_tactic_bad():
-    c = grade_comment_tactic("social_mapping", "F", 0.0, ["F", "F"])
+    # F6 = completely failed → failed comment
+    c = grade_comment_tactic("social_mapping", "F6", 0.0, ["F6", "F6"])
     assert "failed" in c.lower()
 
 
 def test_grade_comment_strategy_good():
-    c = grade_comment_strategy("person", "B", 0.7, [])
+    # B2 = usually reliable → coverage comment
+    c = grade_comment_strategy("person", "B2", 0.7, [])
     assert "coverage" in c.lower()
 
 
 def test_grade_comment_strategy_gaps():
-    c = grade_comment_strategy("person", "D", 0.2, ["family", "financial", "breach"])
+    # D4 = not usually reliable → gap details included
+    c = grade_comment_strategy("person", "D4", 0.2, ["family", "financial", "breach"])
     assert "family" in c or "financial" in c
 
 

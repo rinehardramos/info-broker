@@ -1,4 +1,5 @@
 import os
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -16,7 +17,7 @@ def _auth_headers(username):
 
 
 def test_agent_message_returns_job_id():
-    h = _auth_headers("agenttest1")
+    h = _auth_headers(f"agenttest1_{uuid.uuid4().hex[:8]}")
     r = client.post("/v3/agent/message", json={"message": "find CTOs in Manila"}, headers=h)
     assert r.status_code == 202
     data = r.json()
@@ -25,17 +26,19 @@ def test_agent_message_returns_job_id():
 
 
 def test_get_job_after_message():
-    h = _auth_headers("agenttest2")
+    # Agent stores runs in pipeline_runs (not v3_jobs); use /v3/pipelines/runs/{run_id}
+    h = _auth_headers(f"agenttest2_{uuid.uuid4().hex[:8]}")
     r = client.post("/v3/agent/message", json={"message": "find news about fintech"}, headers=h)
     job_id = r.json()["job_id"]
-    r2 = client.get(f"/v3/jobs/{job_id}", headers=h)
+    r2 = client.get(f"/v3/pipelines/runs/{job_id}", headers=h)
     assert r2.status_code == 200
-    assert r2.json()["id"] == job_id
+    assert str(r2.json()["id"]) == job_id
 
 
 def test_list_jobs():
-    h = _auth_headers("agenttest3")
+    # Agent stores runs in pipeline_runs; use /v3/pipelines/runs/all
+    h = _auth_headers(f"agenttest3_{uuid.uuid4().hex[:8]}")
     client.post("/v3/agent/message", json={"message": "test query"}, headers=h)
-    r = client.get("/v3/jobs", headers=h)
+    r = client.get("/v3/pipelines/runs/all", headers=h)
     assert r.status_code == 200
     assert len(r.json()) >= 1

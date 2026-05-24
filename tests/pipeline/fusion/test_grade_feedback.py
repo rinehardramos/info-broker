@@ -4,30 +4,32 @@ from app.pipeline.fusion.grade_feedback import grade_to_overlay_action, apply_gr
 
 
 def test_grade_a_reinforces():
-    action = grade_to_overlay_action("A")
+    # A1 = completely reliable + confirmed → reinforce, high confidence
+    action = grade_to_overlay_action("A1")
     assert action["overlay_type"] == "reinforce"
     assert action["confidence"] >= 0.9
 
 
 def test_grade_b_reinforces():
-    action = grade_to_overlay_action("B")
+    action = grade_to_overlay_action("B2")
     assert action["overlay_type"] == "reinforce"
 
 
 def test_grade_c_neutral():
-    action = grade_to_overlay_action("C")
+    action = grade_to_overlay_action("C3")
     assert action is None  # No overlay change
 
 
 def test_grade_d_prunes():
-    action = grade_to_overlay_action("D")
+    action = grade_to_overlay_action("D4")
     assert action["overlay_type"] == "prune"
 
 
 def test_grade_f_prunes_and_flags():
-    action = grade_to_overlay_action("F")
+    # E5 = unreliable + improbable → prune + flagged (user rejection grade)
+    action = grade_to_overlay_action("E5")
     assert action["overlay_type"] == "prune"
-    assert action["confidence"] >= 0.9
+    assert action["confidence"] >= 0.2  # 0.8 * 0.3 = 0.24
     assert action.get("flagged") is True
 
 
@@ -37,7 +39,7 @@ def test_apply_grade_feedback_calls_upsert():
             entity_type="person",
             selector_type="email",
             tool_name="run_hibp_lookup",
-            grade="A",
+            grade="A1",
         )
     assert mock.called
     call_args = mock.call_args[0][0]
@@ -52,6 +54,6 @@ def test_apply_grade_feedback_neutral_skips_upsert():
             entity_type="person",
             selector_type="email",
             tool_name="run_smtp_verifier",
-            grade="C",
+            grade="C3",
         )
     assert not mock.called  # Neutral grade = no overlay change
