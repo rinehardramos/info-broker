@@ -8,7 +8,12 @@ vi.mock('@/components/layout/IconRail', () => ({
   default: () => null,
 }))
 
-vi.mock('@/api/v3', () => ({
+// Spread the real module so every export the Dashboard tree calls
+// (listInvestigationTemplates, getWorkerHealth, getCoreSettings, ...) stays
+// defined; override only the two endpoints these assertions depend on. Queries
+// run with retry:false (see renderPage) so any non-overridden call fails fast.
+vi.mock('@/api/v3', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/v3')>()),
   listRuns: vi.fn().mockResolvedValue([
     {
       id: 'r1', status: 'succeeded', query: 'investigate: ACME',
