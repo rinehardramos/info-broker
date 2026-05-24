@@ -1,6 +1,6 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-24**
+> Last reconciled: **2026-05-24** (incl. PRs #118, #120, #121, #122, #123, #124 merged; #68 closed)
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
@@ -28,36 +28,20 @@ Before citing a ticket, starting a "new" feature, or trusting a branch:
 
 | # | Type | Title | Code-verified state | Owning work | Regression notes |
 |---|------|-------|---------------------|-------------|------------------|
-| **#90** | bug | pytest test isolation (~90→**133** failures full-suite) | **Confirmed**: `_register_user` uses `ON CONFLICT DO NOTHING` (`tests/v3/test_auth.py:20`) + fixed-name fixtures + **persistent test Postgres across runs** → stale rows make some files fail even solo. | In progress | Touches only test fixtures/conftest — no prod code. |
-| **#89** | bug | IS brain tunnels to RAG candidate; no BROADEN | **Partially mitigated already** (post-#117): `person.py` declares `hypothesis_count="competing"`, gather gates `distinct_identity_count`/`per_hypothesis_live_source`, `disconfirm` phase, `is_prompt.py` anti-tunneling rules. **Remaining gap**: `tactician.py:158-166` seeds slot-0 from `prior_research_seed` when prior research exists; `fusion/ach.py` scores a lone hypothesis `high`. | In progress | Brain behavior — verify with live re-run + a control (unambiguous) query so we don't over-broaden. |
+| **#89** | hardening (was bug) | IS brain "tunnels" to RAG candidate; no BROADEN | **Does NOT reproduce** (verified 2026-05-24 after #123): brain broadened (3 hypothesis slots, 6 branches, live-search attempts) — no tunneling. Anti-tunneling machinery from #117 is firing. **Remaining latent items (no active symptom):** `tactician.py` seeds slot-0 from `prior_research_seed`; `fusion/ach.py` scores a lone hypothesis `high`. | Downgraded to hardening | Verify-first paid off — no speculative fix. Re-verify on prod once search keys + prior-RAG condition exist. |
+| **NEW** | bug (infra) | Live search 429-blocked locally → research can't complete | Discovered during #89 verify: Brave/Google return HTTP 429 / bot-block to the local stack IP; no Serper/Brave/Tavily keys. Gather gate then fails for lack of live sources even though the brain works. | Unfiled — needs an issue | Blocks ALL local research testing; prod likely has search keys. |
 
-> The issue's "files likely to involve" lists are **stale** (pre-#117 taxonomy). Corrected file maps live in each issue's latest comment.
+**Recently closed:** #90 (pytest test isolation) → **CLOSED by #124** (unique UUID fixtures + `ON CONFLICT DO UPDATE` + `load_dotenv` env-bleed fix in conftest; full suite 1682 pass, 0 fail, order-independent). #110/#111 → #118. #94 → #119. #95, #91 → verified fixed.
+
+> Issue "files likely to involve" lists are **stale** (pre-#117 taxonomy). Corrected file maps live in each issue's latest comment.
 
 ## Open PRs
 
-| PR | Branch | State | Verdict |
-|----|--------|-------|---------|
-| **#68** | `feat/signed-callbacks-v2` | OPEN | **STALE DUPLICATE — close it.** Identical title to **#84 `signed-callbacks-v3` (MERGED 2026-05-13)**; `app/services/webhook.py` is in `main`. Keeping it open invites a duplicate re-merge / regression. |
+**None open.** (#68 `signed-callbacks-v2` was a stale duplicate of merged #84 → **closed + branch deleted 2026-05-24**.)
 
 ## Branch hygiene — prune stale squash-merged branches
 
-These remote branches show as "unmerged" in `git branch --no-merged` but their PRs were **squash-merged** (content is in `main`). They are safe to delete; leaving them is the main source of drift confusion. Superseded `-v2`/`-v3` chains are the worst offenders.
-
-```
-# squash-merged → safe to delete (PR # in parens)
-feat/research-skeleton-tactic-completion (#117)   feat/gather-ask-user-diagnostic (#116)
-feat/admin-user-management (#82)                  feat/non-admin-rbac (#74)
-feat/metrics-dashboard (#76)                       feat/metrics-frontend (#79)
-feat/session-hypothesis-memory (#78)               feat/new-datastore-nodes (#75)
-feature/osint-marketplace-datastore-nodes (#81)    feature/plugin-scaffold-review-ui (#77)
-feat/results-tab-and-dag-buttons (#72)             feat/temporal-phase-0 (#80)
-feat/budget-phase2 (#66)                           feat/ach-pir-v2 (#65)
-feat/fast-thorough-phase-a/-b/-c (#64 closed/#69/#70)
-# genuinely open: feat/signed-callbacks-v2 (#68 — see above, recommend close)
-# closed-not-merged (superseded): feat/signed-callbacks (#67), feat/run-budget-phase1 (#53)
-```
-
-`gh` one-liner to delete a confirmed-merged branch: `git push origin --delete <branch>`.
+Squash-merges leave the original branch looking "unmerged" in `git branch --no-merged` even though the content is in `main`. Use `gh pr list --state all` for real state, and delete branches whose PR is MERGED. As of 2026-05-24 the day's branches (#118–#124) were auto-deleted on merge. The older `feat/*` / `feature/*` branches from the #65–#117 era remain as stale remotes and are safe to prune (`git push origin --delete <branch>`) — verify each maps to a MERGED PR first.
 
 ---
 
@@ -71,6 +55,10 @@ Reconciled from merged PRs; grep-verified entry points. Prevents duplication.
 | Tactic catalog + Apify Zillow technique | `app/pipeline/catalogs/registries/` | #117 |
 | Gather-phase `ask_user` diagnostic / `no_brain_work` invariant | `app/pipeline/strategist.py` | #116 |
 | MCP web_crawl/whois node-execute fixes | `app/routers/v3/nodes_api.py`, `app/pipeline/nodes/web_crawl.py`, `mcp_server/server.py` | #118 |
+| **Brain OAuth via env token** (keep `CLAUDE_CODE_OAUTH_TOKEN` when no creds file) | `app/pipeline/runners/scoped_brain.py` | #123 |
+| **Phase vocabulary canonicalized on `gather`** (BROADEN retired) | `app/is_prompt.py` + catalog | #122 |
+| **pytest test isolation** (unique fixtures, `ON CONFLICT DO UPDATE`, conftest env-bleed fix) + `auth.py`/`pipelines.py`/`models.py` bug fixes | `tests/conftest.py`, `tests/**`, `app/routers/v3/{auth,pipelines,models}.py` | #124 |
+| vitest scoped to `src/` (e2e excluded) + stale-mock fixes | `frontend/vite.config.ts`, test files | #120 |
 | Org membership roles (analyst/viewer) + `is_admin` RBAC | `app/routers/v3/tenancy.py`, `require_admin` | #74, #85 |
 | Admin user-management page | frontend admin | #82 |
 | Multi-turn session hypothesis memory | `agent_sessions.investigated_hypotheses` | #78 |
@@ -107,3 +95,6 @@ Reconciled from merged PRs; grep-verified entry points. Prevents duplication.
 - **`no_brain_work` gate** — must honor `no_tool_calls_required` so the extract phase isn't failed for 0 tool calls. (#116)
 - **MCP node-execute input wrapping** — `_INPUT_TARGET_FIELDS` must exclude config-only keys (`research_goal`…) or config-only nodes regress. (#118)
 - **Signed callbacks** — do not re-merge #68; v3 (#84) is canonical.
+- **Brain subprocess auth** — `scoped_brain` must keep `CLAUDE_CODE_OAUTH_TOKEN` in the spawn env when no `/root/.claude/.credentials.json` file exists; popping it unconditionally broke ALL research. (#123) Beta = subscription token, not API.
+- **`org_scope_clause` only on org-scoped tables** — the `pipelines` table has NO `org_id` column, so applying `org_scope_clause` there SQL-errors for non-admins. Scope pipelines by `user_id`. Don't blanket-apply org scoping. (#124)
+- **Phase label** — vocabulary is `gather` everywhere; `BROADEN` retired. Don't reintroduce it as a label (distinct from the legacy-id lint, which keeps the word to forbid it). (#122)
