@@ -513,8 +513,19 @@ async def scoped_brain_runner(
         spawn_env["ANTHROPIC_API_KEY"] = api_key
     else:
         spawn_env.pop("ANTHROPIC_API_KEY", None)
-        spawn_env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
-        spawn_env.pop("CLAUDE_CODE_OAUTH_REFRESH_TOKEN", None)
+        # Prefer the auto-refreshing credentials FILE when one is present: its
+        # token is kept fresh (by the host CLI via the ~/.claude bind-mount, or
+        # a refresh flow), so a stale env token must not shadow it.
+        # But when NO creds file is reachable — e.g. the bind-mount isn't
+        # effective (Docker Desktop on WSL), or only a long-lived
+        # `claude setup-token` env token is provisioned — KEEP
+        # CLAUDE_CODE_OAUTH_TOKEN: the headless CLI authenticates with it
+        # directly. Popping it unconditionally left the subprocess with no auth
+        # ("Not logged in · Please run /login") whenever the file was absent.
+        _creds_file = Path("/root/.claude/.credentials.json")
+        if _creds_file.exists() and _creds_file.stat().st_size > 0:
+            spawn_env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+            spawn_env.pop("CLAUDE_CODE_OAUTH_REFRESH_TOKEN", None)
 
     log.info(
         "scoped_brain: spawning subprocess tactic=%s slot=%d model=%s",
