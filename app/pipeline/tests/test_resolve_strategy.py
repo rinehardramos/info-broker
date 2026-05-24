@@ -17,9 +17,33 @@ from unittest.mock import patch
 
 from app.routers.v3.preflight import (
     _classify_query,
+    _infer_mode,
     _resolve_strategy,
     _suggest_mode,
 )
+
+
+class TestInferMode:
+    """Lead-gen phrasing infers leads_generation mode so real-estate-leads
+    queries/templates reach the (real_estate, leads_generation) composite route."""
+
+    def test_lead_list_phrase_infers_leads_generation(self):
+        assert _infer_mode("generate a lead list of rentals with owner contact info") == "leads_generation"
+
+    def test_find_leads_phrase_infers_leads_generation(self):
+        assert _infer_mode("find leads: CTOs at fintech startups") == "leads_generation"
+
+    def test_plain_listing_query_infers_nothing(self):
+        assert _infer_mode("properties for rent in chicago under $1000") is None
+
+    def test_empty_query_infers_nothing(self):
+        assert _infer_mode("") is None
+
+    def test_real_estate_plus_inferred_leads_mode_routes_to_real_estate_leads(self):
+        assert _resolve_strategy("real_estate", _infer_mode("lead list of rentals in chicago")) == "real_estate_leads"
+
+    def test_real_estate_without_lead_phrase_stays_real_estate(self):
+        assert _resolve_strategy("real_estate", _infer_mode("rentals in chicago")) == "real_estate"
 
 
 # ---------------------------------------------------------------------------

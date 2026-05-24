@@ -144,6 +144,32 @@ def _classify_query(query: str, mode: str | None = None) -> str:
     return _resolve_strategy(_classify_intent(query), mode)
 
 
+# Lead-generation phrasing → infer leads_generation mode when the user didn't
+# pick one explicitly. This is what lets a real-estate query (or the
+# real-estate-leads template) reach the composite (real_estate, leads_generation)
+# → real_estate_leads route, so the brain branches to contact + owner-background
+# enrichment instead of listings-only. Kept to explicit lead phrasing to avoid
+# steering ordinary searches into leads mode.
+_LEADS_MODE_SIGNALS = (
+    "lead list", "leads list", "lead generation", "lead-gen", "leadgen",
+    "generate leads", "find leads", "prospect list", "prospecting",
+    "outreach list", "contact list", "build a list of contacts",
+)
+
+
+def _infer_mode(query: str) -> str | None:
+    """Infer an optimization mode from query phrasing when none was supplied.
+
+    Currently only detects leads_generation (the one mode with a composite
+    strategy route). Returns None when no signal matches, preserving the
+    existing default-mode behavior.
+    """
+    q = (query or "").lower()
+    if any(sig in q for sig in _LEADS_MODE_SIGNALS):
+        return "leads_generation"
+    return None
+
+
 
 # ---------------------------------------------------------------------------
 # Composite strategy routing: (intent, mode) → strategy_id
@@ -455,13 +481,17 @@ def preflight(body: PreflightIn, user: dict = Depends(get_current_user)):
     # Classifier — override wins over auto-detection. Mode (if user-supplied)
     # feeds the resolution chain's mode-anchor step, so users picking a mode
     # with a vague query route through that mode's preferred strategy.
+    # Mode: explicit user choice wins; otherwise infer from lead-gen phrasing so
+    # a real-estate-leads query/template reaches the (real_estate, leads_generation)
+    # → real_estate_leads composite route. Falls back to the strategy default.
+    effective_mode = body.mode or _infer_mode(body.query)
     if body.intent_override:
         effective_intent = body.intent_override
-        strategy_id = body.strategy or _resolve_strategy(effective_intent, body.mode)
+        strategy_id = body.strategy or _resolve_strategy(effective_intent, effective_mode)
     else:
         effective_intent = _classify_intent(body.query)
-        strategy_id = body.strategy or _classify_query(body.query, body.mode)
-    suggested_mode = body.mode or _suggest_mode(strategy_id)
+        strategy_id = body.strategy or _classify_query(body.query, effective_mode)
+    suggested_mode = effective_mode or _suggest_mode(strategy_id)
 
     # Resolve mode dial defaults — mode sets the baseline; explicit dials override per-dial
     mode_entry = _MODE_CATALOG.get(suggested_mode)
