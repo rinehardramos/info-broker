@@ -50,7 +50,10 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from benchmarks.score import (  # noqa: E402
     aggregate_scores,
+    build_recommendations,
+    lead_richness,
     load_registered_technique_ids,
+    render_recommendations,
     render_summary_table,
     score_item,
 )
@@ -208,8 +211,11 @@ def poll_run(session: requests.Session, run_id: str) -> dict:
     )
 
 
-def fetch_trail(session: requests.Session, run_id: str) -> tuple[dict, list[dict]]:
-    """Return (trail_dict, findings_list) from the research_trails row for run_id."""
+def fetch_trail(session: requests.Session, run_id: str) -> tuple[dict, list[dict], dict]:
+    """Return (trail_dict, findings_list, cost_dict) from the run record.
+
+    cost_dict keys: ru_consumed (int), duration_s (float).
+    """
     resp = session.get(f"{BASE_URL}/v3/pipelines/runs/{run_id}", timeout=30)
     resp.raise_for_status()
     data = resp.json()
@@ -220,7 +226,36 @@ def fetch_trail(session: requests.Session, run_id: str) -> tuple[dict, list[dict
     findings: list[dict] = research.get("findings") or []
     if isinstance(findings, str):
         findings = json.loads(findings)
-    return trail, findings
+
+    # Extract cost / budget fields from the run record
+    ru_consumed: int = (
+        data.get("ru_consumed")
+        or data.get("run_budget")
+        or data.get("budget_consumed")
+        or 0
+    )
+    started_at = data.get("started_at") or data.get("created_at") or ""
+    finished_at = data.get("finished_at") or data.get("updated_at") or ""
+    duration_s = 0.0
+    if started_at and finished_at:
+        try:
+            from datetime import datetime, timezone
+
+            def _parse(ts: str) -> datetime:
+                ts = ts.rstrip("Z").split("+")[0]
+                for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+                    try:
+                        return datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
+                    except ValueError:
+                        continue
+                return datetime.now(timezone.utc)
+
+            duration_s = (_parse(finished_at) - _parse(started_at)).total_seconds()
+        except Exception:
+            duration_s = 0.0
+
+    cost_dict = {"ru_consumed": ru_consumed, "duration_s": duration_s}
+    return trail, findings, cost_dict
 
 
 # ---------------------------------------------------------------------------
@@ -292,9 +327,9 @@ def run_item(
     final_status = run_data.get("status", "unknown")
     log.info("[%s] run finished status=%s", item_id, final_status)
 
-    # 4. Fetch trail + findings
+    # 4. Fetch trail + findings + cost
     try:
-        trail, findings = fetch_trail(session, run_id)
+        trail, findings, run_cost = fetch_trail(session, run_id)
     except Exception as exc:
         log.error("[%s] trail fetch failed: %s", item_id, exc)
         return _error_result(item_id, "trail_fetch_error"), {}
@@ -310,6 +345,17 @@ def run_item(
         findings=findings,
         registered_technique_ids=registered_ids,
         strategy_phases=strategy_phases,
+    )
+
+    # Attach richness metrics (for leads-gen items; meaningful for all domains)
+    score_result["richness"] = lead_richness(findings, trail)
+
+    # Attach cost
+    score_result["cost"] = run_cost
+
+    # Attach matched_facts_count (for cost-per-matched-fact)
+    score_result["matched_facts_count"] = sum(
+        1 for fm in score_result.get("fact_matches", []) if fm.get("matched")
     )
 
     # Per-item metadata for aggregation
@@ -417,11 +463,17 @@ def main(argv: list[str] | None = None) -> int:
     table = render_summary_table(all_results, aggregates)
     print(table)
 
+    # Build + print recommendations
+    recommendations = build_recommendations(all_results, aggregates)
+    rec_text = render_recommendations(recommendations)
+    print(rec_text)
+
     # JSON report
     report = {
         "item_results": all_results,
         "run_metadata": all_metadata,
         "aggregates": aggregates,
+        "recommendations": recommendations,
     }
     if args.out_json:
         out_path = Path(args.out_json)
