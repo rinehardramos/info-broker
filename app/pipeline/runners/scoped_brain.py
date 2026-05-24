@@ -302,7 +302,21 @@ def _build_scoped_prompt(
     else:
         # Tactics with `produces` MUST emit tool_use blocks. Be explicit about
         # which MCP-prefixed tool to call and what params to use.
-        lines += [
+        #
+        # Health-aware ordering: partition into healthy vs unhealthy (no key /
+        # requires_key set).  Healthy tools are listed first; unhealthy ones are
+        # annotated with ⚠ UNAVAILABLE but still listed so required_techniques
+        # can be called if no alternative exists.  Best-effort: unknown health
+        # (cache miss) is treated as healthy — we never over-suppress.
+        from app.pipeline.runners.tool_health import (
+            is_unhealthy,
+            missing_key as _missing_key,
+        )
+
+        healthy_prods = [p for p in tactic.produces if not is_unhealthy(p.technique_id)]
+        unhealthy_prods = [p for p in tactic.produces if is_unhealthy(p.technique_id)]
+
+        tool_header = [
             "",
             "## EXECUTION MODE: TOOL USE REQUIRED",
             f"You MUST call EXACTLY {len(tactic.produces)} MCP tool(s) for this tactic.",
@@ -312,6 +326,11 @@ def _build_scoped_prompt(
             "",
             "### Mandatory tool calls (call each one once with the params shown):",
         ]
+        if unhealthy_prods:
+            tool_header.append(
+                "Prefer the healthy tools; treat ⚠ ones as last-resort — they will return empty without their API key."
+            )
+        lines += tool_header
         # Map technique_id → fully-qualified MCP tool name.
         # The actual search string is the user's query — never the briefing.
         sample_query = (
@@ -319,10 +338,23 @@ def _build_scoped_prompt(
             or unit_of_work.get("objective")
             or ""
         )
-        for prod in tactic.produces:
+
+        # Emit healthy tools first (unchanged behaviour)
+        for prod in healthy_prods:
             mcp_tool = f"mcp__info-broker-mcp__run_{prod.technique_id}"
             lines.append(
                 f"  • {mcp_tool}  —  template params: {prod.params_template}"
+            )
+            lines.append(
+                f"    Substitute {{hypothesis_query}}/{{original_query}}/etc. with: \"{sample_query}\""
+            )
+
+        # Emit unhealthy tools last, annotated with ⚠
+        for prod in unhealthy_prods:
+            mcp_tool = f"mcp__info-broker-mcp__run_{prod.technique_id}"
+            key_label = _missing_key(prod.technique_id) or "API key"
+            lines.append(
+                f"  ⚠ {mcp_tool} — UNAVAILABLE (needs {key_label}); prefer the healthy tools above, use this only if no alternative."
             )
             lines.append(
                 f"    Substitute {{hypothesis_query}}/{{original_query}}/etc. with: \"{sample_query}\""
