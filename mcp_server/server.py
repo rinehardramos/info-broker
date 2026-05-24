@@ -358,6 +358,51 @@ async def run_whois_lookup(domain: str) -> str:
 
 
 @mcp.tool()
+async def run_phone_osint(phone: str, country: str = "") -> str:
+    """Phone number OSINT lookup — carrier, line type, owner name, and address.
+
+    phone: Phone number to look up (e.g. '+13125550100' or '3125550100').
+    country: Optional ISO-2 country code to disambiguate (e.g. 'US').
+    Use this to validate or enrich a phone number found during leads generation.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/phone_osint/execute",
+        json={"phone": phone, "country": country},
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
+async def run_pipl_search(
+    first_name: str = "",
+    last_name: str = "",
+    email: str = "",
+    phone: str = "",
+    city: str = "",
+    state: str = "",
+) -> str:
+    """People search via Pipl — aggregates email, phone, address, and social profiles.
+
+    Provide at least one identity anchor (name, email, or phone) to get results.
+    Use this to find or verify contact details for listing agents and property owners.
+    """
+    result = await api_call(
+        "POST",
+        "/v3/nodes/pipl_search/execute",
+        json={
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": email,
+            "phone": phone,
+            "city": city,
+            "state": state,
+        },
+    )
+    return json.dumps(result)
+
+
+@mcp.tool()
 async def run_google_news(query: str, max_results: int = 10) -> str:
     """Search Google News for recent articles about a topic, company, or person."""
     result = await api_call(

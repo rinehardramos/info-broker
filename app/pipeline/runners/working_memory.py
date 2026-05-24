@@ -87,6 +87,8 @@ MCP_TOOL_CATEGORIES: dict[str, ToolCategory] = {
     "run_sec_edgar":                 "lookup",
     "run_whois_lookup":              "lookup",
     "run_hunter_io":                 "lookup",
+    "run_phone_osint":               "lookup",
+    "run_pipl_search":               "lookup",
     "run_h1bdata_search":            "lookup",
     "run_name_origin_lookup":        "lookup",
     "run_migration_corridor_lookup": "lookup",

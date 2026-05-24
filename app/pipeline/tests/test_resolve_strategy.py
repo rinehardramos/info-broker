@@ -2,6 +2,7 @@
 
 Verifies the 4-step fallback chain that maps (intent, mode) → strategy_id:
 
+    0. Composite map: (intent, mode) → dedicated composite strategy
     1. Intent has a dedicated strategy module      → use it
     2. Mode has strategy_suggestions               → first registered wins
     3. generic_search is registered                → fallback floor
@@ -19,6 +20,35 @@ from app.routers.v3.preflight import (
     _resolve_strategy,
     _suggest_mode,
 )
+
+
+# ---------------------------------------------------------------------------
+# Step 0: composite (intent, mode) map wins before plain intent match
+# ---------------------------------------------------------------------------
+
+
+class TestCompositeStrategyRouting:
+    def test_real_estate_plus_leads_generation_routes_to_real_estate_leads(self):
+        """Core contract: real_estate + leads_generation → real_estate_leads."""
+        result = _resolve_strategy("real_estate", "leads_generation")
+        assert result == "real_estate_leads", (
+            f"Expected real_estate_leads, got {result!r}. "
+            "Composite map in _resolve_strategy may be missing or mis-ordered."
+        )
+
+    def test_real_estate_without_mode_still_routes_to_real_estate(self):
+        """Composite map must not affect plain real_estate routing (no mode)."""
+        result = _resolve_strategy("real_estate", None)
+        assert result == "real_estate"
+
+    def test_real_estate_with_non_leads_mode_still_routes_to_real_estate(self):
+        """Only leads_generation triggers the composite; other modes don't."""
+        result = _resolve_strategy("real_estate", "data_retrieval")
+        assert result == "real_estate"
+
+    def test_real_estate_leads_suggest_mode_is_leads_generation(self):
+        """real_estate_leads strategy declares default_mode='leads_generation'."""
+        assert _suggest_mode("real_estate_leads") == "leads_generation"
 
 
 # ---------------------------------------------------------------------------
