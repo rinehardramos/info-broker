@@ -83,7 +83,64 @@ class WebCrawlNode:
     async def execute(
         self, config: dict, inputs: list[dict], context: RunContext
     ) -> list[dict]:
-        return []
+        """Crawl the target URL(s) and return parsed page content.
+
+        Target URLs come from ``config['urls']`` / ``config['url']`` (ad-hoc and
+        MCP callers) and/or from upstream items' ``url`` / ``urls`` fields
+        (pipeline usage). Previously this returned ``[]`` unconditionally, so
+        the MCP ``run_web_crawl`` tool — which routes through this endpoint —
+        always reported success with zero results (see issue #110).
+        """
+        allowed_domains = config.get("allowed_domains", [])
+        max_pages = int(config.get("max_pages", 10))
+        scrape_depth = int(config.get("scrape_depth", 1))
+        delay_seconds = float(config.get("delay_seconds", 1.0))
+        respect_robots = bool(config.get("respect_robots", True))
+        extract_mode = config.get("extract_mode", "text")
+
+        # Collect target URLs from config and upstream items, deduped in order.
+        targets: list[str] = []
+
+        def _add(value: object) -> None:
+            if isinstance(value, str) and value.strip():
+                targets.append(value.strip())
+            elif isinstance(value, list):
+                for v in value:
+                    if isinstance(v, str) and v.strip():
+                        targets.append(v.strip())
+
+        _add(config.get("urls"))
+        _add(config.get("url"))
+        for item in inputs:
+            _add(item.get("url"))
+            _add(item.get("urls"))
+
+        seen: set[str] = set()
+        ordered: list[str] = []
+        for url in targets:
+            if url not in seen:
+                seen.add(url)
+                ordered.append(url)
+
+        if not ordered:
+            return []
+
+        loop = asyncio.get_running_loop()
+        results: list[dict] = []
+        for url in ordered:
+            crawled = await loop.run_in_executor(
+                None,
+                _crawl,
+                url,
+                allowed_domains,
+                max_pages,
+                scrape_depth,
+                delay_seconds,
+                respect_robots,
+                extract_mode,
+            )
+            results.extend(crawled)
+        return results
 
     # -- ToolCallable interface ------------------------------------------------
 

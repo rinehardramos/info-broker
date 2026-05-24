@@ -366,6 +366,71 @@ def test_crawl_extract_mode_markdown(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# execute() — actually crawls (regression for issue #110)
+#
+# Before the fix, WebCrawlNode.execute() returned [] unconditionally, so the
+# MCP run_web_crawl tool (which routes through /v3/nodes/web_crawl/execute)
+# always reported success with zero results.
+# ---------------------------------------------------------------------------
+
+def _patch_crawl(monkeypatch):
+    """Replace _crawl with a stub that records calls and returns one item/url."""
+    calls: list[str] = []
+
+    def fake_crawl(url, *args, **kwargs):
+        calls.append(url)
+        return [{"url": url, "content": f"content of {url}", "source": "web_crawl"}]
+
+    monkeypatch.setattr("app.pipeline.nodes.web_crawl._crawl", fake_crawl)
+    return calls
+
+
+def test_execute_crawls_urls_from_config_list(monkeypatch):
+    calls = _patch_crawl(monkeypatch)
+    node = WebCrawlNode()
+    results = _arun(
+        node.execute(
+            {"urls": ["https://a.com", "https://b.com"]}, [], _ctx()
+        )
+    )
+    assert calls == ["https://a.com", "https://b.com"]
+    assert [r["url"] for r in results] == ["https://a.com", "https://b.com"]
+
+
+def test_execute_crawls_singular_url_from_config(monkeypatch):
+    calls = _patch_crawl(monkeypatch)
+    node = WebCrawlNode()
+    results = _arun(node.execute({"url": "https://a.com"}, [], _ctx()))
+    assert calls == ["https://a.com"]
+    assert len(results) == 1
+
+
+def test_execute_reads_urls_from_upstream_items(monkeypatch):
+    calls = _patch_crawl(monkeypatch)
+    node = WebCrawlNode()
+    results = _arun(
+        node.execute({}, [{"url": "https://a.com"}, {"url": "https://b.com"}], _ctx())
+    )
+    assert calls == ["https://a.com", "https://b.com"]
+    assert len(results) == 2
+
+
+def test_execute_dedupes_urls_across_config_and_inputs(monkeypatch):
+    calls = _patch_crawl(monkeypatch)
+    node = WebCrawlNode()
+    _arun(node.execute({"urls": ["https://a.com"]}, [{"url": "https://a.com"}], _ctx()))
+    assert calls == ["https://a.com"]  # crawled once, not twice
+
+
+def test_execute_no_targets_returns_empty(monkeypatch):
+    calls = _patch_crawl(monkeypatch)
+    node = WebCrawlNode()
+    results = _arun(node.execute({}, [], _ctx()))
+    assert results == []
+    assert calls == []
+
+
+# ---------------------------------------------------------------------------
 # Node metadata preserved
 # ---------------------------------------------------------------------------
 
@@ -373,4 +438,4 @@ def test_node_metadata():
     node = WebCrawlNode()
     assert node.node_type == "web_crawl"
     assert node.display_name == "Web Crawl"
-    assert node.category == "datastore"
+    assert node.category == "source"
