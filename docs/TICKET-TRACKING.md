@@ -1,6 +1,6 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-25** (PRs #118, #120–#129, #132–#140 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded)
+> Last reconciled: **2026-05-25** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#148 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; #74/#75/#76 = API-key vault + gates IN-FLIGHT; #79/#145 benchmark backlog)
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
@@ -32,7 +32,19 @@ Before citing a ticket, starting a "new" feature, or trusting a branch:
 
 > Only one **infra** issue remains open (and it's downgraded) — no product bugs.
 
-**Recently closed:** **#130** → #135 + #139 (test rate-limiter + admission-gate bypass under test, + restore-on-teardown fixture — full suite deterministic). #89 → resolved by #117 taxonomy+gates (non-reproducing); two latent hardening items in the watchlist below. #90 → #124. #110/#111 → #118. #94 → #119. #95, #91 → verified fixed. **Brain 100%-broken auth → #123**. **UI/agent:** #127 (legacy phase order), #128 (mid-run injection), #129 (#122 is_prompt regression), #134 (removed low-value dashboard entity-lookup), #136 (enlarged Research CTA 2×), #137 (temporal-trail tests → sync). **Real-estate leads-gen:** #138 (real_estate_leads strategy + 6 enrichment techniques + leads_enrich_gather tactic + composite routing + templates), #140 (`_infer_mode` lead-phrase → leads_generation).
+**Recently closed:** **#130** → #135 + #139 (test rate-limiter + admission-gate bypass under test, + restore-on-teardown fixture — full suite deterministic). #89 → resolved by #117 taxonomy+gates (non-reproducing); two latent hardening items in the watchlist below. #90 → #124. #110/#111 → #118. #94 → #119. #95, #91 → verified fixed. **Brain 100%-broken auth → #123**. **UI/agent:** #127 (legacy phase order), #128 (mid-run injection), #129 (#122 is_prompt regression), #134 (removed low-value dashboard entity-lookup), #136 (enlarged Research CTA 2×), #137 (temporal-trail tests → sync). **Real-estate leads-gen:** #138 (real_estate_leads strategy + 6 enrichment techniques + leads_enrich_gather tactic + composite routing + templates), #140 (`_infer_mode` lead-phrase → leads_generation), #142 (extended lead idioms), #144 (tool-health ordering + listings-first per-item enrichment). **Tooling/admin:** #143 (New Session → Agent pane), #146 (admin action-items for unhealthy/needs-key tools). **Benchmarks (issue #145):** #147 (gold-set + composite scoring + 4 anti-gaming guards), #148 (leads-gen richness + cost + recommendations).
+
+## In-flight (multi-phase API-key vault + missing-key gates)
+
+> Driven by run `c5aff228` (thin leads-gen output) — root cause was **missing/invalid enrichment keys**, not a decision-tree bug. The fix is to let users supply keys safely and gate runs that need them.
+
+| # | Phase | What | State | Security invariant |
+|---|-------|------|-------|--------------------|
+| **#74** | 1 | Scoped **encrypted** API-key vault (per-org/per-user, falls back to global if key allows global access; encrypt-at-rest) | **agent running** (worktree) | Keys MUST NOT reach the brain env / logs / trail; thread only non-secret user/org id (`IS_RUN_USER_ID`/`IS_RUN_ORG_ID`). |
+| **#75** | 2 | Pre-run missing-key **decision gate** (surface needed keys before start; enter key / skip / replace / use-another-tool, with key-generation instructions) | blocked on #74 | — |
+| **#76** | 3 | Reactive **mid-run** missing-key gate (pause node → ask_user in agent_input → resume) | blocked on #75 | — |
+
+> #79 (leads-gen benchmark) is **DONE** via #148. Running it **live** is expected to flag missing-key + zero-enrichment until #74–#76 land — that baseline validates the recommendation engine and quantifies the `c5aff228` gap.
 
 > Issue "files likely to involve" lists are **stale** (pre-#117 taxonomy). Corrected file maps live in each issue's latest comment.
 
@@ -81,6 +93,12 @@ Reconciled from merged PRs; grep-verified entry points. Prevents duplication.
 | Real-estate **leads-generation** — `real_estate_leads` strategy (listings→contact→owner-background→leads table), 6 enrichment techniques (hunter/opencorporates/whois/apollo/phone_osint/pipl), `leads_enrich_gather` tactic, `(real_estate,leads_generation)→real_estate_leads` composite route, templates | `catalogs/registries/{strategies,tactics,techniques}/…`, `routers/v3/preflight.py`, `investigation_templates.py` | #138 |
 | Lead-phrase mode inference (`_infer_mode`: "lead list"/"find leads"/… → leads_generation when no mode picked) — makes leads-worded queries + the template auto-route to `real_estate_leads` | `app/routers/v3/preflight.py` | #140 |
 | Dashboard: removed low-value entity-lookup; enlarged primary Research CTA ~2× | `frontend/src/pages/Dashboard.tsx` | #134, #136 |
+| Extended lead-phrase signals (`fsbo`/`frbo`/`motivated seller`/`owner contact`/`skip trace`/… → leads_generation) | `app/routers/v3/preflight.py` `_LEADS_MODE_SIGNALS` | #142 |
+| New Session button relocated to Agent pane (`handleEndSession`) | `frontend/src/components/agent/AgentChat.tsx`, `live/LiveStream.tsx` | #143 |
+| **Tool-health-aware brain ordering** (healthy techniques first; unhealthy marked `⚠ UNAVAILABLE (needs <key>)`, never dropped) + **listings-first per-item enrichment** (gather lists FIRST → enrich EACH → synthesize per-row leads table; missing fields marked "not found / tool unavailable") | `app/pipeline/runners/{tool_health.py,scoped_brain.py}`, `catalogs/registries/strategies/real_estate_leads.py` | #144 |
+| Admin action-items UI for unhealthy / needs-key tools/plugins | `frontend/src/components/settings/{AdminActionItems.tsx,Settings.tsx}` | #146 |
+| **Benchmark harness** — curated gold-set + composite scoring (coverage×source_quality) + 4 anti-gaming guards (training-only / unregistered-tool / skipped-phase / RAG-shortcut → hard zero) | `benchmarks/{goldset,score.py,run_benchmark.py}`, `tests/benchmarks/test_score.py` | #147 (issue #145) |
+| **Leads-gen benchmark extension** — leads gold-set + `lead_richness()` (10 contact/owner fields → per-lead completeness, zero-enrichment count) + cost metrics (cost_per_lead / cost_per_matched_fact / avg_duration) + `build_recommendations()` (missing-key / anti-gaming / underperforming-component / low-richness / cost-outlier / gold-set-gap, severity-sorted) | `benchmarks/{goldset/leads_items.yaml,score.py}`, `tests/benchmarks/test_leads_metrics.py` | #148 (issue #145/#79) |
 
 ## TODO.md (root) reconciliation — what's actually done
 
