@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form'
 import IconRail from '../components/layout/IconRail'
 import { useSessionStore } from '../stores/sessionStore'
 import AccountSection from '../components/settings/AccountSection'
+import AdminActionItems from '../components/settings/AdminActionItems'
 import { api } from '../api/client'
 
 const CORE_FIELDS = [
@@ -665,8 +666,8 @@ export default function Settings() {
   const role = useSessionStore(s => s.role)
   const canSeeDefaultMode = isAdmin || role === 'admin'
   const canSeeVisibility = isAdmin || role === 'admin'
-  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode' | 'visibility'>(
-    isAdmin ? 'core' : 'account',
+  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode' | 'visibility' | 'action-items'>(
+    isAdmin ? 'action-items' : 'account',
   )
 
   return (
@@ -716,6 +717,18 @@ export default function Settings() {
           {isAdmin && (
             <>
               <div className="text-[10px] font-semibold mb-2 mt-3 px-1" style={{ color: 'var(--muted)' }}>SYSTEM</div>
+              <button
+                onClick={() => setSection('action-items')}
+                className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+                data-testid="settings-nav-action-items"
+                style={{
+                  background: section === 'action-items' ? 'var(--panel2)' : 'transparent',
+                  color: section === 'action-items' ? 'var(--accent)' : 'var(--text)',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                Action Items
+              </button>
               <button
                 onClick={() => setSection('core')}
                 className="w-full text-left px-2 py-1 rounded text-xs mb-1"
@@ -782,9 +795,13 @@ export default function Settings() {
               : section === 'node-health' ? 'Node Health'
               : section === 'default-mode' ? 'Default Mode'
               : section === 'visibility' ? 'Modes & Templates'
+              : section === 'action-items' ? 'Action Items'
               : 'Plugin Settings'}
           </h2>
           {section === 'account' && <AccountSection />}
+          {isAdmin && section === 'action-items' && (
+            <AdminActionItems onNavigateToCoreSettings={() => setSection('core')} />
+          )}
           {isAdmin && section === 'core' && <CoreSettingsForm />}
           {isAdmin && section === 'plugins' && <PluginSettingsForm />}
           {section === 'agent' && <AgentSettingsForm />}
