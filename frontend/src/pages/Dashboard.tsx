@@ -12,7 +12,7 @@ import { useDebouncedLoading } from '@/hooks/useDebouncedLoading'
 import {
   listRuns, getRunMetrics, listPlugins, getWallet, getPerformanceDashboard,
   getWorkerHealth, listInvestigationTemplates, getUserCostAggregate,
-  getOpenQuestionsDigest, getEntityKnowledge,
+  getOpenQuestionsDigest,
   type WorkerHealth, type InvestigationTemplate,
 } from '@/api/v3'
 
@@ -98,23 +98,6 @@ export default function Dashboard() {
     retry: false,
   })
 
-  // Entity search input (B)
-  const [entityQuery, setEntityQuery] = useState('')
-  const [entitySearch, setEntitySearch] = useState('')
-  const {
-    data: entityKnowledge,
-    isLoading: entityLoading,
-    isError: entityError,
-    error: entityErrorObj,
-    refetch: refetchEntity,
-  } = useQuery({
-    queryKey: ['entity-knowledge', entitySearch],
-    queryFn: () => getEntityKnowledge(entitySearch),
-    enabled: entitySearch.length > 1,
-    retry: false,
-  })
-  const entitySearching = entitySearch.length > 1 && entityLoading
-  const showEntitySkeleton = useDebouncedLoading(entitySearching)
   const showCostSkeleton = useDebouncedLoading(costLoading)
   const showOpenQsSkeleton = useDebouncedLoading(openQsLoading)
   const showRunsSkeleton = useDebouncedLoading(runsLoading)
@@ -434,92 +417,6 @@ export default function Dashboard() {
             )}
           </div>
         </div>
-
-        {/* B. Entity knowledge search */}
-        <section
-          className="rounded-lg border p-4"
-          style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
-        >
-          <div className="flex items-baseline justify-between mb-2">
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-              What do I know about…
-            </h2>
-            <span className="text-[10px] opacity-50">aggregates facts across all your runs</span>
-          </div>
-          <form onSubmit={(e) => { e.preventDefault(); setEntitySearch(entityQuery.trim()) }}
-                className="flex items-center gap-2">
-            <input
-              type="text"
-              value={entityQuery}
-              onChange={(e) => setEntityQuery(e.target.value)}
-              placeholder="A company, person, or topic name…"
-              className="flex-1 px-3 py-2 rounded text-sm outline-none"
-              style={{ background: 'var(--panel2)', color: 'var(--text)',
-                       border: '1px solid var(--border)' }}
-            />
-            <button type="submit"
-                    className="px-3 py-2 rounded text-sm font-semibold"
-                    style={{ background: 'var(--panel2)', color: 'var(--text)',
-                             border: '1px solid var(--border)' }}>
-              Look up
-            </button>
-          </form>
-          {showEntitySkeleton && (
-            <div className="mt-3 space-y-1.5">
-              <Skeleton className="h-3 w-40" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-11/12" />
-              <Skeleton className="h-4 w-10/12" />
-            </div>
-          )}
-          {!showEntitySkeleton && entityError && entitySearch && (
-            <InlineError
-              title={`Couldn't look up "${entitySearch}"`}
-              message={(entityErrorObj as Error | undefined)?.message}
-              onRetry={() => refetchEntity()}
-              className="mt-3"
-            />
-          )}
-          {!showEntitySkeleton && !entityError && entityKnowledge && entitySearch && entityKnowledge.facts.length === 0 && (
-            <EmptyState
-              title={`No facts about "${entityKnowledge.subject}" yet`}
-              hint="Run an investigation that touches this entity to start building a knowledge profile."
-              compact
-              className="mt-2"
-            />
-          )}
-          {!showEntitySkeleton && !entityError && entityKnowledge && entitySearch && entityKnowledge.facts.length > 0 && (
-            <div className="mt-3 text-[11px]" style={{ color: 'var(--subtext)' }}>
-              <div className="opacity-60 mb-1">
-                {entityKnowledge.runs_touching_subject} run(s) touched "{entityKnowledge.subject}" · {entityKnowledge.facts.length} facts
-              </div>
-              <ul className="space-y-1">
-                {entityKnowledge.facts.slice(0, 8).map((f, i) => (
-                  <li key={i} className="flex items-baseline gap-2">
-                    <span
-                      className="text-[9px] uppercase tracking-wider px-1 py-px rounded"
-                      style={{ background: f.verified_by === 'user_grade_A' ? '#16a34a30' : '#71717a30',
-                               color: f.verified_by === 'user_grade_A' ? '#86efac' : '#a1a1aa' }}
-                      title={f.verified_by}
-                    >
-                      {f.verified_by === 'user_grade_A' ? 'A' : (f.verified_by || 'unk').slice(0, 4)}
-                    </span>
-                    <span className="flex-1 truncate" title={f.claim}>{f.claim}</span>
-                    <span className="opacity-50 text-[9px] flex-shrink-0">
-                      run {f.run_id.slice(0, 8)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {entityKnowledge.contradictions.length > 0 && (
-                <div className="mt-2 p-2 rounded"
-                     style={{ background: '#ef444410', border: '1px solid #ef444440' }}>
-                  ⚠ {entityKnowledge.contradictions.length} potential contradiction(s) — sources disagree on the same attribute.
-                </div>
-              )}
-            </div>
-          )}
-        </section>
 
         {/* ── History (10 recent runs) ───────────────────────────────────── */}
         <section className="space-y-2">
