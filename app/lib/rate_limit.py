@@ -9,9 +9,17 @@ Override per-route in the route decorator.
 """
 from __future__ import annotations
 
+import os
+
 from fastapi import Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+
+# Disable limiting under test: the suite makes hundreds of requests from a
+# single client IP (one bucket), which trips the 60/minute default and causes
+# flaky `429`s unrelated to the code under test. conftest sets DISABLE_RATE_LIMIT=1
+# before importing the app. (Does not affect prod, where the env var is unset.)
+_RATE_LIMIT_ENABLED = os.getenv("DISABLE_RATE_LIMIT") != "1"
 
 
 def _key_func(request: Request) -> str:
@@ -31,4 +39,5 @@ limiter = Limiter(
     default_limits=["60/minute"],
     storage_uri="memory://",
     headers_enabled=True,
+    enabled=_RATE_LIMIT_ENABLED,
 )
