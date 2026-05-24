@@ -5,14 +5,12 @@ empty for completed runs.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from unittest.mock import patch, MagicMock, AsyncMock
 
-import pytest
 
-
-@pytest.mark.asyncio
-async def test_post_process_inserts_research_trail():
+def test_post_process_inserts_research_trail():
     from app.temporal.activities.post_process import post_process, PostProcessInput
 
     brain_result = {
@@ -37,12 +35,12 @@ async def test_post_process_inserts_research_trail():
          patch("app.routers.v3.db.fetch_one", fake_fetch_one), \
          patch("app.routers.v3.stream.push_event", AsyncMock(return_value=None)), \
          patch("app.memory.writer.index_research_findings", AsyncMock(return_value=0)):
-        await post_process(PostProcessInput(
+        asyncio.run(post_process(PostProcessInput(
             run_id="11111111-1111-1111-1111-111111111111",
             user_id="22222222-2222-2222-2222-222222222222",
             session_id=None,
             brain_result=brain_result,
-        ))
+        )))
 
     inserts = [(s, p) for s, p in captured if "INSERT INTO research_trails" in s]
     assert len(inserts) == 1, f"expected exactly one trail INSERT, captured: {[s[:60] for s,_ in captured]}"
@@ -61,8 +59,7 @@ async def test_post_process_inserts_research_trail():
     assert params[8] is None  # suggested_pipeline
 
 
-@pytest.mark.asyncio
-async def test_post_process_uses_engine_v2_trail_when_present():
+def test_post_process_uses_engine_v2_trail_when_present():
     """When the workflow attaches _engine_v2_trail / _engine_v2_findings, the
     trail JSONB column gets the engine_v2 shape (with branches / phases_full
     / ranked_candidates) so /v3/runs/{id}/replay returns populated data
@@ -101,7 +98,7 @@ async def test_post_process_uses_engine_v2_trail_when_present():
          patch("app.routers.v3.db.fetch_one", fake_fetch_one), \
          patch("app.routers.v3.stream.push_event", AsyncMock(return_value=None)), \
          patch("app.memory.writer.index_research_findings", AsyncMock(return_value=0)):
-        await post_process(PostProcessInput(
+        asyncio.run(post_process(PostProcessInput(
             run_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
             user_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
             session_id=None,
@@ -110,7 +107,7 @@ async def test_post_process_uses_engine_v2_trail_when_present():
                 "_engine_v2_trail": v2_trail,
                 "_engine_v2_findings": v2_findings,
             },
-        ))
+        )))
 
     inserts = [(s, p) for s, p in captured if "INSERT INTO research_trails" in s]
     assert len(inserts) == 1
@@ -125,8 +122,7 @@ async def test_post_process_uses_engine_v2_trail_when_present():
     assert params[7] == 1  # tool_calls = len(branches)
 
 
-@pytest.mark.asyncio
-async def test_post_process_idempotent_when_already_succeeded():
+def test_post_process_idempotent_when_already_succeeded():
     """If pipeline_runs.status is already 'succeeded', skip everything."""
     from app.temporal.activities.post_process import post_process, PostProcessInput
 
@@ -139,12 +135,12 @@ async def test_post_process_idempotent_when_already_succeeded():
 
     with patch("app.routers.v3.db.execute", side_effect=fake_execute), \
          patch("app.routers.v3.db.fetch_one", fake_fetch_one):
-        await post_process(PostProcessInput(
+        asyncio.run(post_process(PostProcessInput(
             run_id="00000000-0000-0000-0000-000000000000",
             user_id="00000000-0000-0000-0000-000000000000",
             session_id=None,
             brain_result={"query": "x", "findings": []},
-        ))
+        )))
 
     inserts = [s for s, _ in captured if "INSERT INTO research_trails" in s]
     assert not inserts, "post_process must not write trail when run already succeeded"
