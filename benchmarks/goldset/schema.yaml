@@ -1,0 +1,42 @@
+# Gold-set item schema — benchmark harness v1
+# Every file under benchmarks/goldset/ (except this schema.yaml) is a YAML
+# list of items conforming to this schema.
+#
+# REQUIRED FIELDS
+# ---------------
+# id          : string — unique stable identifier across the entire gold-set.
+#               Convention: <domain>-<short-name>-<NNN>, e.g. person-jobs-001
+# query       : string — the exact user query text submitted to POST /v3/preflight
+# expected_facts: list — one or more facts that MUST be surfaced by a clean run
+#   Each expected_fact has:
+#     claim             : string — the specific factual assertion to check
+#     authoritative_source: string URL — where this fact can be verified independently
+#     must_be_live      : bool — true = claim must come from a live tool call
+#                                (source_class NOT in {prior_research, training_knowledge})
+# domain      : string — one of: person | company | real_estate | due_diligence
+#
+# OPTIONAL FIELDS
+# ---------------
+# template    : string — force a specific strategy id (e.g. real_estate_leads)
+# mode        : string — force a specific optimization mode (e.g. investigation)
+# notes       : string — free-text rationale for the item
+#
+# HOW TO ADD ITEMS
+# ----------------
+# 1. Create a new YAML file under benchmarks/goldset/ (e.g. my_items.yaml).
+#    The filename doesn't matter — all *.yaml files are loaded.
+# 2. The file must be a YAML list: start with `- id: ...`
+# 3. Pick a unique id (no duplicates across files — the loader will error).
+# 4. Provide at least one expected_fact with a real authoritative_source URL.
+# 5. Set must_be_live: true for any claim that requires fresh evidence (e.g.
+#    current owner, live listing price). Facts that are historically fixed
+#    (e.g. company founding date) may use must_be_live: false.
+# 6. Run `python -m pytest tests/benchmarks/test_score.py` to validate schema
+#    parsing without a live stack.
+#
+# ITEM QUALITY GUIDELINES
+# -----------------------
+# - Use real, publicly verifiable facts with stable authoritative sources.
+# - Avoid facts that change frequently (stock prices, real-time rankings).
+# - Prefer facts that a search engine can find in <3 hops.
+# - Each item should exercise a distinct pipeline path (strategy/tactic combo).
