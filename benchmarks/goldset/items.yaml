@@ -1,0 +1,90 @@
+# Initial curated gold-set — benchmark harness v1
+# Domain coverage: person, company, real_estate, due_diligence
+# All facts are publicly verifiable via the listed authoritative_source URLs.
+
+- id: person-jobs-001
+  query: "Who is Tim Cook and what company does he lead?"
+  mode: investigation
+  domain: person
+  notes: >
+    Well-known tech executive. Apple Inc CEO since August 2011.
+    Stable biographical fact with multiple authoritative sources.
+  expected_facts:
+    - claim: "Tim Cook is the CEO of Apple Inc"
+      authoritative_source: "https://www.apple.com/leadership/tim-cook/"
+      must_be_live: false
+    - claim: "Tim Cook succeeded Steve Jobs as Apple CEO"
+      authoritative_source: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=DEF+14A&dateb=&owner=include&count=10"
+      must_be_live: false
+
+- id: company-kyb-001
+  query: "Tell me about Anthropic, the AI safety company — who founded it and when?"
+  mode: investigation
+  domain: company
+  notes: >
+    Anthropic is a well-known AI safety company founded in 2021 by former OpenAI
+    researchers. Founding facts are stable and well-documented.
+  expected_facts:
+    - claim: "Anthropic was founded by Dario Amodei and Daniela Amodei"
+      authoritative_source: "https://www.anthropic.com/about"
+      must_be_live: false
+    - claim: "Anthropic was founded in 2021"
+      authoritative_source: "https://www.crunchbase.com/organization/anthropic"
+      must_be_live: false
+
+- id: company-kyb-002
+  query: "What is OpenAI and who are its key founders?"
+  mode: investigation
+  domain: company
+  notes: >
+    OpenAI founded in 2015 by Sam Altman, Elon Musk, Greg Brockman, and others.
+    Founding history is well documented across many authoritative sources.
+  expected_facts:
+    - claim: "OpenAI was co-founded by Sam Altman"
+      authoritative_source: "https://openai.com/about"
+      must_be_live: false
+    - claim: "OpenAI was founded in 2015"
+      authoritative_source: "https://openai.com/about"
+      must_be_live: false
+
+- id: real-estate-owner-001
+  query: "Who owns One Microsoft Way, Redmond WA 98052?"
+  template: real_estate
+  mode: data_retrieval
+  domain: real_estate
+  notes: >
+    Microsoft headquarters address. The campus owner is Microsoft Corporation.
+    Property ownership records are available via King County Assessor.
+  expected_facts:
+    - claim: "One Microsoft Way Redmond WA is the headquarters of Microsoft Corporation"
+      authoritative_source: "https://info.kingcounty.gov/assessor/esales/default.aspx"
+      must_be_live: true
+
+- id: person-exec-001
+  query: "Who is Satya Nadella and what is his role at Microsoft?"
+  mode: investigation
+  domain: person
+  notes: >
+    Satya Nadella became Microsoft CEO in 2014. Stable leadership fact.
+  expected_facts:
+    - claim: "Satya Nadella is the CEO of Microsoft"
+      authoritative_source: "https://www.microsoft.com/en-us/about/leadership"
+      must_be_live: false
+    - claim: "Satya Nadella became CEO of Microsoft in 2014"
+      authoritative_source: "https://news.microsoft.com/2014/02/04/satya-nadella-named-microsoft-ceo/"
+      must_be_live: false
+
+- id: due-diligence-001
+  query: "What is Stripe's corporate registration status and who are its founders?"
+  mode: investigation
+  domain: due_diligence
+  notes: >
+    Stripe Inc founded by Patrick Collison and John Collison in 2010.
+    Corporate registration verifiable via Delaware Division of Corporations.
+  expected_facts:
+    - claim: "Stripe was founded by Patrick Collison and John Collison"
+      authoritative_source: "https://stripe.com/about"
+      must_be_live: false
+    - claim: "Stripe was founded in 2010"
+      authoritative_source: "https://www.crunchbase.com/organization/stripe"
+      must_be_live: false
