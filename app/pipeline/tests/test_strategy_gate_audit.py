@@ -139,7 +139,7 @@ class TestRealCatalog:
 # ---------------------------------------------------------------------------
 
 
-def _make_strategy_dict(id: str, broaden_checks: list) -> dict:
+def _make_strategy_dict(id: str, gather_checks: list) -> dict:
     """Minimal valid Strategy dict for the audit (Pydantic-validated)."""
     return {
         "id": id,
@@ -153,7 +153,7 @@ def _make_strategy_dict(id: str, broaden_checks: list) -> dict:
                 "depends_on": [],
                 "unit_of_work_contract": {"inputs": [], "briefing": "test"},
                 "hypothesis_count_policy": "fixed:1",
-                "gate": {"checks": broaden_checks, "on_fail": "ask_user"},
+                "gate": {"checks": gather_checks, "on_fail": "ask_user"},
             },
         ],
     }

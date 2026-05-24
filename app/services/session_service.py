@@ -133,7 +133,7 @@ def build_session_context(session: dict | None, current_message: str) -> str:
     # Keep this block GENERIC — no entity-specific examples, no special phases.
     # The IS brain's existing STEP 0 through STEP 7 methodology already handles
     # rejections correctly: STEP 0 re-decomposes with the rejection as a
-    # constraint, STEP 1 asks discriminating questions, STEP 2 BROADENs from
+    # constraint, STEP 1 asks discriminating questions, STEP 2 gathers from
     # retained signals, STEP 5 runs the adversarial check against rejected
     # evidence. Do not duplicate or pre-empt those phases here.
     rejection_section = ""
@@ -159,12 +159,12 @@ re-run the standard methodology from STEP 0 with this rejection as a constraint.
 Rejected findings (do not re-propose; treat as disconfirming evidence in ACH):
 {rejected_block}
 
-Retained signals (still valid; use as BROADEN seeds):
+Retained signals (still valid; use as gather seeds):
 {retained_block}
 
 Re-enter the methodology at STEP 0. Decompose the genesis query against the
 retained signals, run STEP 1's clarification gate if a critical gap remains,
-BROADEN from the retained signals (not from the rejected entity's family),
+gather from the retained signals (not from the rejected entity's family),
 and apply the STEP 5 adversarial check against the rejected evidence before
 delivering. H_COMPOSITE remains available as a hypothesis. Confidence on any
 new candidate is bounded by H_COMPOSITE and ACH consistency with the rejection.

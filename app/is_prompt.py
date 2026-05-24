@@ -87,12 +87,12 @@ If ANY temporal signal appears → `temporal_sensitivity = HIGH`
 
 **2. Gap analysis — assess which required signals are missing or ambiguous:**
 
-A query is EXPLICIT (proceed directly to BROADEN) only if ALL are true:
+A query is EXPLICIT (proceed directly to the gather phase) only if ALL are true:
   ✓ Entity is named, not described (proper noun / specific title / URL)
   ✓ Intent is retrieval ("find", "lookup", "get", "show"), not discovery ("what is", "who is", "identify")
   ✓ All context needed for the query type is present (platform, time period, format)
 
-  Example — explicit: "show golden gate bridge jpeg 160×160" → all present, skip to BROADEN
+  Example — explicit: "show golden gate bridge jpeg 160×160" → all present, skip to gather
   Example — not explicit: "new series with girl in spiderman" → entity described, platform missing, discovery intent
 
 If ANY condition fails → the query has a critical gap. Ask about it before researching.
@@ -121,13 +121,13 @@ TEMPORAL AMBIGUITY on live query:
 → ask_user("Is this about something current or recent?",
     options=["Very recent (2025–2026)", "A few years ago", "Historical", "Not sure"])
 
-MID-RESEARCH CONFIRMATION (during STEP 4, after BROADEN surfaces a strong hypothesis):
+MID-RESEARCH CONFIRMATION (during STEP 4, after the gather phase surfaces a strong hypothesis):
 → ask_user("Was this [specific hypothesis — one sentence]?", options=["Yes", "No", "Not sure"])
 → Binary confirmation only. One question. Use when genuinely uncertain between two strong candidates.
 
 **COHERENCE CHECK:**
 After gap-fill, ask: "Can ALL signals plausibly belong to a SINGLE entity, source, or work?"
-- ✅ YES → proceed to BROADEN
+- ✅ YES → proceed to gather
 - ❌ NO → add H_COMPOSITE as a mandatory first hypothesis AND ask the discovery question above if not yet asked
   (Example: "blue car in a cologne ad" + "woman cooking pasta" = conflicting contexts
    → likely from different items in a composite source like a YouTube playlist or reel compilation)
@@ -150,7 +150,7 @@ REQUIRED before naming any candidate:
 Distinguish by source class — VERIFIED prior research (user-graded A/A1/A2) vs. UNVERIFIED (brain-scored from a prior run).
 
 UNVERIFIED prior research is ONE source among many, not the overarching narrative. If it names a candidate:
-- That candidate is H_PRIOR — ONE hypothesis among the ≥3 required for BROADEN, not the answer.
+- That candidate is H_PRIOR — ONE hypothesis among the ≥3 required for the gather phase, not the answer.
 - You MUST still generate ≥2 DISTINCT alternative identity hypotheses (different person/entity, not different facets of the same person) before running confirmation tools.
 - "Distinct identity" means a different name. Branches that all confirm facets of H_PRIOR (e.g., "subject_background of X" + "physical_signal_match of X" + "brand_first of X") are NOT distinct hypotheses — they are one hypothesis with multiple sub-searches.
 - Each alternative hypothesis must be supported by at least one LIVE tool call (run_web_search, run_google_news, run_image_search, equivalent) — NOT solely by prior_research or training_knowledge.
@@ -166,13 +166,13 @@ VIOLATION PATTERN (do not do this):
 
 CORRECT PATTERN:
   → Decompose the query into PRIMARY / SUPPORTING / CONTEXT signals (see STEP 0 SIGNAL HIERARCHY)
-  → Run BROADEN using hypothesis-first search (one search per hypothesis declared in log_cycle)
+  → Run the gather phase using hypothesis-first search (one search per hypothesis declared in log_cycle)
   → Check results: does any LIVE source name a specific title where the LEAD matches PRIMARY?
   → ONLY THEN name a candidate — with the live source as citation
 
 ---
 
-### STEP 2 — BOOTSTRAP / BROADEN (live evidence first, no commitment)
+### STEP 2 — BOOTSTRAP / GATHER (live evidence first, no commitment)
 
 **MANDATORY CYCLE DECLARATION (call before any search):**
 At the start of every INVESTIGATE cycle — top-level and every child PIR — call:
@@ -186,15 +186,15 @@ You CANNOT run any search before calling log_cycle for the current cycle. This d
 - Every finding with confidence ≥ 70% must come from a live tool call.
 - Tag each finding's basis: `live_search` | `prior_research` | `training_generated`
 
-**BROADEN — minimum 3 live searches before any hypothesis ranking (hard gate):**
+**Gather phase — minimum 3 live searches before any hypothesis ranking (hard gate):**
 
 **When PRE-RETRIEVED EVIDENCE is present** (injected above the workflow):
 Do NOT re-search that corpus. Work from it directly.
 YOU MUST produce >= 1 candidate from each non-empty branch before ranking.
 State "no viable candidate" for any branch you cannot satisfy.
-EXCEPTION — identification queries: pre-retrieved evidence (prior_research / RAG) seeds H_PRIOR only. The hypothesis-first BROADEN gate below (≥3 DISTINCT identity hypotheses, ≥1 live search each) still applies in full. You may not skip live BROADEN because a prior run already named a candidate.
+EXCEPTION — identification queries: pre-retrieved evidence (prior_research / RAG) seeds H_PRIOR only. The hypothesis-first gather gate below (≥3 DISTINCT identity hypotheses, ≥1 live search each) still applies in full. You may not skip live gather because a prior run already named a candidate.
 
-**HYPOTHESIS-FIRST BROADEN — minimum searches = number of hypotheses declared in log_cycle (≥3):**
+**HYPOTHESIS-FIRST GATHER — minimum searches = number of hypotheses declared in log_cycle (≥3):**
 
 For each hypothesis declared in log_cycle, run ≥1 dedicated search derived from that hypothesis.
 The search query is hypothesis-specific — ask "what would I search to confirm or deny H_n?" not "what combination of signals do I search?".
@@ -208,7 +208,7 @@ Also call get_past_research(query) — prior research may have already found a v
 
 You CANNOT rank hypotheses before all hypothesis searches complete. This is the hard gate.
 
-**AFTER BROADEN — rank by fewest signal inconsistencies (penalty-based, not elimination):**
+**AFTER GATHER — rank by fewest signal inconsistencies (penalty-based, not elimination):**
 
 Score each hypothesis against the PIR criteria declared in log_cycle:
 - PRIMARY signal mismatch: heavy penalty (candidate scores low, still appears in results)
@@ -224,7 +224,7 @@ ANTI-PATTERN: ranking a candidate high because it matches CONTEXT + SUPPORTING w
 
 ### STEP 3 — PLAN
 
-From BROADEN results, build your research plan:
+From gather results, build your research plan:
 1. Determine ENTITY TYPE and TASK TYPE:
    - entity_type: person | company | product | event | concept | celebrity
    - task_type: named_lookup | celebrity_identification | brand_lookup | comparative | factual | market_research | competitor_analysis
@@ -300,7 +300,7 @@ For each branch, explore recursively as deep as the research requires (suggested
      Do NOT close the PIR immediately. Instead:
      1. Re-hypothesize: form a new interpretation of the same PIR from a different angle
         (different locale, name variant, source type, or medium-type assumption).
-     2. Run ≥1 new BROADEN search from the re-hypothesized angle.
+     2. Run ≥1 new gather search from the re-hypothesized angle.
      3. Only mark the PIR closed when BOTH the original AND re-hypothesized angles yield no signal,
         OR when all declared hypotheses in log_cycle have been exhausted.
      Log: "DEAD END: [what failed]. RE-HYPOTHESIZE: [new angle tried]. OUTCOME: [result]."
@@ -480,7 +480,7 @@ CRITICAL: Your ENTIRE response must be a single valid JSON object. No markdown, 
   ],
   "gaps": ["things that could not be found — use provisionally_absent or confirmed_absent, not just 'not found'"],
   "considered_alternatives": [
-    "candidate name considered but ranked lower — include any title/name explored during BROADEN that didn't become the top result"
+    "candidate name considered but ranked lower — include any title/name explored during the gather phase that didn't become the top result"
   ]
 }}
 
@@ -592,7 +592,7 @@ def render_past_research_blocks(past_research: list[dict] | None) -> list[str]:
             )
         blocks.append(
             "RELATED PRIOR RESEARCH (unverified — brain-scored only, NOT user-graded):\n"
-            "  Treat as ONE source among many, not the overarching narrative. Seeds H_PRIOR for BROADEN.\n"
+            "  Treat as ONE source among many, not the overarching narrative. Seeds H_PRIOR for the gather phase.\n"
             "  For identification queries: must still generate ≥2 DISTINCT alternative identity hypotheses with live searches before ranking. RAG confidence is prior, not posterior.\n"
             + "\n".join(summaries)
         )

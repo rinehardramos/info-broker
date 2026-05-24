@@ -1220,7 +1220,7 @@ class Strategist:
         # from the aggregated_findings across all phases.
         if not raw_ranked:
             for p in completed_phases:
-                if p.phase_id in ("gather", "broaden") and p.distinct_candidate_names:  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
+                if p.phase_id == "gather" and p.distinct_candidate_names:
                     raw_ranked = [
                         {"name": name, "confidence": 0.5}
                         for name in p.distinct_candidate_names

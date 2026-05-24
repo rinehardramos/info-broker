@@ -598,7 +598,7 @@ async def _run_is_research(
                 preflight_section = (
                     f"[PREFLIGHT: VALIDATED]\n"
                     f"Query interpreted as: {preflight_result.slots.raw_interpretation}\n"
-                    f"Proceed directly to BROADEN — skip STEP 0 decomposition (already done)."
+                    f"Proceed directly to gather — skip STEP 0 decomposition (already done)."
                 )
             session_context = (
                 preflight_section + "\n\n" + session_context
