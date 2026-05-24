@@ -960,7 +960,21 @@ class Strategist:
                         unit_of_work["corrective_hint"] = current_unit_of_work["corrective_hint"]
                     if "_tactic_override" in current_unit_of_work:
                         unit_of_work["_tactic_override"] = current_unit_of_work["_tactic_override"]
+                    if "user_directive" in current_unit_of_work:
+                        unit_of_work["user_directive"] = current_unit_of_work["user_directive"]
                 current_unit_of_work = unit_of_work
+
+                # Drain any mid-run user instructions injected via POST /v3/runs/{run_id}/inject
+                # and merge them into user_directive so the brain prompt receives them.
+                from app.pipeline.runners import injection_queue as _injection_queue
+                _directives = _injection_queue.drain(self._run_id)
+                if _directives:
+                    existing = unit_of_work.get("user_directive", "")
+                    unit_of_work["user_directive"] = (
+                        existing + "\n" + "\n".join(_directives)
+                    ).strip()
+                    # Also update current_unit_of_work so the directive survives replan
+                    current_unit_of_work["user_directive"] = unit_of_work["user_directive"]
 
                 n_tacticians = self._resolve_n_tacticians(
                     phase, phase_outputs_by_id

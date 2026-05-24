@@ -246,6 +246,17 @@ def _build_scoped_prompt(
             "",
         ]
 
+    # Mid-run user directive: injected via POST /v3/runs/{run_id}/inject while
+    # the research was already running.  Rendered prominently so the brain sees it.
+    user_directive = unit_of_work.get("user_directive")
+    if user_directive:
+        lines += [
+            "=== USER DIRECTIVE (mid-run steering) ===",
+            "The user added this instruction while the research was running. Incorporate it now:",
+            user_directive,
+            "",
+        ]
+
     # The user query is the de-facto objective when strategy doesn't define one.
     query_str = unit_of_work.get("query") or unit_of_work.get("objective", "")
     objective = unit_of_work.get("objective") or query_str
