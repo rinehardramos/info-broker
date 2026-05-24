@@ -62,7 +62,7 @@ def _track_access(run_ids: list[str]) -> None:
             f"""UPDATE entity_observations
                 SET last_accessed_at = now()
                 WHERE source_run_id IN ({placeholders})
-                  AND (last_accessed_at IS NULL OR last_accessed_at < now() - interval '1 hour')""",
+                  AND (last_accessed_at IS NULL OR last_accessed_at < now() - interval '1 hour')""",  # noqa: S608 - IN(...) is %s placeholders sized to run_ids; values parameterized
             tuple(run_ids),
         )
     except Exception:

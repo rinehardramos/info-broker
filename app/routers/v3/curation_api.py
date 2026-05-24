@@ -64,7 +64,7 @@ def list_contradictions(
         {where_sql}
         ORDER BY created_at DESC
         LIMIT %s OFFSET %s
-        """,
+        """,  # noqa: S608 - WHERE clauses are constant literals; values parameterized
         params,
     )
     return [dict(r) for r in rows]
@@ -165,7 +165,7 @@ def list_stale_flags(
         {where_sql}
         ORDER BY created_at DESC
         LIMIT %s OFFSET %s
-        """,
+        """,  # noqa: S608 - WHERE clauses are constant literals; values parameterized
         params,
     )
     return [dict(r) for r in rows]
@@ -222,7 +222,7 @@ def list_suggestions(
         params.append(status)
     params.append(limit)
     return fetch_all(
-        f"SELECT * FROM kg_curation_suggestions WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT %s",
+        f"SELECT * FROM kg_curation_suggestions WHERE {' AND '.join(clauses)} ORDER BY created_at DESC LIMIT %s",  # noqa: S608 - WHERE clauses are constant literals; values parameterized
         tuple(params),
     )
 

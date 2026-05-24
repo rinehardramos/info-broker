@@ -46,7 +46,7 @@ def trigger_export(
     # Fetch research trail by run_id
     _clause, _cparams = org_scope_clause(user)
     row = fetch_one(
-        f"SELECT rt.query, rt.findings, rt.analysis "
+        f"SELECT rt.query, rt.findings, rt.analysis "  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
         f"FROM research_trails rt "
         f"JOIN pipeline_runs pr ON pr.id = rt.run_id "
         f"WHERE rt.run_id = %s {_clause.replace('AND org_id', 'AND pr.org_id')}",

@@ -37,7 +37,7 @@ def list_sessions(
                   context, started_at, finished_at
             FROM mcp_sessions
             WHERE status = %s {scope_sql}
-            ORDER BY started_at DESC LIMIT %s""",
+            ORDER BY started_at DESC LIMIT %s""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
             (status, *scope_params, limit),
         )
     else:
@@ -46,7 +46,7 @@ def list_sessions(
                   context, started_at, finished_at
             FROM mcp_sessions
             WHERE 1=1 {scope_sql}
-            ORDER BY started_at DESC LIMIT %s""",
+            ORDER BY started_at DESC LIMIT %s""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
             (*scope_params, limit),
         )
     return [dict(r) for r in rows]
@@ -59,7 +59,7 @@ def get_session(session_id: str, user: dict = Depends(get_current_user)):
         f"""SELECT id, caller_identity, session_type, status, tool_call_count,
               context, started_at, finished_at, user_id
         FROM mcp_sessions
-        WHERE id = %s {scope_sql}""",
+        WHERE id = %s {scope_sql}""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         (session_id, *scope_params),
     )
     if not session:
@@ -79,11 +79,11 @@ def get_session(session_id: str, user: dict = Depends(get_current_user)):
 def get_dashboard(user: dict = Depends(get_current_user)):
     scope_sql, scope_params = _user_scope(user)
     active = fetch_one(
-        f"SELECT COUNT(*) AS cnt FROM mcp_sessions WHERE status = 'active' {scope_sql}",
+        f"SELECT COUNT(*) AS cnt FROM mcp_sessions WHERE status = 'active' {scope_sql}",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         scope_params,
     )
     total_calls = fetch_one(
-        f"SELECT COUNT(*) AS cnt FROM mcp_tool_calls WHERE 1=1 {scope_sql}",
+        f"SELECT COUNT(*) AS cnt FROM mcp_tool_calls WHERE 1=1 {scope_sql}",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         scope_params,
     )
     error_rate = fetch_one(
@@ -91,21 +91,21 @@ def get_dashboard(user: dict = Depends(get_current_user)):
             COUNT(*) FILTER (WHERE status = 'failed') AS errors,
             COUNT(*) AS total
         FROM mcp_tool_calls
-        WHERE created_at > now() - interval '1 hour' {scope_sql}""",
+        WHERE created_at > now() - interval '1 hour' {scope_sql}""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         scope_params,
     )
     avg_duration = fetch_one(
         f"""SELECT AVG(duration_ms) AS avg_ms
         FROM mcp_tool_calls
         WHERE status = 'succeeded'
-          AND created_at > now() - interval '1 hour' {scope_sql}""",
+          AND created_at > now() - interval '1 hour' {scope_sql}""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         scope_params,
     )
     top_tools = fetch_all(
         f"""SELECT tool_name, COUNT(*) AS call_count, AVG(duration_ms) AS avg_ms
         FROM mcp_tool_calls
         WHERE created_at > now() - interval '24 hours' {scope_sql}
-        GROUP BY tool_name ORDER BY call_count DESC LIMIT 10""",
+        GROUP BY tool_name ORDER BY call_count DESC LIMIT 10""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         scope_params,
     )
     return {
@@ -132,7 +132,7 @@ def get_tool_stats(user: dict = Depends(get_current_user)):
             MAX(created_at) AS last_used
         FROM mcp_tool_calls
         WHERE 1=1 {scope_sql}
-        GROUP BY tool_name ORDER BY total_calls DESC""",
+        GROUP BY tool_name ORDER BY total_calls DESC""",  # noqa: S608 - scope_sql is a constant fragment from _user_scope(); value parameterized
         scope_params,
     )
     return [dict(r) for r in rows]
