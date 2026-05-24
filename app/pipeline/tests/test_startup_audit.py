@@ -340,3 +340,96 @@ def test_phasespec_id_validator_accepts_unified_ids():
     for legal in ("extract", "gather", "disconfirm", "synthesize"):
         p = PhaseSpec(id=legal, unit_of_work_contract={}, hypothesis_count_policy="fixed:1", gate=gate)
         assert p.id == legal
+
+
+# ---------------------------------------------------------------------------
+# real_estate_leads strategy, leads_enrich_gather tactic, and techniques
+# ---------------------------------------------------------------------------
+
+
+def test_real_estate_leads_strategy_loads():
+    """real_estate_leads strategy is importable and declares extract/gather/synthesize."""
+    from app.pipeline.catalogs.registries.strategies.real_estate_leads import STRATEGY
+    phase_ids = [p["id"] for p in STRATEGY["phases"]]
+    assert set(phase_ids) >= {"extract", "gather", "synthesize"}
+    legal = {"extract", "gather", "disconfirm", "synthesize"}
+    assert set(phase_ids).issubset(legal)
+
+
+def test_real_estate_leads_gather_uses_leads_enrich_gather():
+    """real_estate_leads strategy's gather phase must prefer leads_enrich_gather."""
+    from app.pipeline.catalogs.registries.strategies.real_estate_leads import STRATEGY
+    gather = next(p for p in STRATEGY["phases"] if p["id"] == "gather")
+    assert gather.get("preferred_tactic_id") == "leads_enrich_gather"
+
+
+def test_real_estate_leads_strategy_default_mode_is_leads_generation():
+    """real_estate_leads must declare default_mode='leads_generation'."""
+    from app.pipeline.catalogs.registries.strategies.real_estate_leads import STRATEGY
+    assert STRATEGY["default_mode"] == "leads_generation"
+
+
+def test_leads_enrich_gather_tactic_loads():
+    """leads_enrich_gather tactic is importable and compatible with gather phase."""
+    from app.pipeline.catalogs.registries.tactics.leads_enrich_gather import TACTIC
+    from app.pipeline.catalogs.audit import _get_phase_compatibility
+    assert "gather" in _get_phase_compatibility(TACTIC)
+
+
+def test_leads_enrich_gather_requires_apify_listings_search():
+    """leads_enrich_gather must list apify_listings_search as a required technique."""
+    from app.pipeline.catalogs.registries.tactics.leads_enrich_gather import TACTIC
+    required = TACTIC.required_techniques if hasattr(TACTIC, "required_techniques") else TACTIC.get("required_techniques", [])
+    assert "apify_listings_search" in required
+
+
+def test_leads_enrich_gather_produces_all_enrichment_techniques():
+    """leads_enrich_gather must produce tasks for the full enrichment toolchain."""
+    from app.pipeline.catalogs.registries.tactics.leads_enrich_gather import TACTIC
+    technique_ids = {t.technique_id for t in TACTIC.produces}
+    required_subset = {
+        "apify_listings_search",
+        "web_search",
+        "hunter_email_search",
+        "apollo_contact",
+        "opencorporates_owner",
+        "whois_owner",
+        "phone_osint",
+        "pipl_people",
+    }
+    assert required_subset.issubset(technique_ids), (
+        f"Missing techniques: {required_subset - technique_ids}"
+    )
+
+
+def test_enrichment_techniques_load_through_catalog_loader():
+    """All 6 new enrichment techniques load cleanly via the catalog loader."""
+    from app.pipeline.catalogs.loader import load_catalog
+    from pathlib import Path
+    techniques_dir = Path(__file__).resolve().parents[2] / "pipeline" / "catalogs" / "registries" / "techniques"
+    techniques = load_catalog("technique", techniques_dir)
+    for tid in [
+        "hunter_email_search",
+        "opencorporates_owner",
+        "whois_owner",
+        "apollo_contact",
+        "phone_osint",
+        "pipl_people",
+    ]:
+        assert tid in techniques, f"Technique {tid!r} not found in catalog"
+        t = techniques[tid]
+        assert isinstance(t.input_schema, dict), f"{tid}: input_schema must be a dict"
+        assert isinstance(t.output_schema, dict), f"{tid}: output_schema must be a dict"
+        assert t.output_schema.get("type") == "object", f"{tid}: output_schema.type must be 'object'"
+
+
+def test_full_catalog_audit_passes_with_new_entries():
+    """The startup audit passes when real_estate_leads + leads_enrich_gather are included."""
+    from app.pipeline.catalogs.loader import load_catalog
+    from app.pipeline.catalogs.audit import run_audit_or_fail
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[2] / "pipeline" / "catalogs" / "registries"
+    strategies = load_catalog("strategy", base / "strategies")
+    tactics = load_catalog("tactic", base / "tactics")
+    # Must not raise StrategyTacticAuditError
+    run_audit_or_fail(strategies, tactics)

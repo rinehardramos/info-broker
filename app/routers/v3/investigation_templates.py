@@ -142,6 +142,60 @@ INVESTIGATION_TEMPLATES: list[dict] = [
              "placeholder": "Singapore-based fintech founded ~2017"},
         ],
     },
+    {
+        "id": "real-estate-leads",
+        "name": "Real Estate Leads Generation",
+        "description": (
+            "Find rental or sale listings matching your criteria, then build a "
+            "contactable leads list: listing agent/owner + email + phone + owner background."
+        ),
+        "icon": "Home",
+        "category": "general",
+        "query_template": (
+            "Generate real estate leads for {{listing_type}} properties in {{location}} "
+            "priced {{price_range}}. "
+            "For each matching listing, find: (1) the listing agent's name, brokerage, "
+            "email address, and phone number; (2) the property owner's name or LLC, "
+            "email, and phone if different from the agent; (3) an owner background check "
+            "— other property holdings, LLC/corporate registration state and status, "
+            "WHOIS registrant info if the owner has a web domain. "
+            "Return a contactable leads table sorted by price, with source URLs and "
+            "confidence levels for every contact detail. Mark any listings where "
+            "contact enrichment failed and explain why."
+        ),
+        "parameters": [
+            {"name": "location", "label": "Location (city / neighborhood / zip)", "type": "text",
+             "required": True, "placeholder": "Chicago, IL"},
+            {"name": "price_range", "label": "Price range", "type": "text", "required": True,
+             "placeholder": "$500–$1,000/mo"},
+            {"name": "listing_type", "label": "Listing type", "type": "text",
+             "required": True, "placeholder": "rental"},
+        ],
+    },
+    {
+        "id": "real-estate-leads-for-sale",
+        "name": "Real Estate Leads — For Sale",
+        "description": (
+            "Find properties for sale matching your criteria, with a full contact list "
+            "for each listing agent and owner plus ownership background research."
+        ),
+        "icon": "Building",
+        "category": "general",
+        "query_template": (
+            "Find real estate leads — properties for sale in {{location}} priced {{price_range}}. "
+            "I need a contact list for outreach: for each listing return the listing agent "
+            "(name, brokerage, email, phone), the seller/owner (name, email, phone, other "
+            "holdings), and an owner background check (LLC registration, WHOIS domain "
+            "registrant). Produce a flat contactable leads table with confidence scores "
+            "and source URLs per contact. Flag listings with incomplete contact info."
+        ),
+        "parameters": [
+            {"name": "location", "label": "Location (city / neighborhood / zip)", "type": "text",
+             "required": True, "placeholder": "Austin, TX"},
+            {"name": "price_range", "label": "Price range", "type": "text", "required": True,
+             "placeholder": "$400,000–$600,000"},
+        ],
+    },
 ]
 
 

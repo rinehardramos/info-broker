@@ -144,11 +144,28 @@ def _classify_query(query: str, mode: str | None = None) -> str:
     return _resolve_strategy(_classify_intent(query), mode)
 
 
+
+# ---------------------------------------------------------------------------
+# Composite strategy routing: (intent, mode) → strategy_id
+#
+# When a user picks a specific intent + mode combination that warrants a
+# dedicated strategy (rather than the intent's default strategy), this map
+# overrides step 1 of the resolution chain before the plain intent match.
+# ---------------------------------------------------------------------------
+
+_COMPOSITE_STRATEGY: dict[tuple[str, str], str] = {
+    ("real_estate", "leads_generation"): "real_estate_leads",
+}
+
+
 def _resolve_strategy(intent: str, mode: str | None = None) -> str:
     """Map an intent (and optional mode) to an engine_v2-runnable strategy_id.
 
     Resolution chain (most specific → most permissive):
 
+      0. **Composite map** — (intent, mode) pair matches a dedicated composite
+         strategy (e.g. real_estate + leads_generation → real_estate_leads).
+         Runs BEFORE the plain intent match so specialised strategies win.
       1. **Intent module** — a dedicated strategy module whose id matches
          ``intent`` (e.g. ``real_estate`` → ``real_estate.py``). Most precise.
       2. **Mode-anchored strategy** — the first id in the mode's
@@ -168,6 +185,12 @@ def _resolve_strategy(intent: str, mode: str | None = None) -> str:
     the same place.
     """
     supported = _engine_v2_supported_strategies()
+
+    # 0. Composite map: (intent, mode) → dedicated strategy.
+    if mode and (intent, mode) in _COMPOSITE_STRATEGY:
+        cand = _COMPOSITE_STRATEGY[(intent, mode)]
+        if cand in supported:
+            return cand
 
     # 1. Dedicated intent module wins.
     if intent in supported:
