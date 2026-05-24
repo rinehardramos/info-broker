@@ -71,7 +71,7 @@ export interface AgentSession {
   run_count: number
   accumulated_summary: string
   entity_type: string
-  conversation_thread?: Array<{ role: string; content: string; timestamp?: string }>
+  conversation_thread?: Array<{ role: string; content: string; timestamp?: string; ts?: string; run_id?: string | null }>
 }
 
 export interface AgentPipelineOut {

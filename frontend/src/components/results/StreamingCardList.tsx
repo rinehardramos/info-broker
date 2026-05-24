@@ -129,7 +129,11 @@ export function StreamingCardList({ runId, filterByTactician }: StreamingCardLis
 
       {cardOrder.length === 0 && (
         <p className="text-sm text-muted-foreground italic text-center mt-8">
-          No node events received yet.
+          {run.status === 'running'
+            ? 'No node events received yet.'
+            : run.hydratedFromServer
+            ? 'No node results were recorded for this run.'
+            : 'No data available for this run yet — open a live run or wait for replay to load.'}
         </p>
       )}
 

@@ -18,6 +18,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Awaitable, Callable
 from uuid import UUID
 
 from temporalio import activity
@@ -205,16 +206,53 @@ async def init_working_memory(inp: InitWorkingMemoryInput) -> str:
 # ── run_brain_turn ────────────────────────────────────────────────────────────
 @activity.defn(name="run_brain_turn")
 async def run_brain_turn(inp: BrainTurnInput) -> BrainTurnOutput:
-    """Run one brain turn: read WM, build prompt, spawn subprocess, parse delta, apply."""
+    """Run one brain turn: read WM, build prompt, spawn subprocess, parse delta, apply.
+
+    Emits the same `is.phase_*` / `is.tactician_*` / `is.tool_call` WS event
+    family engine_v2 produces, so the v3 UI's DAG / swimlanes / cards
+    populate live for IS-loop runs (not only via end-of-run replay).
+    """
     wm = WorkingMemory.model_validate_json(inp.working_memory_json)
+    prev_phase = wm.phase  # for phase-transition detection after apply()
     wm = wm.model_copy(update={"turn": wm.turn + 1})  # increment turn counter
 
+    # On the first turn into a phase, announce it. The workflow's prior brain
+    # turn is responsible for emitting the prior phase's *complete* event.
+    if wm.turn == 1:
+        await _push_event(inp.user_id, {
+            "type": "is.phase_start", "phase_id": wm.phase,
+            "job_id": inp.run_id, "run_id": inp.run_id,
+            "n_tacticians": 1,
+        })
+    await _push_event(inp.user_id, {
+        "type": "is.tactician_start", "phase_id": wm.phase, "slot_idx": 0,
+        "job_id": inp.run_id, "run_id": inp.run_id,
+        "tactic_id": "brain_turn", "forbidden_candidates": [],
+    })
+
     prompt = build_turn_prompt(wm, past_research=inp.past_research or [])
+
+    async def _on_tool_call(tool_name: str, input_dict: dict) -> None:
+        # Mirror is.tool_call shape from engine_v2 / agent.py:466.
+        await _push_event(inp.user_id, {
+            "type": "is.tool_call",
+            "job_id": inp.run_id, "run_id": inp.run_id,
+            "tool": tool_name,
+            "status": "calling",
+            "query_preview": str(
+                input_dict.get("query")
+                or input_dict.get("url")
+                or input_dict.get("name")
+                or input_dict.get("term")
+                or ""
+            )[:120],
+            "input": input_dict,
+        })
 
     heartbeat_task = asyncio.create_task(_heartbeat_loop())
     try:
         result_text, tool_call_count, err = await _spawn_brain_turn_subprocess(
-            prompt, phase=wm.phase,
+            prompt, phase=wm.phase, on_tool_call=_on_tool_call,
         )
         if err:
             return BrainTurnOutput(
@@ -258,6 +296,41 @@ async def run_brain_turn(inp: BrainTurnInput) -> BrainTurnOutput:
             tool_call_count=tool_call_count,
         )
 
+        # Live UI events: tactician_complete for the slot just finished, plus
+        # phase transition events if the brain advanced the phase.
+        new_finding_ids = {f.id for f in new_wm.findings if f.turn == new_wm.turn}
+        candidates_for_turn: set[str] = set()
+        for h in new_wm.hypotheses:
+            for fid in h.supporting_finding_ids:
+                if fid in new_finding_ids:
+                    candidates_for_turn.add(h.statement)
+        await _push_event(inp.user_id, {
+            "type": "is.tactician_complete",
+            "phase_id": prev_phase, "slot_idx": 0,
+            "job_id": inp.run_id, "run_id": inp.run_id,
+            "candidate_names": sorted(candidates_for_turn),
+            "findings_count": len(new_finding_ids),
+        })
+        if new_wm.phase != prev_phase:
+            # Phase advanced — close prior, open new.
+            phase_candidates = sorted({
+                h.statement for h in new_wm.hypotheses
+                if any(fid in {f.id for f in new_wm.findings} for fid in h.supporting_finding_ids)
+            })
+            await _push_event(inp.user_id, {
+                "type": "is.phase_complete",
+                "phase_id": prev_phase,
+                "job_id": inp.run_id, "run_id": inp.run_id,
+                "status": "passed", "gate_status": "pass",
+                "distinct_candidate_names": phase_candidates,
+            })
+            await _push_event(inp.user_id, {
+                "type": "is.phase_start",
+                "phase_id": new_wm.phase,
+                "job_id": inp.run_id, "run_id": inp.run_id,
+                "n_tacticians": 1,
+            })
+
         # Observability: log a compact line per turn so we can audit whether
         # the brain emitted hypothesis_updates (the load-bearing analytical
         # signal) and which IDs it used.
@@ -282,11 +355,21 @@ async def run_brain_turn(inp: BrainTurnInput) -> BrainTurnOutput:
         heartbeat_task.cancel()
 
 
+async def _push_event(user_id: str, payload: dict) -> None:
+    """Best-effort WS push from inside a Temporal activity. Never raises."""
+    try:
+        from app.routers.v3.stream import push_event
+        await push_event(user_id, payload)
+    except Exception as exc:
+        log.debug("push_event failed (non-fatal): %s", exc)
+
+
 # ── subprocess plumbing (minimal version of is_brain.run_research) ────────────
 async def _spawn_brain_turn_subprocess(
     prompt: str,
     *,
     phase: str = "explore",
+    on_tool_call: Callable[[str, dict], Awaitable[None]] | None = None,
 ) -> tuple[str, int, str | None]:
     """Spawn claude with the turn prompt + phase-gated tool allowlist.
 
@@ -346,6 +429,14 @@ async def _spawn_brain_turn_subprocess(
                     for content in event.get("message", {}).get("content", []):
                         if content.get("type") == "tool_use":
                             tool_calls += 1
+                            if on_tool_call is not None:
+                                tool_name = content.get("name", "")
+                                # Strip MCP prefix for UI consistency with engine_v2.
+                                clean = tool_name.split("__")[-1] if "__" in tool_name else tool_name
+                                try:
+                                    await on_tool_call(clean, content.get("input") or {})
+                                except Exception:
+                                    pass
                 if etype == "result":
                     result_line = line
         except asyncio.LimitOverrunError:

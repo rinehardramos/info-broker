@@ -261,6 +261,21 @@ class IsLoopRunWorkflow:
         legacy_result = final_wm.to_legacy_brain_result()
         legacy_result["_loop_meta"]["terminate_reason"] = terminate_reason
 
+        # Build the engine_v2-shaped trail alongside the legacy shape so that
+        # /v3/runs/{id}/replay returns populated phases/cards/candidates for
+        # IS-loop runs. post_process persists whichever shape is present
+        # (engine_v2 preferred when both exist).
+        _final_status = (
+            "cancelled" if terminate_reason == "cancelled_by_user"
+            else "failed" if terminate_reason.startswith("turn_error")
+            else "succeeded"
+        )
+        _v2_trail, _v2_findings = final_wm.to_engine_v2_trail(
+            status=_final_status, terminate_reason=terminate_reason,
+        )
+        legacy_result["_engine_v2_trail"] = _v2_trail
+        legacy_result["_engine_v2_findings"] = _v2_findings
+
         # Honesty: status column is binary (succeeded/failed/cancelled) and we
         # don't add a new "partial" status here. Instead, when the loop did NOT
         # reach synthesize, prepend a clear gap so the result surface reflects

@@ -16,6 +16,7 @@ import { Sparkles, ArrowDownToLine, Save, RefreshCw, RotateCcw, Layers, Loader2,
 import { RunResultsView } from './RunResultsView'
 import { RunningTabBadge } from './RunningTabBadge'
 import { useRunStreamStore } from '../../stores/runStreamStore'
+import { replayRunIntoStore } from '../../hooks/useReplay'
 
 // Tab is either the static 'Pipeline' tab, the static 'Results' tab, or a dynamic run tab identified by run ID
 type Tab = 'Pipeline' | 'Results' | `run:${string}`
@@ -1851,8 +1852,33 @@ export default function ResultsPanel() {
   // Also un-dismiss the tab if it was previously closed.
   useEffect(() => {
     if (col1Content?.type === 'pipeline_run') {
-      setDismissedTabs(prev => { const n = new Set(prev); n.delete(col1Content.runId); return n })
-      setActiveTab(`run:${col1Content.runId}`)
+      const runId = col1Content.runId
+      setDismissedTabs(prev => { const n = new Set(prev); n.delete(runId); return n })
+      setActiveTab(`run:${runId}`)
+      // Seed runStreamStore for past runs so DAG / cards / candidates / ACH
+      // render on click-into-history. Live runs are already populated by WS
+      // events — skip those to avoid clobbering in-flight state.
+      const existing = useRunStreamStore.getState().runsById[runId]
+      const isLiveOrSeeded =
+        !!existing && (existing.status === 'running' || (existing.cardOrder?.length ?? 0) > 0)
+      if (!isLiveOrSeeded) {
+        void replayRunIntoStore(runId).then((ok) => {
+          // If replay returns 404 / no data, seed a minimal hydrated entry so
+          // the empty state renders "No node results were recorded for this
+          // run" instead of the in-flight "No events yet" copy.
+          if (!ok) {
+            const stillMissing = !useRunStreamStore.getState().runsById[runId]?.hydratedFromServer
+            if (stillMissing) {
+              useRunStreamStore.getState().hydrateFromServer(runId, {
+                kind: 'is',
+                status: 'succeeded',
+                cards: {},
+                cardOrder: [],
+              })
+            }
+          }
+        })
+      }
     } else if (col1Content?.type === 'job') {
       setDismissedTabs(prev => { const n = new Set(prev); n.delete(col1Content.jobId); return n })
       setActiveTab(`run:${col1Content.jobId}`)

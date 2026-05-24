@@ -284,6 +284,49 @@ def list_all_pipeline_runs(user: dict = Depends(get_current_user)):
     return [PipelineRunSummaryOut(**dict(r)) for r in rows]
 
 
+@router.delete("/runs/purge-trailless", status_code=200)
+def purge_trailless_runs(
+    dry_run: bool = True,
+    user: dict = Depends(get_current_user),
+):
+    """Admin-only: delete pipeline_runs that have no research_trails row.
+
+    Targets the Path B / IS-loop regression where post_process never wrote a
+    trail (fixed forward by adding the INSERT in post_process). These rows
+    pollute the user's run list with entries that always 404 in the UI.
+
+    Returns the list of affected ids. Pass ?dry_run=false to actually delete.
+    Cascades: pipeline_step_runs / run_share_links / webhook_deliveries via
+    ON DELETE CASCADE; budget_ledger_entries via ON DELETE SET NULL.
+    """
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    rows = fetch_all(
+        """SELECT pr.id, pr.status, pr.query, pr.started_at, pr.user_id
+             FROM pipeline_runs pr
+        LEFT JOIN research_trails rt ON rt.run_id = pr.id
+            WHERE rt.id IS NULL
+         ORDER BY pr.started_at DESC""",
+    )
+    ids = [str(r["id"]) for r in rows]
+
+    if dry_run or not ids:
+        return {"dry_run": dry_run, "count": len(ids), "ids": ids,
+                "samples": [dict(r) for r in rows[:5]]}
+
+    # Detach FK rows that don't cascade (research_skills has no ON DELETE rule)
+    execute(
+        "UPDATE research_skills SET run_id = NULL WHERE run_id = ANY(%s::uuid[])",
+        (ids,),
+    )
+    execute(
+        "DELETE FROM pipeline_runs WHERE id = ANY(%s::uuid[])",
+        (ids,),
+    )
+    return {"dry_run": False, "deleted": len(ids), "ids": ids}
+
+
 @router.post("/runs/{run_id}/cancel", status_code=204)
 async def cancel_pipeline_run(run_id: str, user: dict = Depends(get_current_user)):
     from temporalio.client import Client

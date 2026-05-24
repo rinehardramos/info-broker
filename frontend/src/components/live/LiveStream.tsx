@@ -5,7 +5,6 @@ import { listAllPipelineRuns, type PipelineRunSummary } from '../../api/pipeline
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
 import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
-import { replayRunIntoStore } from '../../hooks/useReplay'
 import JobItem from './JobItem'
 import PipelineRunItem from './PipelineRunItem'
 import { Skeleton } from '../ui/skeleton'
@@ -18,6 +17,8 @@ function SessionHistoryItem({ session }: { session: AgentSession }) {
   const setGenesisQuery = useChatStore(s => s.setGenesisQuery)
   const clearMessages = useChatStore(s => s.clearMessages)
   const setMessages = useChatStore(s => s.setMessages)
+  const setCol1Content = useSessionStore(s => s.setCol1Content)
+  const setActiveJobId = useSessionStore(s => s.setActiveJobId)
   const [resumingId, setResumingId] = useState<string | null>(null)
 
   const resume = async () => {
@@ -43,6 +44,14 @@ function SessionHistoryItem({ session }: { session: AgentSession }) {
       }
       setSessionId(session.id)
       setGenesisQuery(session.genesis_query)
+      // Restore the Results panel to the session's most recent run so the
+      // user sees the DAG/cards/candidates they had open before. ResultsPanel
+      // auto-seeds runStreamStore via replay when col1Content changes.
+      const lastRunId = [...thread].reverse().find(e => e.run_id)?.run_id
+      if (lastRunId) {
+        setActiveJobId(lastRunId)
+        setCol1Content({ type: 'pipeline_run', runId: lastRunId })
+      }
     } catch {
       clearMessages()
       setSessionId(session.id)

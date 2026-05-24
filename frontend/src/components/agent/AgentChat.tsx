@@ -211,12 +211,16 @@ export default function AgentChat() {
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
-  // Rehydrate chat from server on mount when local store is empty (e.g. fresh
-  // login, or a different device). Source of truth is agent_sessions; the
-  // local zustand persist cache is just a hot path. Without this, a user
-  // sees a blank Agent panel after logout/login even though their threads
-  // exist on the backend.
+  // Rehydrate chat from server when local store is empty (e.g. fresh login,
+  // 401 → refresh → retry, or a different device). Source of truth is
+  // agent_sessions; the local zustand persist cache is just a hot path.
+  // Re-runs when the access token changes so post-login / post-refresh races
+  // don't leave the panel blank. The chatMessages.length guard prevents an
+  // active session's in-memory messages from being clobbered by a stale
+  // rehydrate.
+  const accessToken = useSessionStore(s => s.accessToken)
   useEffect(() => {
+    if (!accessToken) return
     if (chatMessages.length > 0) return
     let cancelled = false
     async function rehydrate() {
@@ -237,6 +241,15 @@ export default function AgentChat() {
           timestamp?: string
           run_id?: string | null
         }>
+        // Also restore the Results panel to this session's last run so the
+        // DAG/cards re-render on cold app open — ResultsPanel auto-seeds
+        // runStreamStore from /v3/runs/{id}/replay when col1Content changes.
+        const lastRunId = [...thread].reverse().find(e => e.run_id)?.run_id
+        if (lastRunId) {
+          const s = useSessionStore.getState()
+          s.setActiveJobId(lastRunId)
+          s.setCol1Content({ type: 'pipeline_run', runId: lastRunId })
+        }
         if (thread.length === 0) {
           setSessionId(target.id)
           if (target.genesis_query) setGenesisQuery(target.genesis_query)
@@ -258,7 +271,7 @@ export default function AgentChat() {
     }
     void rehydrate()
     return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [accessToken]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())
