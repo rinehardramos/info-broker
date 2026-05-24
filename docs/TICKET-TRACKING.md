@@ -1,6 +1,6 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-24** (PRs #118, #120–#129, #132 merged; #68, #89 closed; issues #130, #131 filed)
+> Last reconciled: **2026-05-25** (PRs #118, #120–#129, #132–#140 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded)
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
@@ -28,12 +28,11 @@ Before citing a ticket, starting a "new" feature, or trusting a branch:
 
 | # | Type | Title | Code-verified state | Owning work | Regression notes |
 |---|------|-------|---------------------|-------------|------------------|
-| **#131** | bug (infra) | Live search 429-blocked locally → research can't complete | Brave/Google return HTTP 429 / bot-block to the local stack IP; no Serper/Brave/Tavily keys. Gather gate then fails for lack of live sources even though the brain works. | Filed | Blocks ALL local research testing; prod likely has search keys. |
-| **#130** | bug (infra) | Login rate-limit (60/min) makes full pytest suite flaky | After #90's isolation fix, cumulative logins across the suite trip the 60/min limit → later tests' logins get 429. Files pass in isolation (`test_pipelines.py` 50/0) but flake in the full run. | Filed | Different mechanism than #90 (rate limiter, not fixtures). Bypass limiter under test, or share tokens. |
+| **#131** | bug (infra) — **downgraded** | Live search 429 (intermittent, engine-specific) | Brave/Google bot-block the scrapers; mojeek/yandex/grokipedia return 200, and `multi_search` consensus self-heals — research **does** complete (verified: 23-branch run). Root cause = no Serper/Brave/Tavily key. | Open (low) | NOT a hard blocker. Reliable fix = configure a search key (deployment). Optional: lead with free non-bot-blocked engines. |
 
-> Only **infra** issues remain open — no product bugs.
+> Only one **infra** issue remains open (and it's downgraded) — no product bugs.
 
-**Recently closed:** #89 → **closed (resolved by #117 taxonomy + gather gates; verified non-reproducing 2026-05-24).** Two latent hardening items (tactician slot-0 `prior_research_seed`; ACH lone-hypothesis "high") live in the regression watchlist below — no active symptom, file standalone only if needed. #90 → #124. #110/#111 → #118. #94 → #119. #95, #91 → verified fixed. **Brain 100%-broken auth bug → #123** (kept env OAuth token). **UI/agent work:** #127 (legacy phase order in v2 live + DAG + lint), #128 (mid-run injection persist+steer), #129 (#122 is_prompt assertion regression).
+**Recently closed:** **#130** → #135 + #139 (test rate-limiter + admission-gate bypass under test, + restore-on-teardown fixture — full suite deterministic). #89 → resolved by #117 taxonomy+gates (non-reproducing); two latent hardening items in the watchlist below. #90 → #124. #110/#111 → #118. #94 → #119. #95, #91 → verified fixed. **Brain 100%-broken auth → #123**. **UI/agent:** #127 (legacy phase order), #128 (mid-run injection), #129 (#122 is_prompt regression), #134 (removed low-value dashboard entity-lookup), #136 (enlarged Research CTA 2×), #137 (temporal-trail tests → sync). **Real-estate leads-gen:** #138 (real_estate_leads strategy + 6 enrichment techniques + leads_enrich_gather tactic + composite routing + templates), #140 (`_infer_mode` lead-phrase → leads_generation).
 
 > Issue "files likely to involve" lists are **stale** (pre-#117 taxonomy). Corrected file maps live in each issue's latest comment.
 
@@ -79,6 +78,9 @@ Reconciled from merged PRs; grep-verified entry points. Prevents duplication.
 | DownloadMenu inline run exports | `frontend/.../runs/DownloadMenu.tsx` | (restored) f10890f / #95 |
 | v2 live + DAG phase order = unified taxonomy (legacy names removed) | `PhaseProgress.tsx`, `dag/buildDagFromRun.ts`, `PhaseDAGView.tsx` | #127 |
 | Mid-run instruction injection (persist follow-up to conversation_thread + steer running brain via `user_directive`) | `app/pipeline/runners/injection_queue.py`, `routers/v3/brain.py`, `strategist.py`, `scoped_brain.py` | #128 |
+| Real-estate **leads-generation** — `real_estate_leads` strategy (listings→contact→owner-background→leads table), 6 enrichment techniques (hunter/opencorporates/whois/apollo/phone_osint/pipl), `leads_enrich_gather` tactic, `(real_estate,leads_generation)→real_estate_leads` composite route, templates | `catalogs/registries/{strategies,tactics,techniques}/…`, `routers/v3/preflight.py`, `investigation_templates.py` | #138 |
+| Lead-phrase mode inference (`_infer_mode`: "lead list"/"find leads"/… → leads_generation when no mode picked) — makes leads-worded queries + the template auto-route to `real_estate_leads` | `app/routers/v3/preflight.py` | #140 |
+| Dashboard: removed low-value entity-lookup; enlarged primary Research CTA ~2× | `frontend/src/pages/Dashboard.tsx` | #134, #136 |
 
 ## TODO.md (root) reconciliation — what's actually done
 
@@ -104,3 +106,8 @@ Reconciled from merged PRs; grep-verified entry points. Prevents duplication.
 - **Phase label** — vocabulary is `gather` everywhere; `BROADEN` retired. Don't reintroduce it as a label (distinct from the legacy-id lint, which keeps the word to forbid it). (#122) Also keep prompt-content tests in sync — #122 silently broke `test_is_prompt::test_hypothesis_first_broaden_gate` (fixed in #129).
 - **Verify merges against a full-suite baseline, not an agent's selection.** #122's prompt-test break was invisible to its own test selection; only a full-suite diff caught it. When merging, diff failures against current `main` — distinguish real regressions from pre-existing (#125 temporal tests) and environmental flakiness (#130 login rate-limit).
 - **Mid-run injection requires a session** — `inject_node` persistence only fires when the run has a `session_id` (agent-chat runs do; bare `/v3/preflight/confirm` runs don't). The in-memory queue is per-process — won't bridge to out-of-process temporal workers. (#128)
+- **Test env state must be restored** — tests that mutate global env + reload a module (e.g. `test_admission_gate._set_gate` flipping `GATE_ENABLED`) MUST restore on teardown or they bleed into the rest of the suite (caused flaky `/v3/agent/message` 429s). Prod guards (slowapi limiter, admission gate) are bypassed under test via conftest `DISABLE_RATE_LIMIT=1` / `GATE_ENABLED=false`. (#130, #139)
+- **Strategy routing matches intent BEFORE mode** — `_resolve_strategy` step-1 returns the intent-named strategy before the mode-anchor step; to route an (intent, mode) combo elsewhere, add it to `_COMPOSITE_STRATEGY` (step 0). Also `mode` only comes from `body.mode` or `_infer_mode(query)` — there is no separate mode classifier. (#138, #140)
+- **Zombie `running` runs block the live app** — API restarts orphan in-process run tasks but leave `pipeline_runs.status='running'`. With `GLOBAL_MAX_CONCURRENT=2`, a few zombies saturate the admission gate so NO new run is admitted (live app + tests). Reconcile stale `running` rows (orphan_watchdog should, but verify) or `UPDATE … SET status='failed'`. (#130)
+- **`async def` tests need pytest-asyncio (not installed)** — the venv lacks it despite being declared; `@pytest.mark.asyncio` tests error. Use the repo's sync `asyncio.run()` pattern instead. (#137)
+- **New v2 techniques need `output_schema`** — the fail-closed startup audit (`run_audit_or_fail`) rejects a technique without one; the app won't boot. (#117, #138)
