@@ -366,7 +366,7 @@ def get_run(run_id: str, user: dict = Depends(get_current_user)):
     if run["trigger_type"] == "agent_is":
         _clause, _cparams = org_scope_clause(user)
         _trail_sql = (
-            "SELECT rt.query, rt.entity_type, rt.findings, rt.trail, "
+            "SELECT rt.query, rt.entity_type, rt.findings, rt.trail, "  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
             "rt.tool_calls, rt.suggested_pipeline, rt.analysis "
             "FROM research_trails rt "
             "JOIN pipeline_runs pr ON pr.id = rt.run_id "
@@ -411,7 +411,7 @@ def list_pipelines(user: dict = Depends(get_current_user)):
         WHERE (user_id = %s OR is_system = TRUE)
           AND (TRUE {clause})
         ORDER BY is_system DESC, created_at DESC
-        """,
+        """,  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
         tuple([str(user["id"]), *params]),
     )
     return [PipelineOut(**dict(r)) for r in rows]

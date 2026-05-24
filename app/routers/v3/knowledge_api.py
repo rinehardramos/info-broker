@@ -251,7 +251,7 @@ def get_timeline(
         {where}
         ORDER BY observed_at DESC
         LIMIT %s
-        """,
+        """,  # noqa: S608 - conditions are constant literals; values parameterized
         tuple(params),
     )
 

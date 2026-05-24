@@ -51,7 +51,7 @@ async def workers_health(user: dict = Depends(get_current_user)) -> dict[str, An
               EXTRACT(EPOCH FROM (now() - MIN(started_at) FILTER (WHERE status = 'queued')))  AS oldest_queued_age_seconds,
               EXTRACT(EPOCH FROM (now() - MIN(started_at) FILTER (WHERE status = 'running'))) AS oldest_running_age_seconds
             FROM pipeline_runs
-            WHERE status IN ('queued', 'running') {user_filter}""",
+            WHERE status IN ('queued', 'running') {user_filter}""",  # noqa: S608 - user_filter is a constant fragment; value parameterized
         params,
     ) or {}
 

@@ -20,7 +20,7 @@ class GraphMaterializer:
     # ------------------------------------------------------------------
 
     def _get_checkpoint(self, key: str) -> Optional[datetime]:
-        row = fetch_one(f"SELECT {key} FROM graph_materializer_state WHERE id = 1")
+        row = fetch_one(f"SELECT {key} FROM graph_materializer_state WHERE id = 1")  # noqa: S608 - column name from hardcoded literal (last_*_obs_at); value parameterized
         if row and row.get(key):
             val = row[key]
             # psycopg2 returns aware datetime directly for TIMESTAMPTZ
@@ -29,7 +29,7 @@ class GraphMaterializer:
 
     def _update_checkpoint(self, key: str, ts: datetime) -> None:
         execute(
-            f"UPDATE graph_materializer_state SET {key} = %s WHERE id = 1",
+            f"UPDATE graph_materializer_state SET {key} = %s WHERE id = 1",  # noqa: S608 - column name from hardcoded literal (last_*_obs_at); value parameterized
             (ts,),
         )
 

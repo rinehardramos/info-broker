@@ -117,7 +117,7 @@ def get_scorecard(run_id: str, user: dict = Depends(get_current_user)):
     row = fetch_one(
         f"""SELECT rt.scorecard FROM research_trails rt
             JOIN pipeline_runs pr ON pr.id = rt.run_id
-            WHERE rt.run_id = %s {clause.replace("AND org_id", "AND pr.org_id")}""",
+            WHERE rt.run_id = %s {clause.replace("AND org_id", "AND pr.org_id")}""",  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
         tuple([run_id, *params]),
     )
     if not row or not row.get("scorecard"):
@@ -144,7 +144,7 @@ def submit_scorecard_grade(run_id: str, body: dict, user: dict = Depends(get_cur
     row = fetch_one(
         f"""SELECT rt.scorecard FROM research_trails rt
             JOIN pipeline_runs pr ON pr.id = rt.run_id
-            WHERE rt.run_id = %s {clause.replace("AND org_id", "AND pr.org_id")}""",
+            WHERE rt.run_id = %s {clause.replace("AND org_id", "AND pr.org_id")}""",  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
         tuple([run_id, *params]),
     )
     if not row or not row.get("scorecard"):

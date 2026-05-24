@@ -43,7 +43,7 @@ def update_me(body: UserProfileIn, user: dict = Depends(get_current_user)):
         updates["avatar_url"] = updates["avatar_url"].strip()[:512]
     set_clause = ", ".join(f"{k} = %s" for k in updates)
     row = fetch_one(
-        f"UPDATE ui_users SET {set_clause} WHERE id = %s RETURNING *",
+        f"UPDATE ui_users SET {set_clause} WHERE id = %s RETURNING *",  # noqa: S608 - set_clause keys from hardcoded allowlist; values parameterized
         tuple(list(updates.values()) + [str(user["id"])]),
     )
     return _user_to_out(dict(row))

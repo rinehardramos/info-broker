@@ -172,7 +172,7 @@ def update_user(
     set_clause = ", ".join(f"{k} = %s" for k in allowed)
     values = list(allowed.values()) + [user_id]
     row = fetch_one(
-        f"UPDATE ui_users SET {set_clause} WHERE id = %s RETURNING id, username, is_admin, role, is_active",
+        f"UPDATE ui_users SET {set_clause} WHERE id = %s RETURNING id, username, is_admin, role, is_active",  # noqa: S608 - set_clause keys allowlisted to is_admin/is_active/role; values parameterized
         tuple(values),
     )
     if not row:
