@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from mcp.server.fastmcp import FastMCP
 
@@ -87,14 +88,38 @@ async def run_web_crawl(
 ) -> str:
     """Crawl one or more web pages and return their parsed text content.
 
-    urls: JSON array of URL strings.
+    urls: a JSON array of URL strings (e.g. ``["https://a.com", "https://b.com"]``),
+    a single bare URL, or a comma/whitespace-separated list. All forms are
+    accepted — a bare URL no longer raises a JSON decode error (see issue #110).
     """
+    url_list = _parse_url_arg(urls)
     result = await api_call(
         "POST",
         "/v3/nodes/web_crawl/execute",
-        json={"urls": json.loads(urls), "max_pages": max_pages, "scrape_depth": scrape_depth},
+        json={"urls": url_list, "max_pages": max_pages, "scrape_depth": scrape_depth},
     )
     return json.dumps(result)
+
+
+def _parse_url_arg(urls: str) -> list[str]:
+    """Coerce the ``urls`` tool argument into a list of URL strings.
+
+    The brain sometimes passes a JSON array string, but often passes a single
+    bare URL or a comma/whitespace-separated list. ``json.loads`` raised
+    ``JSONDecodeError`` on the bare-URL form before any HTTP call (issue #110);
+    this tolerates all three.
+    """
+    try:
+        parsed = json.loads(urls)
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+
+    if isinstance(parsed, list):
+        return [str(u).strip() for u in parsed if str(u).strip()]
+    if isinstance(parsed, str) and parsed.strip():
+        return [parsed.strip()]
+    # Bare string, or comma/whitespace-separated list.
+    return [u.strip() for u in re.split(r"[,\s]+", urls) if u.strip()]
 
 
 @mcp.tool()

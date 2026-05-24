@@ -17,6 +17,56 @@ from app.routers.v3.stream import push_event
 router = APIRouter(prefix="/v3/nodes", tags=["v3-nodes"])
 log = logging.getLogger(__name__)
 
+# Per-item target fields that ad-hoc / MCP callers pass at the top level of an
+# /execute payload instead of inside an explicit `inputs` list. When one of
+# these is present and no `inputs` were given, the payload is wrapped as a
+# single upstream item so nodes that read these fields per-item receive their
+# target. Pure config keys (research_goal, criteria, instructions, ...) are
+# intentionally absent so config-only nodes keep their empty-inputs behaviour.
+_INPUT_TARGET_FIELDS = frozenset(
+    {
+        "query",
+        "domain",
+        "url",
+        "urls",
+        "website",
+        "company_name",
+        "company",
+        "full_name",
+        "name",
+        "username",
+        "title",
+        "email",
+        "phone",
+    }
+)
+
+
+def _wrap_payload_as_input(inputs: list[dict], body: dict) -> list[dict]:
+    """Wrap an ad-hoc /execute payload as a single upstream item when needed.
+
+    Ad-hoc callers (the MCP server, manual API calls) pass the node's target as
+    top-level fields rather than an explicit ``inputs`` list — e.g.
+    ``{"query": ...}`` for search nodes, ``{"domain": ...}`` for whois,
+    ``{"urls": [...]}`` for web_crawl. Nodes read their target from each upstream
+    item (``item["query"]``, ``item["domain"]``, ``item["url"]``, ...), so when
+    no explicit inputs are given but the payload carries a recognised target
+    field, the payload is wrapped as a single upstream item. ``body`` is still
+    passed through as config; nodes read only the keys they need from each side.
+
+    Without this, enrich nodes such as whois_lookup iterate an empty inputs list
+    and return zero items while the endpoint still reports ``status: success``
+    (see issue #111).
+
+    The allowlist is deliberately limited to per-item target fields. Pure config
+    keys (``research_goal``, ``criteria``, ``instructions``, ...) are excluded so
+    config-only nodes that synthesise their own input when ``inputs`` is empty
+    (intelligent_search, ai_scoring, summarizer) keep working unchanged.
+    """
+    if not inputs and any(k in body for k in _INPUT_TARGET_FIELDS):
+        return [dict(body)]
+    return inputs
+
 
 def _get_node(node_type: str):
     NodeRegistry.auto_discover()
@@ -48,10 +98,7 @@ async def execute_node(
     # Allow caller to pass inputs alongside config in the same payload.
     inputs: list[dict] = body.pop("inputs", [])
 
-    # For source/search nodes that accept a bare `query`, wrap it as an input
-    # item so the node can iterate over it.
-    if not inputs and "query" in body:
-        inputs = [{"query": body["query"]}]
+    inputs = _wrap_payload_as_input(inputs, body)
 
     ctx = RunContext(
         user_id="mcp-system",
