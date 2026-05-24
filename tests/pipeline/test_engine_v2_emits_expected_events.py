@@ -125,7 +125,7 @@ class TestStrategistPhaseCompleteCb:
 
     def test_cb_fires_once_per_completed_phase_single_phase(self):
         """With one phase that passes, phase_complete_cb is called exactly once."""
-        phase = _make_phase("identify")
+        phase = _make_phase("gather")
         strategy = _make_strategy([phase])
         envelope = _make_envelope()
 
@@ -156,13 +156,13 @@ class TestStrategistPhaseCompleteCb:
 
         result = _run(_run_test())
         assert len(cb_calls) == 1
-        assert cb_calls[0] == ("identify", True)
+        assert cb_calls[0] == ("gather", True)
         assert result.status == "completed"
 
     def test_cb_fires_once_per_phase_two_phases(self):
         """With two sequential phases both passing, cb fires twice in order."""
-        phase_a = _make_phase("identify")
-        phase_b = _make_phase("verify", depends_on=["identify"])
+        phase_a = _make_phase("gather")
+        phase_b = _make_phase("disconfirm", depends_on=["gather"])
         strategy = _make_strategy([phase_a, phase_b])
         envelope = _make_envelope()
 
@@ -193,13 +193,13 @@ class TestStrategistPhaseCompleteCb:
 
         result = _run(_run_test())
         assert len(cb_calls) == 2
-        assert cb_calls[0] == ("identify", True)
-        assert cb_calls[1] == ("verify", True)
+        assert cb_calls[0] == ("gather", True)
+        assert cb_calls[1] == ("disconfirm", True)
         assert result.status == "completed"
 
     def test_cb_fires_on_gate_fail_with_gate_passed_false(self):
         """When gate fails the cb still fires with gate_passed=False."""
-        phase = _make_phase("identify", on_fail="terminate")
+        phase = _make_phase("gather", on_fail="terminate")
         strategy = _make_strategy([phase])
         envelope = _make_envelope()
 
@@ -230,12 +230,12 @@ class TestStrategistPhaseCompleteCb:
 
         result = _run(_run_test())
         assert len(cb_calls) == 1
-        assert cb_calls[0] == ("identify", False)
+        assert cb_calls[0] == ("gather", False)
         assert result.status == "terminated"
 
     def test_cb_not_called_when_none(self):
         """Omitting phase_complete_cb (default None) runs without error."""
-        phase = _make_phase("identify")
+        phase = _make_phase("gather")
         strategy = _make_strategy([phase])
         envelope = _make_envelope()
 
@@ -273,8 +273,8 @@ class TestEngineV2EventOrdering:
 
     def _make_two_phase_setup(self):
         """Return a two-phase strategy and passing tactician for ordering tests."""
-        phase_a = _make_phase("identify")
-        phase_b = _make_phase("verify", depends_on=["identify"])
+        phase_a = _make_phase("gather")
+        phase_b = _make_phase("disconfirm", depends_on=["gather"])
         strategy = _make_strategy([phase_a, phase_b])
         envelope = _make_envelope(hypothesis_count="single")
 
@@ -397,10 +397,10 @@ class TestEngineV2EventOrdering:
             )
 
         # Verify: is.phase_complete(A) precedes is.phase_start(B) for A→B
-        # The two phases are "identify" and "verify"; verify depends on identify.
-        if "identify" in phase_complete_indices and "verify" in phase_start_indices:
-            assert phase_complete_indices["identify"] < phase_start_indices["verify"], (
-                "is.phase_complete(identify) must come before is.phase_start(verify)"
+        # The two phases are "gather" and "disconfirm"; disconfirm depends on gather.
+        if "gather" in phase_complete_indices and "disconfirm" in phase_start_indices:
+            assert phase_complete_indices["gather"] < phase_start_indices["disconfirm"], (
+                "is.phase_complete(gather) must come before is.phase_start(disconfirm)"
             )
 
     def test_phase_complete_has_required_fields(self):
@@ -420,7 +420,7 @@ class TestEngineV2EventOrdering:
 
     def test_gate_fail_emits_fail_status(self):
         """When a phase gate fails with on_fail=terminate, gate_status is 'fail'."""
-        phase = _make_phase("identify", on_fail="terminate")
+        phase = _make_phase("gather", on_fail="terminate")
         strategy = _make_strategy([phase])
         envelope = _make_envelope()
 
@@ -435,7 +435,7 @@ class TestEngineV2EventOrdering:
 
     def test_ask_user_emits_ask_user_status(self):
         """When gate on_fail is ask_user and gate fails, gate_status is 'ask_user'."""
-        phase = _make_phase("identify", on_fail="ask_user")
+        phase = _make_phase("gather", on_fail="ask_user")
         strategy = _make_strategy([phase])
         envelope = _make_envelope()
 

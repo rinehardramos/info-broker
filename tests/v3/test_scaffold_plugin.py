@@ -83,13 +83,16 @@ def test_generate_stub_builds_correct_class():
     from app.routers.v3.pipelines import _generate_stub
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Simulate the auto_dir path by patching __file__ resolution
-        fake_pipelines_py = os.path.join(tmpdir, "pipelines.py")
-        auto_dir = os.path.join(tmpdir, "../../pipeline/nodes/auto")
-        os.makedirs(os.path.normpath(os.path.join(tmpdir, "../../pipeline/nodes/auto")), exist_ok=True)
+        # Build a realistic routers/v3/ and pipeline/nodes/auto/ layout inside tmpdir
+        routers_v3_dir = os.path.join(tmpdir, "app", "routers", "v3")
+        auto_dir = os.path.join(tmpdir, "app", "pipeline", "nodes", "auto")
+        os.makedirs(routers_v3_dir, exist_ok=True)
+        os.makedirs(auto_dir, exist_ok=True)
 
+        # fake_pipelines_py lives in routers/v3/; _generate_stub resolves
+        # auto_dir as ../../pipeline/nodes/auto relative to that file.
+        fake_pipelines_py = os.path.join(routers_v3_dir, "pipelines.py")
         original_abspath = os.path.abspath
-        original_dirname = os.path.dirname
 
         def fake_abspath(p):
             if str(p).endswith("pipelines.py"):

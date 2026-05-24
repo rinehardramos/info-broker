@@ -1,4 +1,4 @@
-"""Tests for GET /api/v3/metrics/summary and /api/v3/metrics/runs.
+"""Tests for GET /v3/metrics/summary and /v3/metrics/runs.
 
 These tests use dependency_overrides + fetch patches so they run without Postgres.
 """
@@ -53,7 +53,7 @@ def test_summary_returns_correct_shape():
         with patch("app.routers.v3.metrics.fetch_one", return_value=_RUN_STATS), \
              patch("app.routers.v3.metrics.fetch_all", return_value=[]):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/summary")
+            resp = client.get("/v3/metrics/summary")
         assert resp.status_code == 200
         data = resp.json()
         assert "runs" in data
@@ -74,7 +74,7 @@ def test_summary_latency_shape():
         with patch("app.routers.v3.metrics.fetch_one", return_value=_RUN_STATS), \
              patch("app.routers.v3.metrics.fetch_all", return_value=[]):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/summary")
+            resp = client.get("/v3/metrics/summary")
         assert resp.status_code == 200
         latency = resp.json()["latency"]
         assert latency["avg_seconds"] == 45.2
@@ -91,7 +91,7 @@ def test_summary_handles_no_data():
         with patch("app.routers.v3.metrics.fetch_one", return_value=None), \
              patch("app.routers.v3.metrics.fetch_all", return_value=[]):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/summary")
+            resp = client.get("/v3/metrics/summary")
         assert resp.status_code == 200
         data = resp.json()
         assert data["runs"]["total"] == 0
@@ -108,7 +108,7 @@ def test_summary_custom_days_param():
         with patch("app.routers.v3.metrics.fetch_one", return_value=partial_stats), \
              patch("app.routers.v3.metrics.fetch_all", return_value=[]):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/summary?days=7")
+            resp = client.get("/v3/metrics/summary?days=7")
         assert resp.status_code == 200
         assert resp.json()["period_days"] == 7
     finally:
@@ -122,7 +122,7 @@ def test_summary_budget_exhausted_field():
         with patch("app.routers.v3.metrics.fetch_one", return_value=stats), \
              patch("app.routers.v3.metrics.fetch_all", return_value=[]):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/summary")
+            resp = client.get("/v3/metrics/summary")
         assert resp.status_code == 200
         assert resp.json()["runs"]["budget_exhausted"] == 3
     finally:
@@ -139,7 +139,7 @@ def test_run_history_returns_empty_list():
     try:
         with patch("app.routers.v3.metrics.fetch_all", return_value=[]):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/runs")
+            resp = client.get("/v3/metrics/runs")
         assert resp.status_code == 200
         assert resp.json() == []
     finally:
@@ -163,7 +163,7 @@ def test_run_history_returns_rows():
     try:
         with patch("app.routers.v3.metrics.fetch_all", return_value=_rows):
             client = TestClient(app)
-            resp = client.get("/api/v3/metrics/runs")
+            resp = client.get("/v3/metrics/runs")
         assert resp.status_code == 200
         rows = resp.json()
         assert len(rows) == 1

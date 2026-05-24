@@ -1,4 +1,5 @@
 import os
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -16,21 +17,21 @@ def _auth_headers(username, password="pass"):
 
 
 def test_list_plugins():
-    h = _auth_headers("plugintest1")
+    h = _auth_headers(f"plugintest1_{uuid.uuid4().hex[:8]}")
     r = client.get("/v3/plugins", headers=h)
     assert r.status_code == 200
     assert isinstance(r.json(), list)
 
 
 def test_get_plugin_schema():
-    h = _auth_headers("plugintest2")
+    h = _auth_headers(f"plugintest2_{uuid.uuid4().hex[:8]}")
     r = client.get("/v3/plugins/ddg/schema", headers=h)
     assert r.status_code == 200
     assert "type" in r.json()
 
 
 def test_save_and_get_plugin_config():
-    h = _auth_headers("plugintest3")
+    h = _auth_headers(f"plugintest3_{uuid.uuid4().hex[:8]}")
     r = client.put("/v3/plugins/ddg/config", json={"config": {"max_results": 10}}, headers=h)
     assert r.status_code == 200
     r2 = client.get("/v3/plugins/ddg/config", headers=h)

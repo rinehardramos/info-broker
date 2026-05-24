@@ -6,6 +6,7 @@ not user-facing today; their 404 behavior is covered by one test.
 from __future__ import annotations
 
 import os
+import uuid
 import pytest
 from fastapi.testclient import TestClient
 
@@ -21,16 +22,18 @@ client = TestClient(app)
 
 
 def _make_user(username: str, *, password: str | None = "secretpass123", email: str | None = None) -> str:
+    import uuid as _uuid
     from passlib.context import CryptContext
     ctx = CryptContext(schemes=["argon2", "bcrypt"], deprecated=["bcrypt"])
     pwd_hash = ctx.hash(password) if password else None
+    org_id = str(_uuid.uuid4())
     execute(
-        """INSERT INTO ui_users (username, password_hash, email, is_active)
-           VALUES (%s, %s, %s, true)
+        """INSERT INTO ui_users (username, password_hash, email, is_active, org_id)
+           VALUES (%s, %s, %s, true, %s)
            ON CONFLICT (username) DO UPDATE
               SET password_hash = EXCLUDED.password_hash,
                   email = EXCLUDED.email""",
-        (username, pwd_hash, email),
+        (username, pwd_hash, email, org_id),
     )
     row = fetch_one("SELECT id FROM ui_users WHERE username = %s", (username,))
     return str(row["id"])
@@ -45,8 +48,9 @@ def _login(username: str, password: str) -> str:
 # ---------- /set-password ----------
 
 def test_set_password_blocked_for_users_with_existing_hash():
-    _make_user("sp_has_pwd", password="oldpassword12!")
-    token = _login("sp_has_pwd", "oldpassword12!")
+    uname = f"sp_has_pwd_{uuid.uuid4().hex[:8]}"
+    _make_user(uname, password="oldpassword12!")
+    token = _login(uname, "oldpassword12!")
     resp = client.post(
         "/v3/auth/set-password",
         json={"new_password": "brandnewpw99!"},
@@ -58,7 +62,8 @@ def test_set_password_blocked_for_users_with_existing_hash():
 
 def test_set_password_works_for_oauth_only_user():
     from app.routers.v3.auth import _make_access_token
-    uid = _make_user("sp_oauth_only", password=None, email="sp_oauth@example.com")
+    uname = f"sp_oauth_{uuid.uuid4().hex[:8]}"
+    uid = _make_user(uname, password=None, email=f"{uname}@example.com")
     execute("UPDATE ui_users SET password_hash = NULL WHERE id = %s", (uid,))
     token = _make_access_token(uid)
     resp = client.post(
@@ -77,8 +82,9 @@ def test_set_password_works_for_oauth_only_user():
 # ---------- /v3/users/me ----------
 
 def test_me_returns_extended_fields():
-    uid = _make_user("me_fields", email="me_fields@example.com")
-    token = _login("me_fields", "secretpass123")
+    uname = f"me_fields_{uuid.uuid4().hex[:8]}"
+    uid = _make_user(uname, email=f"{uname}@example.com")
+    token = _login(uname, "secretpass123")
     resp = client.get("/v3/users/me", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 200
     body = resp.json()
@@ -88,8 +94,9 @@ def test_me_returns_extended_fields():
 
 
 def test_patch_me_updates_personalization():
-    _make_user("pp_user", email="pp@example.com")
-    token = _login("pp_user", "secretpass123")
+    uname = f"pp_user_{uuid.uuid4().hex[:8]}"
+    _make_user(uname, email=f"{uname}@example.com")
+    token = _login(uname, "secretpass123")
     resp = client.patch(
         "/v3/users/me",
         json={
@@ -109,8 +116,9 @@ def test_patch_me_updates_personalization():
 
 
 def test_patch_me_partial_update_does_not_clear_other_fields():
-    uid = _make_user("pp_partial", email="ppp@example.com")
-    token = _login("pp_partial", "secretpass123")
+    uname = f"pp_partial_{uuid.uuid4().hex[:8]}"
+    uid = _make_user(uname, email=f"{uname}@example.com")
+    token = _login(uname, "secretpass123")
     client.patch("/v3/users/me", json={"display_name": "Alice"}, headers={"Authorization": f"Bearer {token}"})
     client.patch("/v3/users/me", json={"locale": "fr"}, headers={"Authorization": f"Bearer {token}"})
     me = client.get("/v3/users/me", headers={"Authorization": f"Bearer {token}"}).json()
@@ -122,8 +130,9 @@ def test_patch_me_partial_update_does_not_clear_other_fields():
 
 def test_email_verify_send_returns_404_when_disabled(monkeypatch):
     monkeypatch.delenv("EMAIL_VERIFY_ENABLED", raising=False)
-    _make_user("ev_disabled", email="disabled@example.com")
-    token = _login("ev_disabled", "secretpass123")
+    uname = f"ev_disabled_{uuid.uuid4().hex[:8]}"
+    _make_user(uname, email=f"{uname}@example.com")
+    token = _login(uname, "secretpass123")
     resp = client.post("/v3/auth/me/email/send", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 404
 

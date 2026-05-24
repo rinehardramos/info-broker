@@ -217,7 +217,7 @@ class SetPasswordIn(BaseModel):
     @field_validator("new_password")
     @classmethod
     def _strong(cls, v: str) -> str:
-        return _strong_password(v)
+        return _validate_password_strength(v)
 
 
 class ConfirmEmailIn(BaseModel):
