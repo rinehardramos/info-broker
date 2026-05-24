@@ -74,9 +74,10 @@ def test_log_cycle_declaration_required():
     assert "CANNOT run any search before calling log_cycle" in RESEARCH_PROMPT
 
 
-def test_hypothesis_first_broaden_gate():
+def test_hypothesis_first_gather_gate():
     """Minimum searches = number of hypotheses (hard gate)."""
-    assert "HYPOTHESIS-FIRST BROADEN" in RESEARCH_PROMPT
+    # Phase label canonicalised to "gather" in #122 (was "BROADEN").
+    assert "HYPOTHESIS-FIRST GATHER" in RESEARCH_PROMPT
 
 
 def test_dead_end_rehypothesization_required():
