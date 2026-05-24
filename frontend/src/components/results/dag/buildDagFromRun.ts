@@ -124,7 +124,7 @@ const ROW_GAP = 32   // vertical gap between rows
 const COL_GAP = 16   // horizontal gap between siblings
 
 // Default phase order (mirrors PhaseDAGView)
-const DEFAULT_PHASE_ORDER = ['signal_extraction', 'broaden', 'red_team', 'rank_verify']
+const DEFAULT_PHASE_ORDER = ['extract', 'gather', 'disconfirm', 'synthesize']
 
 // ─── Source class inference ───────────────────────────────────────────────────
 

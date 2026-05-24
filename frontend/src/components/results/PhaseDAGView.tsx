@@ -25,7 +25,7 @@ export type ViewMode = 'live' | 'compact' | 'dag'
 /** Storage key — replaces the old "v2_live_view_compact" boolean key. */
 export const VIEW_MODE_STORAGE_KEY = 'v2_live_view_mode'
 
-const DEFAULT_PHASE_ORDER = ['signal_extraction', 'broaden', 'red_team', 'rank_verify']
+const DEFAULT_PHASE_ORDER = ['extract', 'gather', 'disconfirm', 'synthesize']
 
 interface PhaseDAGViewProps {
   runId: string
