@@ -1,8 +1,8 @@
 """Shared invariants for ACH-shaped strategy modules.
 
 The ACH backbone (signal_extraction → broaden → red_team → rank_verify) is
-the hand-written, non-skeleton strategy shape. All three ACH-shaped strategies
-have now been migrated to the unified taxonomy (extract → gather → disconfirm →
+the legacy strategy shape. All three ACH-shaped strategies have now been
+migrated to the unified taxonomy (extract → gather → disconfirm →
 synthesize) — person (Task 9), due_diligence (Task 10), media_identification
 (Task 11).
 
@@ -31,7 +31,7 @@ MODES_DIR = (
 
 # Strategies still on the legacy ACH backbone (signal_extraction → broaden →
 # red_team → rank_verify). Remove entries here as they are migrated to the
-# unified taxonomy (extract → gather → disconfirm → synthesize).
+# current unified taxonomy (extract → gather → disconfirm → synthesize).
 # person migrated 2026-05-23 (Task 9) — see TestPersonUnifiedTaxonomy below.
 # due_diligence migrated 2026-05-23 (Task 10) — see TestDueDiligenceUnifiedTaxonomy below.
 # media_identification migrated 2026-05-23 (Task 11) — see TestMediaIdentificationUnifiedTaxonomy below.

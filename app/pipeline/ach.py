@@ -139,7 +139,7 @@ def _mark_medium(
     # Collect phase_id from phase_outputs metadata
     gather_finding_ids: set[str] = set()
     for po in phase_outputs:
-        if hasattr(po, "phase_id") and po.phase_id in ("gather", "broaden"):  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
+        if hasattr(po, "phase_id") and po.phase_id == "gather":
             for f in po.aggregated_findings:
                 url = f.get("source_url") or ""
                 if url:
@@ -149,7 +149,7 @@ def _mark_medium(
         for f in candidate_findings:
             phase_id = f.get("phase_id", "")
             source_class = f.get("source_class", "")
-            if phase_id in ("gather", "broaden") and source_class in _LIVE_SOURCE_CLASSES:  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
+            if phase_id == "gather" and source_class in _LIVE_SOURCE_CLASSES:
                 finding_id = f.get("source_url") or f.get("evidence_snippet", "")[:40] or None
                 return "consistent", finding_id
 

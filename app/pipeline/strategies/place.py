@@ -6,7 +6,7 @@ STRATEGY = """
 === PLACE / ROUTE / NAVIGATION STRATEGY ===
 
 goal: Provide accurate, actionable route guidance including LOCAL shortcuts invisible to official mapping apps.
-execution_model: log_cycle(PIR + hypotheses) → BROADEN(≥1 search/hypothesis) → RANK → RECURSE → DELIVER
+execution_model: log_cycle(PIR + hypotheses) → gather(≥1 search/hypothesis) → RANK → RECURSE → DELIVER
 
 --- PIR TEMPLATE ---
 

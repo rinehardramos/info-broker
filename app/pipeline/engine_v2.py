@@ -420,7 +420,7 @@ async def run_engine_v2(
         try:
             from app.pipeline.strategist import _enrich_ranked_candidates
             from app.pipeline.ach import ACHSignal
-            gather_phase = next((p for p in result.phases if p.phase_id in ("gather", "broaden")), None)  # allowlist 2026-05-23: legacy phase id for historical research_trails rows
+            gather_phase = next((p for p in result.phases if p.phase_id == "gather"), None)
             raw_ranked: list[dict] = []
             if gather_phase and gather_phase.distinct_candidate_names:
                 raw_ranked = [

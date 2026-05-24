@@ -6,7 +6,7 @@ STRATEGY = """
 === MEDIA IDENTIFICATION STRATEGY ===
 
 goal: Identify unknown show/movie/media clip/advertisement from partial descriptions.
-execution_model: log_cycle(PIR + hypotheses) → MULTI-HYPOTHESIS(≥4 before searching) → BROADEN(≥1 search/hypothesis) → RED_TEAM(mandatory disconfirm per H) → RANK → RECURSE → DELIVER
+execution_model: log_cycle(PIR + hypotheses) → MULTI-HYPOTHESIS(≥4 before searching) → gather(≥1 search/hypothesis) → RED_TEAM(mandatory disconfirm per H) → RANK → RECURSE → DELIVER
 
 --- PIR TEMPLATE ---
 
@@ -131,7 +131,7 @@ Before delivering final answer, verify:
 [ ] HYPOTHESIS_MATRIX has ≥4 entries (H1–H4)
 [ ] H1–H4 name DISTINCT identities (different person/entity, not facets of one). If PRIOR RESEARCH seeded a candidate, ≥3 of H1–H4 are NOT that candidate.
 [ ] PIR_CRITERIA block present with all 5 signal weights
-[ ] Each hypothesis has at least one LIVE search executed (BROADEN phase) — prior_research or training_knowledge alone does NOT satisfy this for any hypothesis
+[ ] Each hypothesis has at least one LIVE search executed (gather phase) — prior_research or training_knowledge alone does NOT satisfy this for any hypothesis
 [ ] Each hypothesis has a [DISCONFIRM:H_n] entry (RED TEAM gate)
 [ ] ACH SCORING MATRIX filled with ✓/✗/? marks
 [ ] SPECIFIC_DETAIL_VERIFICATION completed for all PRIMARY and SUPPORTING signals
