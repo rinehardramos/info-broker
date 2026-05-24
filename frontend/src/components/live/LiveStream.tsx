@@ -110,8 +110,6 @@ function SessionHistoryItem({ session }: { session: AgentSession }) {
 
 export default function LiveStream() {
   const qc = useQueryClient()
-  const clearMessages = useChatStore(s => s.clearMessages)
-  const sessionId = useChatStore(s => s.sessionId)
   const setCol1Content = useSessionStore(s => s.setCol1Content)
 
   const { data: coreSettings } = useQuery({
@@ -425,38 +423,6 @@ export default function LiveStream() {
           )}
         </div>
 
-        {/* ── New Session button — shared footer below all three sections ── */}
-        <div style={{
-          flexShrink: 0, padding: '6px 8px',
-          borderTop: '1px solid var(--border)',
-        }}>
-          <button
-            onClick={clearMessages}
-            title="Start a new investigation session"
-            style={{
-              width: '100%', padding: '6px 0', borderRadius: 6,
-              fontSize: 10, fontWeight: 600, letterSpacing: '0.04em',
-              border: `1px solid ${sessionId ? '#a78bfa60' : 'var(--border)'}`,
-              background: sessionId ? '#a78bfa15' : 'transparent',
-              color: sessionId ? '#a78bfa' : 'var(--muted)',
-              cursor: 'pointer', transition: 'all 0.15s',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = '#a78bfa20'
-              e.currentTarget.style.borderColor = '#a78bfa'
-              e.currentTarget.style.color = '#a78bfa'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.background = sessionId ? '#a78bfa15' : 'transparent'
-              e.currentTarget.style.borderColor = sessionId ? '#a78bfa60' : 'var(--border)'
-              e.currentTarget.style.color = sessionId ? '#a78bfa' : 'var(--muted)'
-            }}
-          >
-            <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
-            New Session
-          </button>
-        </div>
       </div>
     </div>
   )

@@ -647,16 +647,19 @@ export default function AgentChat() {
 
         {/* Right: clear/end + IS switch */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {messages.length > 0 && (
+          {(messages.length > 0 || sessionId) && (
             <button
               onClick={sessionId ? handleEndSession : () => { clearMessages(); setPirGoal(''); setShowPir(false) }}
-              title={sessionId ? 'End session and clear chat' : 'Clear chat'}
+              title="Start a new investigation session (archives the current one)"
               style={{
-                padding: '1px 6px', borderRadius: 10, fontSize: 8, fontWeight: 400,
-                border: '1px solid var(--border)', background: 'transparent',
-                color: 'var(--muted)', cursor: 'pointer', letterSpacing: '0.02em',
+                padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 600,
+                letterSpacing: '0.04em', cursor: 'pointer', transition: 'all 0.15s',
+                border: `1px solid ${sessionId ? '#a78bfa60' : 'var(--border)'}`,
+                background: sessionId ? '#a78bfa15' : 'transparent',
+                color: sessionId ? '#a78bfa' : 'var(--muted)',
+                display: 'flex', alignItems: 'center', gap: 4,
               }}
-            >{sessionId ? 'end' : 'clear'}</button>
+            ><span style={{ fontSize: 11, lineHeight: 1 }}>+</span>New Session</button>
           )}
 
           {/* IS toggle — proper switch */}
