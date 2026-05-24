@@ -126,22 +126,22 @@ export default function Dashboard() {
 
         {/* ── Quick research ─────────────────────────────────────────────── */}
         <section
-          className="rounded-lg border p-4 flex flex-col gap-2"
+          className="rounded-lg border p-6 flex flex-col gap-3"
           style={{ background: 'var(--panel)', borderColor: 'var(--border)' }}
         >
           <div className="flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold">Research</h2>
-            <Link to="/research" className="text-[11px] text-sky-400 hover:underline">
+            <h2 className="text-lg font-semibold">Research</h2>
+            <Link to="/research" className="text-sm text-sky-400 hover:underline">
               Open research →
             </Link>
           </div>
-          <form onSubmit={submitQuickResearch} className="flex items-center gap-2">
+          <form onSubmit={submitQuickResearch} className="flex items-center gap-3">
             <input
               type="text"
               value={quickQuery}
               onChange={(e) => setQuickQuery(e.target.value)}
               placeholder="Ask anything — I'll research it for you."
-              className="flex-1 px-3 py-2 rounded text-sm outline-none"
+              className="flex-1 px-6 py-4 rounded-lg text-lg outline-none"
               style={{
                 background: 'var(--panel2)',
                 color: 'var(--text)',
@@ -151,7 +151,7 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => setTemplatesOpen(v => !v)}
-              className="px-3 py-2 rounded text-sm"
+              className="px-6 py-4 rounded-lg text-lg"
               style={{
                 background: 'var(--panel2)',
                 color: 'var(--text)',
@@ -165,7 +165,7 @@ export default function Dashboard() {
             <button
               type="submit"
               disabled={!quickQuery.trim()}
-              className="px-3 py-2 rounded text-sm font-semibold disabled:opacity-50"
+              className="px-6 py-4 rounded-lg text-lg font-semibold disabled:opacity-50"
               style={{ background: '#a78bfa', color: '#1e1b4b', border: 'none' }}
             >
               Research
