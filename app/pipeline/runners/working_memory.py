@@ -890,6 +890,159 @@ class WorkingMemory(BaseModel):
             },
         }
 
+    def to_engine_v2_trail(
+        self,
+        status: str = "succeeded",
+        terminate_reason: str | None = None,
+    ) -> tuple[dict, list[dict]]:
+        """Build an engine_v2-shaped trail + per-finding enriched list.
+
+        Path B (IS-loop) didn't originally produce data the v2 UI could read
+        (PhaseDAGView, TacticianSwimLanes, CandidateComparison, ACHMatrix).
+        This adapter maps the brain-loop state onto engine_v2's trail shape so
+        /v3/runs/{id}/replay returns populated phases/cards/candidates.
+
+        Returns:
+          (trail_dict, findings_list) — trail_dict goes into research_trails.trail;
+          findings_list goes into research_trails.findings.
+
+        Mapping:
+          - WM.findings  → one branch each (phase_id from finding.turn → WM phase
+            at that turn, candidate_name from the hypothesis the finding supports)
+          - WM phase entries → phases_full (one per phase observed: explore,
+            test if any test-turn findings exist, synthesize if synthesis_summary set)
+          - WM.hypotheses (status=supported) → ranked_candidates sorted by confidence
+          - ach_matrix → None (Path B does not produce signed evidence weighting)
+        """
+        # Build hypothesis → support map for candidate_name lookup
+        finding_to_hypothesis: dict[str, str] = {}
+        for h in self.hypotheses:
+            for fid in h.supporting_finding_ids:
+                finding_to_hypothesis.setdefault(fid, h.statement)
+
+        # Determine which phase each finding belongs to. The WM tracks the
+        # *current* phase plus phase_entered_at_turn but doesn't store a
+        # per-finding phase. Heuristic: findings from turn 0 → explore;
+        # findings whose turn >= phase_entered_at_turn AND current phase ==
+        # test → test; later (after synthesize entered) → synthesize. We
+        # approximate by binning on turn count, mirroring how the loop
+        # transitions phases linearly.
+        # observed_phases: phase_id → list of finding indices
+        explore_findings: list[int] = []
+        test_findings: list[int] = []
+        synth_findings: list[int] = []
+        # synthesize-phase entry turn (if known): the last phase transition.
+        synth_entry_turn = self.phase_entered_at_turn if self.phase == "synthesize" else None
+        for i, f in enumerate(self.findings):
+            if synth_entry_turn is not None and f.turn >= synth_entry_turn:
+                synth_findings.append(i)
+            elif f.turn == 0 or len(self.hypotheses) == 0 or f.turn < 1:
+                explore_findings.append(i)
+            else:
+                test_findings.append(i)
+
+        # Build per-finding "branches" entries + per-finding enriched list
+        branches: list[dict] = []
+        findings_list: list[dict] = []
+        phase_assignments = [
+            ("explore", explore_findings),
+            ("test", test_findings),
+            ("synthesize", synth_findings),
+        ]
+        for phase_id, idxs in phase_assignments:
+            for i in idxs:
+                f = self.findings[i]
+                candidate = finding_to_hypothesis.get(f.id, "")
+                snippet = (f.content or f.title or "")[:240]
+                branches.append({
+                    "phase_id": phase_id,
+                    "slot_idx": 0,  # Path B uses one slot per phase
+                    "candidate_name": candidate,
+                    "evidence_snippet": snippet,
+                    "source_url": f.source_url,
+                    "source_class": f.source_class,
+                    "confidence": f.confidence,
+                    "technique_id": f.source_tool or "brain_turn",
+                })
+                findings_list.append({
+                    "title": f.title,
+                    "content": f.content,
+                    "source_url": f.source_url,
+                    "source_tool": f.source_tool,
+                    "source_class": f.source_class,
+                    "confidence": int(f.confidence * 100),
+                    "finding_type": "result",
+                    "deception_risk": f.deception_risk,
+                    "deception_flags": f.deception_flags,
+                    "phase_id": phase_id,
+                    "hypothesis_slot": 0,
+                    "technique_id": f.source_tool or "brain_turn",
+                    "evidence_snippet": snippet,
+                    "evidence_summary": snippet,
+                })
+
+        # phases_full: emit one entry per phase that produced findings, plus
+        # synthesize if the brain reached it. Each entry shapes the UI's
+        # PhaseDAGView (status + n_tacticians + distinct_candidate_names).
+        phases_full: list[dict] = []
+        for phase_id, idxs in phase_assignments:
+            if not idxs and phase_id != self.phase:
+                continue
+            candidate_names = sorted({
+                finding_to_hypothesis.get(self.findings[i].id, "")
+                for i in idxs
+                if finding_to_hypothesis.get(self.findings[i].id, "")
+            })
+            phase_status = "passed"
+            if phase_id == self.phase and status not in ("succeeded", "ask_user"):
+                phase_status = "failed" if status == "failed" else "running"
+            phases_full.append({
+                "phase_id": phase_id,
+                "status": phase_status,
+                "gate_status": "pass" if phase_status == "passed" else (
+                    "fail" if phase_status == "failed" else "ask_user"
+                ),
+                "distinct_candidate_names": candidate_names,
+                "metadata": {"num_tacticians": 1},
+                "gate_result": None,
+            })
+
+        # ranked_candidates from supported hypotheses (sorted high→low)
+        ranked_candidates: list[dict] = []
+        supported = sorted(
+            (h for h in self.hypotheses if h.status == "supported"),
+            key=lambda h: -h.confidence,
+        )
+        # Build a quick map for evidence backfill
+        finding_by_id = {f.id: f for f in self.findings}
+        for h in supported:
+            evidence = []
+            for fid in h.supporting_finding_ids[:8]:
+                f = finding_by_id.get(fid)
+                if f is None:
+                    continue
+                evidence.append({
+                    "snippet": (f.content or f.title or "")[:200],
+                    "source_url": f.source_url,
+                    "source_class": f.source_class,
+                })
+            ranked_candidates.append({
+                "name": h.statement,
+                "score": h.confidence,
+                "evidence": evidence,
+            })
+
+        trail = {
+            "branches": branches,
+            "phases": [p["phase_id"] for p in phases_full],
+            "phases_full": phases_full,
+            "status": status,
+            "terminate_reason": terminate_reason,
+            "ranked_candidates": ranked_candidates,
+            "ach_matrix": None,  # Path B does not currently produce ACH weighting
+        }
+        return trail, findings_list
+
     def _render_cross_run_priors(self) -> str:
         if not self.cross_run_priors:
             return "CROSS-RUN PRIORS: (no semantically-related prior research found)"

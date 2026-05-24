@@ -53,15 +53,40 @@ function safeGetItem(key: string): string | null {
 const storedToken = safeGetItem('access_token')
 const initialClaims = claimsFromToken(storedToken)
 
+// Rehydrate the open Results tab across refreshes. clearClientSession() removes
+// this key on logout so it doesn't leak between users on a shared browser.
+const VIEW_KEY = 'ib-session-view'
+type PersistedView = {
+  activeJobId: string | null
+  col1Content: SessionState['col1Content']
+}
+function loadPersistedView(): PersistedView {
+  try {
+    const raw = safeGetItem(VIEW_KEY)
+    if (!raw) return { activeJobId: null, col1Content: null }
+    const parsed = JSON.parse(raw) as Partial<PersistedView>
+    return {
+      activeJobId: parsed.activeJobId ?? null,
+      col1Content: parsed.col1Content ?? null,
+    }
+  } catch {
+    return { activeJobId: null, col1Content: null }
+  }
+}
+function savePersistedView(view: PersistedView): void {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)) } catch { /* storage unavailable */ }
+}
+const initialView = loadPersistedView()
+
 export const useSessionStore = create<SessionState>((set) => ({
   accessToken: storedToken,
   username: null,
   userId:   initialClaims.userId,
   isAdmin:  initialClaims.isAdmin,
   role:     initialClaims.role,
-  activeJobId: null,
+  activeJobId: initialView.activeJobId,
   agentInput: '',
-  col1Content: null,
+  col1Content: initialView.col1Content,
 
   setTokens: (access, refresh) => {
     localStorage.setItem('access_token', access)
@@ -78,11 +103,17 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setIsAdmin: (isAdmin) => set({ isAdmin }),
 
-  setActiveJobId: (id) => set({ activeJobId: id }),
+  setActiveJobId: (id) => {
+    set({ activeJobId: id })
+    savePersistedView({ activeJobId: id, col1Content: useSessionStore.getState().col1Content })
+  },
 
   setAgentInput: (text) => set({ agentInput: text }),
 
-  setCol1Content: (content) => set({ col1Content: content }),
+  setCol1Content: (content) => {
+    set({ col1Content: content })
+    savePersistedView({ activeJobId: useSessionStore.getState().activeJobId, col1Content: content })
+  },
 
   logout: () => {
     clearClientSession()

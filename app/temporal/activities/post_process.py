@@ -1,6 +1,8 @@
 """Post-processing activity — scorecard, KG, session, webhook."""
 from __future__ import annotations
+import json
 import logging
+import uuid
 from dataclasses import dataclass, field
 from temporalio import activity
 
@@ -90,6 +92,44 @@ async def post_process(inp: PostProcessInput) -> None:
     except Exception as exc:
         log.warning("PIR coverage failed (non-fatal): %s", exc)
 
+    # Persist research_trails row. The workflow now builds an engine_v2-shaped
+    # trail via WorkingMemory.to_engine_v2_trail() and stashes it under
+    # _engine_v2_trail / _engine_v2_findings so /v3/runs/{id}/replay returns
+    # populated phases / cards / candidates for IS-loop runs. Falls back to
+    # the legacy `tree` shape if those keys are absent (e.g. ISRunWorkflow
+    # Path A, which doesn't yet build a v2 trail).
+    try:
+        execute("DELETE FROM research_trails WHERE run_id = %s", (inp.run_id,))
+        trail_id = str(uuid.uuid4())
+        v2_trail = result.get("_engine_v2_trail")
+        v2_findings = result.get("_engine_v2_findings")
+        if isinstance(v2_trail, dict) and isinstance(v2_findings, list):
+            trail_blob = v2_trail
+            findings_blob = v2_findings
+            tool_calls_count = len(v2_trail.get("branches") or [])
+        else:
+            trail_blob = result.get("tree") or {}
+            findings_blob = findings
+            tool_calls_count = (result.get("tree") or {}).get("total_branches", 0)
+        execute(
+            """INSERT INTO research_trails
+                (id, user_id, run_id, query, entity_type, trail, findings, tool_calls, suggested_pipeline)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                trail_id,
+                inp.user_id,
+                inp.run_id,
+                result.get("query", ""),
+                result.get("entity_type", "unknown"),
+                json.dumps(trail_blob),
+                json.dumps(findings_blob),
+                tool_calls_count,
+                json.dumps(result.get("pipeline")) if result.get("pipeline") else None,
+            ),
+        )
+    except Exception as exc:
+        log.warning("research_trails persistence failed (non-fatal): %s", exc)
+
     # Mark succeeded
     execute(
         """UPDATE pipeline_runs
@@ -104,6 +144,19 @@ async def post_process(inp: PostProcessInput) -> None:
         "type": "job.completed", "job_id": inp.run_id, "run_id": inp.run_id,
         "status": "succeeded", "result": result,
     }))
+
+    # Push is.run_complete so the v3 UI's CandidateComparison + ACHMatrix
+    # populate live without waiting for the user to navigate away and back
+    # to trigger a replay-hydrate. Mirrors engine_v2.py's emission.
+    _v2 = result.get("_engine_v2_trail") or {}
+    if isinstance(_v2, dict):
+        asyncio.create_task(push_event(inp.user_id, {
+            "type": "is.run_complete",
+            "job_id": inp.run_id, "run_id": inp.run_id,
+            "status": _v2.get("status") or "succeeded",
+            "ranked_candidates": _v2.get("ranked_candidates") or [],
+            "ach_matrix": _v2.get("ach_matrix"),
+        }))
 
     # Session update
     if inp.session_id:

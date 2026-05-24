@@ -11,6 +11,7 @@ const USER_SCOPED_KEYS = [
   'ib-chat',
   'info-broker.mode',
   'locked_pipelines',
+  'ib-session-view',
 ]
 
 /**
