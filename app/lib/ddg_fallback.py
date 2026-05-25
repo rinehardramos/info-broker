@@ -77,18 +77,23 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _MAX_SCRAPED_CHARS = 6000  # plenty for a summarizer, bounded so prompts stay small
 
 
-def scrape_url(url: str, *, timeout: int = 8) -> str:
+def scrape_url(url: str, *, timeout: int = 8, impersonate: str | None = "chrome") -> str:
     """Fetch ``url`` and return cleaned main-body text.
 
     Drops script/style/nav/footer/aside/form. Returns up to
     ``_MAX_SCRAPED_CHARS`` characters. Empty string on any failure — the
     caller is responsible for falling forward to the next result.
+
+    Defaults to ``impersonate="chrome"`` so the fetch mimics a real browser's
+    TLS/HTTP2 fingerprint (defeats fingerprint-based bot blocking) via curl_cffi,
+    transparently falling back to plain requests if curl_cffi is unavailable.
     """
     try:
         resp = safe_fetch_url(
             url,
             timeout=timeout,
             allowed_content_types=HTML_CONTENT_TYPES,
+            impersonate=impersonate,
         )
     except Exception as exc:  # noqa: BLE001
         log.debug("scrape_url(%s) fetch failed: %s", url, exc)
