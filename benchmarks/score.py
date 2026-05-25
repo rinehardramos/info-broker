@@ -370,12 +370,31 @@ _LISTING_DOMAIN_RE = re.compile(
 )
 
 
-def _lead_text(finding: dict) -> str:
-    """Concatenate the prose fields a lead's data may hide in."""
-    return " ".join(
-        str(finding.get(k, ""))
-        for k in ("candidate_name", "evidence_snippet", "evidence_summary", "claim", "title", "name")
-    )
+def _lead_text(lead: dict) -> str:
+    """Concatenate the prose fields a lead's data may hide in.
+
+    Handles both the atomic-finding shape (candidate_name/evidence_snippet) and
+    the synthesized ranked_candidate shape (name + an ``evidence`` LIST of
+    {snippet, source_url})."""
+    parts = [
+        str(lead.get(k, ""))
+        for k in ("candidate_name", "name", "evidence_snippet", "evidence_summary", "claim", "title")
+    ]
+    ev = lead.get("evidence")
+    if isinstance(ev, list):
+        for e in ev:
+            if isinstance(e, dict):
+                parts.append(str(e.get("snippet", "")))
+    return " ".join(parts)
+
+
+def _lead_urls(lead: dict) -> list[str]:
+    """All URLs associated with a lead (top-level + each evidence item)."""
+    urls = [str(lead.get("source_url") or lead.get("listing_url") or "")]
+    ev = lead.get("evidence")
+    if isinstance(ev, list):
+        urls += [str(e.get("source_url", "")) for e in ev if isinstance(e, dict)]
+    return [u for u in urls if u]
 
 
 def _evidenced_lead_fields(finding: dict) -> set[str]:
@@ -389,8 +408,7 @@ def _evidenced_lead_fields(finding: dict) -> set[str]:
     text = _lead_text(finding)
     owner_ctx = bool(_OWNER_CTX_RE.search(text))
 
-    url = str(finding.get("source_url") or finding.get("listing_url") or "")
-    if finding.get("listing_url") or _LISTING_DOMAIN_RE.search(url):
+    if finding.get("listing_url") or any(_LISTING_DOMAIN_RE.search(u) for u in _lead_urls(finding)):
         present.add("listing_url")
     if _ADDR_RE.search(text):
         present.add("address")
@@ -425,39 +443,59 @@ def lead_richness(findings: list[dict], trail: dict) -> dict[str, Any]:
         The trail dict (not used for computation currently; included for future
         phase-aware richness checks).
 
+    Scores the SYNTHESIZED leads (``trail.ranked_candidates`` — the ranked,
+    merged output with full evidence) when present, falling back to raw
+    ``findings`` otherwise. Also reports ``field_coverage`` — the union of lead
+    fields the run surfaced ANYWHERE — which reflects "did the run produce agent
+    phones / addresses / prices" even when those land in separate leads (e.g. an
+    agent-contact lead vs a property lead that the synthesis hasn't merged).
+
     Returns
     -------
     dict with keys:
-        lead_count             : int   — number of distinct leads (= len(findings))
+        lead_count             : int   — number of synthesized leads scored
         per_lead_completeness  : list[float] — completeness fraction per lead
         avg_completeness       : float — mean of per_lead_completeness (0.0 if empty)
-        zero_enrichment_count  : int   — leads with 0 enrichment fields populated
+        zero_enrichment_count  : int   — leads with 0 fields evidenced
+        field_coverage         : float — fraction of LEADS_GEN_FIELDS surfaced run-wide
     """
-    if not findings:
+    # Prefer the synthesized, ranked leads (richer evidence) over atomic findings.
+    leads: list[dict] = []
+    if isinstance(trail, dict):
+        rc = trail.get("ranked_candidates")
+        if isinstance(rc, list) and rc:
+            leads = rc
+    if not leads:
+        leads = findings or []
+
+    if not leads:
         return {
             "lead_count": 0,
             "per_lead_completeness": [],
             "avg_completeness": 0.0,
             "zero_enrichment_count": 0,
+            "field_coverage": 0.0,
         }
 
     per_lead: list[float] = []
     zero_count = 0
+    union_fields: set[str] = set()
 
-    for finding in findings:
-        populated = len(_evidenced_lead_fields(finding))
-        completeness = populated / len(LEADS_GEN_FIELDS)
-        per_lead.append(completeness)
-        if populated == 0:
+    for lead in leads:
+        fields = _evidenced_lead_fields(lead)
+        union_fields |= fields
+        per_lead.append(len(fields) / len(LEADS_GEN_FIELDS))
+        if not fields:
             zero_count += 1
 
     avg = sum(per_lead) / len(per_lead) if per_lead else 0.0
 
     return {
-        "lead_count": len(findings),
+        "lead_count": len(leads),
         "per_lead_completeness": per_lead,
         "avg_completeness": round(avg, 4),
         "zero_enrichment_count": zero_count,
+        "field_coverage": round(len(union_fields) / len(LEADS_GEN_FIELDS), 4),
     }
 
 
