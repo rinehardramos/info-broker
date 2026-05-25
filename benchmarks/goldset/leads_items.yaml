@@ -63,3 +63,25 @@
     - claim: "Phoenix real estate listings show listing price and property address"
       authoritative_source: "https://www.realtor.com/realestateandhomes-search/Phoenix_AZ/type-single-family-home/show-fsbo"
       must_be_live: true
+
+- id: leads-gen-agent-austin-001
+  query: "Find agent-listed homes for sale in Austin TX with the listing agent's name, brokerage, phone and email for outreach"
+  template: real_estate_leads
+  mode: leads_generation
+  domain: real_estate_leads
+  notes: >
+    AGENT-listed (not FSBO) homes — the realistic, non-worst-case scenario for
+    free contact enrichment: the listing AGENT's name + brokerage + phone are
+    published on listing/brokerage pages (unlike FSBO seller contact, which the
+    platforms gate). Tests that the free scrape + brokerage-page derivation
+    actually populates agent contact fields without any API key.
+  expected_facts:
+    - claim: "Austin Texas has active agent-listed homes for sale with a named listing agent and brokerage"
+      authoritative_source: "https://www.realtor.com/realestateandhomes-search/Austin_TX"
+      must_be_live: true
+    - claim: "Agent-listed Austin homes publish the listing agent's phone number and brokerage on the listing or brokerage page"
+      authoritative_source: "https://www.redfin.com/city/30818/TX/Austin"
+      must_be_live: true
+    - claim: "Austin agent listings include property address and asking price"
+      authoritative_source: "https://www.har.com/austin/realestate/for_sale"
+      must_be_live: true
