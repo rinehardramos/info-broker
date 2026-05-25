@@ -15,20 +15,27 @@ Usage
 
 Environment variables
 ---------------------
-LOCAL_STACK_URL   Base URL for the API (default: http://localhost:8000)
-BENCH_USERNAME    Username for login (default: admin)
-BENCH_PASSWORD    Password for login (default: admin)
-BENCH_TIMEOUT_S   Max seconds to wait for each run (default: 300)
-BENCH_POLL_INTERVAL_S  Poll interval in seconds (default: 5)
+LOCAL_STACK_URL       Base URL for the API (default: http://localhost:8000)
+BENCH_USERNAME        Username for login (default: admin)
+BENCH_PASSWORD        Password for login (default: admin)
+BENCH_TIMEOUT_S       Max seconds to wait for each run (default: 300)
+BENCH_POLL_INTERVAL_S Poll interval in seconds (default: 5)
+INFO_BROKER_API_KEY   API key for GET /v3/research-trails (X-API-Key header).
+                      Without this the harness falls back to the old path and
+                      will see empty trails for benchmark runs (trigger_type=agent).
 
 Design notes
 ------------
 - No mocking — exercises the real preflight → confirm → poll → trail path.
-- Reads ``research_trails`` row via GET /v3/pipelines/runs/{id}.
+- Reads ``research_trails`` row via GET /v3/research-trails/{run_id} using
+  X-API-Key header (INFO_BROKER_API_KEY). Falls back to runs/{id}.research
+  when key is absent (only works for agent_is trigger_type runs).
 - Strategy phases are extracted from the preflight ``suggested_strategy`` and
   used to feed the ``skipped_phases`` anti-gaming guard.
 - Per-item run metadata (strategy, mode, techniques used) is recorded and
   passed to ``aggregate_scores`` for component-level reporting.
+- 429 rate-limit responses on preflight/confirm are retried with exponential
+  backoff (up to 4 retries, starting at 2s).
 """
 from __future__ import annotations
 
@@ -69,6 +76,7 @@ USERNAME: str = os.getenv("BENCH_USERNAME", "admin")
 PASSWORD: str = os.getenv("BENCH_PASSWORD", "admin")
 TIMEOUT_S: int = int(os.getenv("BENCH_TIMEOUT_S", "300"))
 POLL_INTERVAL_S: float = float(os.getenv("BENCH_POLL_INTERVAL_S", "5"))
+_INFO_BROKER_API_KEY: str = os.getenv("INFO_BROKER_API_KEY", "")
 
 _TERMINAL_STATUSES: frozenset[str] = frozenset(
     {"succeeded", "failed", "cancelled", "error", "ask_user"}
@@ -152,6 +160,39 @@ def login(session: requests.Session) -> dict:
     return data
 
 
+_MAX_RETRY_429 = 4          # up to 4 retries on 429
+_RETRY_BASE_DELAY_S = 2.0   # 2s, 4s, 8s, 16s (exponential)
+
+
+def _post_with_retry(
+    session: requests.Session,
+    url: str,
+    json_body: dict,
+    timeout: int = 30,
+) -> requests.Response:
+    """POST with exponential backoff on HTTP 429 (rate limit)."""
+    delay = _RETRY_BASE_DELAY_S
+    for attempt in range(_MAX_RETRY_429 + 1):
+        resp = session.post(url, json=json_body, timeout=timeout)
+        if resp.status_code == 429 and attempt < _MAX_RETRY_429:
+            retry_after = float(resp.headers.get("Retry-After", delay))
+            wait = max(retry_after, delay)
+            log.warning(
+                "429 on %s (attempt %d/%d) — waiting %.1fs",
+                url,
+                attempt + 1,
+                _MAX_RETRY_429 + 1,
+                wait,
+            )
+            time.sleep(wait)
+            delay *= 2
+            continue
+        resp.raise_for_status()
+        return resp
+    resp.raise_for_status()  # Exhausted retries — let it propagate
+    return resp  # unreachable; satisfies type checker
+
+
 def post_preflight(session: requests.Session, item: dict) -> dict:
     """POST /v3/preflight and return the response body."""
     body: dict[str, Any] = {"query": item["query"]}
@@ -160,8 +201,7 @@ def post_preflight(session: requests.Session, item: dict) -> dict:
     if item.get("template"):
         body["strategy"] = item["template"]
 
-    resp = session.post(f"{BASE_URL}/v3/preflight", json=body, timeout=30)
-    resp.raise_for_status()
+    resp = _post_with_retry(session, f"{BASE_URL}/v3/preflight", body, timeout=30)
     return resp.json()
 
 
@@ -184,8 +224,9 @@ def post_confirm(
         },
         "start_run": True,
     }
-    resp = session.post(f"{BASE_URL}/v3/preflight/confirm", json=confirm_body, timeout=30)
-    resp.raise_for_status()
+    resp = _post_with_retry(
+        session, f"{BASE_URL}/v3/preflight/confirm", confirm_body, timeout=30
+    )
     return resp.json()
 
 
@@ -212,30 +253,35 @@ def poll_run(session: requests.Session, run_id: str) -> dict:
 
 
 def fetch_trail(session: requests.Session, run_id: str) -> tuple[dict, list[dict], dict]:
-    """Return (trail_dict, findings_list, cost_dict) from the run record.
+    """Return (trail_dict, findings_list, cost_dict) from the research-trails record.
+
+    Preferred path: ``GET /v3/research-trails/{run_id}`` using the X-API-Key header
+    read from the ``INFO_BROKER_API_KEY`` environment variable.  This endpoint
+    returns the *real* trail regardless of ``trigger_type`` on the run record.
+
+    Fallback: if the API key is absent or the endpoint returns 4xx, falls back
+    to ``GET /v3/pipelines/runs/{run_id}`` and reads ``data["research"]["trail"]``
+    (the old path, which only works for ``trigger_type == "agent_is"`` runs).
+
+    The top-level ``tool_calls`` from the research-trails response is injected into
+    the returned ``trail`` dict so that downstream guards can read it via
+    ``trail.get("tool_calls")``.
 
     cost_dict keys: ru_consumed (int), duration_s (float).
     """
-    resp = session.get(f"{BASE_URL}/v3/pipelines/runs/{run_id}", timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-    research = data.get("research") or {}
-    trail: dict = research.get("trail") or {}
-    if isinstance(trail, str):
-        trail = json.loads(trail)
-    findings: list[dict] = research.get("findings") or []
-    if isinstance(findings, str):
-        findings = json.loads(findings)
+    # --- Cost / timestamps always come from the run record (bearer auth) ---
+    run_resp = session.get(f"{BASE_URL}/v3/pipelines/runs/{run_id}", timeout=30)
+    run_resp.raise_for_status()
+    run_data = run_resp.json()
 
-    # Extract cost / budget fields from the run record
     ru_consumed: int = (
-        data.get("ru_consumed")
-        or data.get("run_budget")
-        or data.get("budget_consumed")
+        run_data.get("ru_consumed")
+        or run_data.get("run_budget")
+        or run_data.get("budget_consumed")
         or 0
     )
-    started_at = data.get("started_at") or data.get("created_at") or ""
-    finished_at = data.get("finished_at") or data.get("updated_at") or ""
+    started_at = run_data.get("started_at") or run_data.get("created_at") or ""
+    finished_at = run_data.get("finished_at") or run_data.get("updated_at") or ""
     duration_s = 0.0
     if started_at and finished_at:
         try:
@@ -255,6 +301,67 @@ def fetch_trail(session: requests.Session, run_id: str) -> tuple[dict, list[dict
             duration_s = 0.0
 
     cost_dict = {"ru_consumed": ru_consumed, "duration_s": duration_s}
+
+    # --- Try the real research-trails endpoint first ---
+    if _INFO_BROKER_API_KEY:
+        try:
+            rt_resp = requests.get(
+                f"{BASE_URL}/v3/research-trails/{run_id}",
+                headers={"X-API-Key": _INFO_BROKER_API_KEY},
+                timeout=30,
+            )
+            if rt_resp.status_code == 200:
+                rt_data = rt_resp.json()
+
+                # Top-level tool_calls is the authoritative count
+                top_level_tool_calls: int = rt_data.get("tool_calls") or 0
+
+                trail: dict = rt_data.get("trail") or {}
+                if isinstance(trail, str):
+                    trail = json.loads(trail)
+
+                findings: list[dict] = rt_data.get("findings") or []
+                if isinstance(findings, str):
+                    findings = json.loads(findings)
+
+                # Inject top-level tool_calls so guards can read it via trail["tool_calls"]
+                trail["tool_calls"] = top_level_tool_calls
+
+                log.debug(
+                    "research-trails: run_id=%s tool_calls=%d findings=%d phases=%s",
+                    run_id[:8],
+                    top_level_tool_calls,
+                    len(findings),
+                    trail.get("phases", []),
+                )
+                return trail, findings, cost_dict
+            else:
+                log.warning(
+                    "research-trails endpoint returned %d for run %s — falling back",
+                    rt_resp.status_code,
+                    run_id[:8],
+                )
+        except Exception as exc:
+            log.warning(
+                "research-trails fetch failed for run %s: %s — falling back",
+                run_id[:8],
+                exc,
+            )
+    else:
+        log.warning(
+            "INFO_BROKER_API_KEY not set — falling back to runs/{id}.research path "
+            "(will be empty for agent trigger_type runs)"
+        )
+
+    # --- Fallback: old path (only works for agent_is trigger_type) ---
+    research = run_data.get("research") or {}
+    trail = research.get("trail") or {}
+    if isinstance(trail, str):
+        trail = json.loads(trail)
+    findings = research.get("findings") or []
+    if isinstance(findings, str):
+        findings = json.loads(findings)
+
     return trail, findings, cost_dict
 
 
@@ -451,7 +558,10 @@ def main(argv: list[str] | None = None) -> int:
     # Run items
     all_results: list[dict] = []
     all_metadata: list[dict] = []
-    for item in items:
+    for i, item in enumerate(items):
+        if i > 0:
+            # Small inter-item delay to reduce rate-limit risk on preflight/confirm
+            time.sleep(2.0)
         result, metadata = run_item(session, item, registered_ids)
         all_results.append(result)
         all_metadata.append(metadata)
