@@ -81,12 +81,38 @@ export interface PreflightConfirmIn {
   strategy_id: string
   /** When true, backend launches engine_v2 in the background after the wallet hold. */
   start_run?: boolean
+  /** Phase 2 (#75): skip the pre-run missing-key gate and launch anyway. */
+  bypass_missing_keys?: boolean
 }
 
 export interface PreflightConfirmResult {
   run_id: string
   hold_id: string
   held_ru: number
+}
+
+/** Phase 2 (#75): one missing-key tool descriptor (NEVER carries a key value). */
+export interface MissingKeyTool {
+  technique_id: string
+  key_name: string
+  display_name: string
+  setup_url: string
+  setup_instructions: string
+}
+
+/** Returned by /preflight/confirm instead of starting the run when the chosen
+ * strategy needs API keys that aren't configured. */
+export interface PreflightGateResult {
+  status: 'missing_keys_gate'
+  run_id: string
+  missing_tools: MissingKeyTool[]
+}
+
+export type ConfirmResult = PreflightConfirmResult | PreflightGateResult
+
+/** Type guard: did confirm return the missing-key gate (vs. a started run)? */
+export function isMissingKeysGate(r: ConfirmResult | null): r is PreflightGateResult {
+  return !!r && (r as PreflightGateResult).status === 'missing_keys_gate'
 }
 
 // ---------------------------------------------------------------------------
@@ -224,11 +250,11 @@ export function usePreflight() {
   // Confirm — place wallet hold
   // ---------------------------------------------------------------------------
 
-  const confirm = useCallback(async (input: PreflightConfirmIn): Promise<PreflightConfirmResult | null> => {
+  const confirm = useCallback(async (input: PreflightConfirmIn): Promise<ConfirmResult | null> => {
     setIsLoading(true)
     setError(null)
     try {
-      const { data } = await api.post<PreflightConfirmResult>('/v3/preflight/confirm', input)
+      const { data } = await api.post<ConfirmResult>('/v3/preflight/confirm', input)
       return data
     } catch (err: unknown) {
       const axiosErr = err as {
