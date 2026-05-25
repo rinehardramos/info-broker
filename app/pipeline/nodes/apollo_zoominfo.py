@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 
 import httpx
 
@@ -18,21 +17,12 @@ _APOLLO_PEOPLE_URL = "https://api.apollo.io/v1/mixed_people/search"
 _APOLLO_COMPANIES_URL = "https://api.apollo.io/v1/mixed_companies/search"
 
 
-def _resolve_api_key() -> str | None:
-    """Env var takes priority; fall back to DB setting."""
-    key = os.getenv("APOLLO_API_KEY")
-    if key:
-        return key
-    try:
-        from app.routers.v3.db import fetch_one
-        row = fetch_one(
-            "SELECT value FROM core_settings WHERE key = 'apollo_api_key'", ()
-        )
-        if row and row.get("value"):
-            return row["value"]
-    except Exception:
-        pass
-    return None
+def _resolve_api_key(context: "RunContext | None" = None) -> str | None:
+    """Resolve Apollo API key via scoped vault → core_settings → env var."""
+    from app.lib.api_keys import resolve_api_key
+    user_id = getattr(context, "user_id", None)
+    org_id = getattr(context, "org_id", None)
+    return resolve_api_key("apollo_api_key", user_id=user_id, org_id=org_id)
 
 
 class ApolloZoominfoNode:
@@ -70,7 +60,7 @@ class ApolloZoominfoNode:
     async def execute(
         self, config: dict, inputs: list[dict], context: RunContext
     ) -> list[dict]:
-        api_key = config.get("api_key") or _resolve_api_key()
+        api_key = config.get("api_key") or _resolve_api_key(context)
         if not api_key:
             log.warning("apollo_zoominfo: no API key configured")
             return [

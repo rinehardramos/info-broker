@@ -91,6 +91,10 @@ async def execute_node(
     """
     caller_identity: str = request.headers.get("X-Caller-Identity", "unknown")
     session_id: str | None = request.headers.get("X-Session-Id")
+    # Non-secret user/org IDs threaded from the brain subprocess via env vars
+    # forwarded as headers by the MCP server.  Never carry decrypted key values.
+    caller_user_id: str | None = request.headers.get("X-Caller-User-Id") or None
+    caller_org_id: str | None = request.headers.get("X-Caller-Org-Id") or None
     call_id = str(uuid.uuid4())
 
     node = _get_node(node_type)
@@ -101,9 +105,10 @@ async def execute_node(
     inputs = _wrap_payload_as_input(inputs, body)
 
     ctx = RunContext(
-        user_id="mcp-system",
+        user_id=caller_user_id or "mcp-system",
         run_id="mcp-adhoc",
         node_id="mcp-adhoc",
+        org_id=caller_org_id,
     )
 
     # --- observability: record call start (non-fatal) ---
@@ -200,6 +205,7 @@ async def execute_node(
 async def tool_invoke_node(
     node_type: str,
     body: dict,
+    request: Request,
     _key: str = Depends(require_api_key),
 ) -> dict:
     """Invoke a ToolCallable node directly with LLM-provided params.
@@ -207,6 +213,9 @@ async def tool_invoke_node(
     Only nodes that implement the ``ToolCallable`` protocol (datastores such as
     obsidian_vault and local_files) support this endpoint.
     """
+    caller_user_id: str | None = request.headers.get("X-Caller-User-Id") or None
+    caller_org_id: str | None = request.headers.get("X-Caller-Org-Id") or None
+
     node = _get_node(node_type)
 
     if not hasattr(node, "tool_invoke"):
@@ -216,9 +225,10 @@ async def tool_invoke_node(
         )
 
     ctx = RunContext(
-        user_id="mcp-system",
+        user_id=caller_user_id or "mcp-system",
         run_id="mcp-adhoc",
         node_id="mcp-adhoc",
+        org_id=caller_org_id,
     )
 
     try:

@@ -17,6 +17,13 @@ _CALLER_IDENTITY = os.getenv("MCP_CALLER_IDENTITY", "mcp-server")
 _SESSION_ID: str | None = None
 _MCP_SECRET = os.environ.get("MCP_SIGNING_SECRET", "")
 
+# Non-secret user/org IDs — set by scoped_brain.py in the subprocess spawn_env.
+# Forwarded as HTTP headers on every api_call so the API layer can resolve
+# user-scoped and org-scoped API keys from the vault.  Values are opaque UUIDs;
+# decrypted key values NEVER enter the subprocess env or the MCP client.
+_RUN_USER_ID: str | None = os.environ.get("IS_RUN_USER_ID") or None
+_RUN_ORG_ID: str | None = os.environ.get("IS_RUN_ORG_ID") or None
+
 
 def _sign_request(body: bytes) -> dict[str, str]:
     """Return HMAC-SHA256 signing headers. No-op if MCP_SIGNING_SECRET not set."""
@@ -57,6 +64,10 @@ async def api_call(method: str, path: str, **kwargs) -> dict:
         }
         if _SESSION_ID:
             headers["X-Session-Id"] = _SESSION_ID
+        if _RUN_USER_ID:
+            headers["X-Caller-User-Id"] = _RUN_USER_ID
+        if _RUN_ORG_ID:
+            headers["X-Caller-Org-Id"] = _RUN_ORG_ID
         resp = await client.request(method, path, headers=headers, **kwargs)
         resp.raise_for_status()
         return resp.json()

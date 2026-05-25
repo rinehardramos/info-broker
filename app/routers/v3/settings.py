@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.crypto import decrypt_value, encrypt_value
 from app.modes.loader import get_default_mode_id
@@ -8,6 +11,8 @@ from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
 from app.routers.v3.models import CoreSettingIn, CoreSettingsOut, DefaultModeIn, DefaultModeOut
 from app.routers.v3.preflight import valid_preflight_mode_ids
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v3/settings", tags=["v3-settings"])
 
@@ -158,3 +163,122 @@ def put_default_mode(
             )
 
     return get_default_mode(user=user)
+
+
+# ---------------------------------------------------------------------------
+# API-key vault endpoints
+# ---------------------------------------------------------------------------
+
+
+class ApiKeyIn(BaseModel):
+    key_name: str
+    value: str
+    scope: str  # 'user' | 'org' | 'global'
+
+
+class ApiKeyEntry(BaseModel):
+    key_name: str
+    scope: str
+    owner_id: str | None
+
+
+@router.post("/api-keys", status_code=204)
+def upsert_api_key(body: ApiKeyIn, user: dict = Depends(get_current_user)) -> None:
+    """Store or update an API key in the encrypted vault.
+
+    Authorization:
+    - scope='user'   → the calling user's own entry (no elevation needed)
+    - scope='org'    → requires org-admin role
+    - scope='global' → requires is_admin
+
+    The value is Fernet-encrypted before storage and is NEVER returned in any
+    response — GET /v3/settings/api-keys returns presence only.
+    """
+    from app.lib.secret_box import encrypt
+
+    scope = body.scope
+    if scope not in ("user", "org", "global"):
+        raise HTTPException(status_code=400, detail="scope must be 'user', 'org', or 'global'")
+
+    if scope == "global":
+        if not user.get("is_admin"):
+            raise HTTPException(status_code=403, detail="Global scope requires admin")
+        owner_id = None
+    elif scope == "org":
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Org scope requires org-admin role")
+        if not user.get("org_id"):
+            raise HTTPException(status_code=400, detail="User has no org")
+        owner_id = str(user["org_id"])
+    else:  # user
+        owner_id = str(user["id"])
+
+    encrypted = encrypt(body.value)
+
+    if owner_id is None:
+        execute(
+            """
+            INSERT INTO api_key_vault (key_name, scope, owner_id, value_encrypted, updated_at)
+            VALUES (%s, %s, NULL, %s, now())
+            ON CONFLICT (key_name, scope, owner_id) DO UPDATE
+            SET value_encrypted = EXCLUDED.value_encrypted, updated_at = now()
+            """,
+            (body.key_name, scope, encrypted),
+        )
+    else:
+        execute(
+            """
+            INSERT INTO api_key_vault (key_name, scope, owner_id, value_encrypted, updated_at)
+            VALUES (%s, %s, %s::uuid, %s, now())
+            ON CONFLICT (key_name, scope, owner_id) DO UPDATE
+            SET value_encrypted = EXCLUDED.value_encrypted, updated_at = now()
+            """,
+            (body.key_name, scope, owner_id, encrypted),
+        )
+
+    # For global scope also mirror into core_settings so legacy resolvers still work
+    if scope == "global":
+        from app.crypto import encrypt_value as _enc
+        execute(
+            """
+            INSERT INTO core_settings (key, value, is_secret)
+            VALUES (%s, %s, true)
+            ON CONFLICT (key) DO UPDATE
+            SET value = EXCLUDED.value, is_secret = true, updated_at = now()
+            """,
+            (body.key_name, _enc(body.value)),
+        )
+
+    # Log only the key name and scope — never the value.
+    log.info(
+        "api_keys: upserted key_name=%r scope=%r owner_id=%r by user=%r",
+        body.key_name, scope, owner_id, str(user.get("id")),
+    )
+
+
+@router.get("/api-keys", response_model=list[ApiKeyEntry])
+def list_api_keys(user: dict = Depends(get_current_user)) -> list[ApiKeyEntry]:
+    """List configured API key names and their scopes.
+
+    Returns presence info only — encrypted values are NEVER included in the response.
+    Each caller sees:
+    - Their own user-scoped entries
+    - Org-scoped entries for their org (if they have one)
+    - All global entries (visible to everyone; admin-only write)
+    """
+    user_id = str(user["id"])
+    org_id = str(user["org_id"]) if user.get("org_id") else None
+
+    rows = fetch_all(
+        """
+        SELECT key_name, scope, owner_id::text AS owner_id
+          FROM api_key_vault
+         WHERE
+            (scope = 'global' AND owner_id IS NULL)
+            OR (scope = 'user'   AND owner_id = %s::uuid)
+            OR (scope = 'org'    AND owner_id = %s::uuid AND %s IS NOT NULL)
+         ORDER BY scope, key_name
+        """,
+        (user_id, org_id or user_id, org_id),
+    )
+    return [ApiKeyEntry(**r) for r in rows]

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-from urllib.parse import urlencode
 
 import httpx
 
@@ -17,23 +15,23 @@ _REASON = "Hunter.io surfaces verified email patterns and individual addresses �
 _BASE_URL = "https://api.hunter.io/v2"
 
 
-def _resolve_api_key(config_key: str | None = None) -> str | None:
-    """Config value takes priority, then env var, then DB setting."""
+def _resolve_api_key(
+    config_key: str | None = None,
+    context: "RunContext | None" = None,
+) -> str | None:
+    """Resolve Hunter.io API key via scoped vault → core_settings → env var.
+
+    Config value from node config takes highest priority (explicit override).
+    Resolution order for the automatic path: user-scoped vault → org-scoped
+    vault → global vault → core_settings → HUNTER_IO_API_KEY env var.
+    The resolved value is never logged.
+    """
     if config_key:
         return config_key
-    key = os.getenv("HUNTER_IO_API_KEY") or os.getenv("HUNTER_API_KEY")
-    if key:
-        return key
-    try:
-        from app.routers.v3.db import fetch_one
-        row = fetch_one(
-            "SELECT value FROM core_settings WHERE key = 'hunter_io_api_key'", ()
-        )
-        if row and row.get("value"):
-            return row["value"]
-    except Exception:
-        pass
-    return None
+    from app.lib.api_keys import resolve_api_key
+    user_id = getattr(context, "user_id", None)
+    org_id = getattr(context, "org_id", None)
+    return resolve_api_key("hunter_io_api_key", user_id=user_id, org_id=org_id)
 
 
 class HunterIoNode:
@@ -78,7 +76,7 @@ class HunterIoNode:
     async def execute(
         self, config: dict, inputs: list[dict], context: RunContext
     ) -> list[dict]:
-        api_key = _resolve_api_key(config.get("api_key"))
+        api_key = _resolve_api_key(config.get("api_key"), context)
         if not api_key:
             log.warning("hunter_io: no API key configured")
             return [

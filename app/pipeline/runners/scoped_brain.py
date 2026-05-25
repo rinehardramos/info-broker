@@ -509,6 +509,8 @@ async def scoped_brain_runner(
     run_id: str = "",
     slot_idx: int = 0,
     on_failure: Callable[[BrainFailure], None] | None = None,
+    run_user_id: str | None = None,
+    run_org_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Spawn ONE Claude Code subprocess scoped to this tactician's unit_of_work.
 
@@ -521,6 +523,10 @@ async def scoped_brain_runner(
         event_emit:       Async callable for pushing WS events.
         run_id:           Run ID for event correlation.
         slot_idx:         Hypothesis slot index for event correlation.
+        run_user_id:      Non-secret user UUID forwarded to MCP calls for vault
+                          scoping. NEVER a decrypted key value.
+        run_org_id:       Non-secret org UUID forwarded to MCP calls for vault
+                          scoping. NEVER a decrypted key value.
 
     Returns:
         list of TaskSpec-compatible dicts (technique_id + params_template).
@@ -569,6 +575,18 @@ async def scoped_brain_runner(
         if _creds_file.exists() and _creds_file.stat().st_size > 0:
             spawn_env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
             spawn_env.pop("CLAUDE_CODE_OAUTH_REFRESH_TOKEN", None)
+
+    # Thread non-secret user/org IDs into the subprocess env so the MCP client
+    # can forward them as X-Caller-User-Id / X-Caller-Org-Id headers on every
+    # api_call. NEVER put decrypted key values here — only opaque UUID strings.
+    if run_user_id:
+        spawn_env["IS_RUN_USER_ID"] = run_user_id
+    else:
+        spawn_env.pop("IS_RUN_USER_ID", None)
+    if run_org_id:
+        spawn_env["IS_RUN_ORG_ID"] = run_org_id
+    else:
+        spawn_env.pop("IS_RUN_ORG_ID", None)
 
     log.info(
         "scoped_brain: spawning subprocess tactic=%s slot=%d model=%s",

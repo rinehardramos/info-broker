@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Protocol, TypedDict
 
 
@@ -9,7 +9,8 @@ class RunContext:
     user_id: str
     run_id: str
     node_id: str
-    push_event: Callable = lambda *a, **kw: None
+    push_event: Callable = field(default=lambda *a, **kw: None)
+    org_id: str | None = None
 
 
 class HealthStatus(TypedDict):
