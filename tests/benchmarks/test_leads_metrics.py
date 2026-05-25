@@ -445,3 +445,38 @@ class TestLeadsGoldSetParsing:
         items = load_goldset()
         ids = [it["id"] for it in items]
         assert len(ids) == len(set(ids)), "Duplicate ids across gold-set files"
+
+
+# ---------------------------------------------------------------------------
+# lead_richness scores SYNTHESIZED ranked_candidates + reports field_coverage
+# ---------------------------------------------------------------------------
+
+def test_lead_richness_prefers_ranked_candidates_and_reports_field_coverage():
+    """When the trail has ranked_candidates (the synthesized leads), score those
+    (richer evidence) not raw findings, and report run-wide field_coverage."""
+    trail = {
+        "ranked_candidates": [
+            {  # an agent-contact lead (phone in evidence)
+                "name": "Kim Wolle — Compass RE Texas",
+                "evidence": [{"snippet": "Phone: (512) 555-1212, agent: Kim Wolle",
+                              "source_url": "https://www.har.com/agent/x"}],
+            },
+            {  # a property lead (address + price + listing domain)
+                "name": "123 Main St, Austin TX — $500,000",
+                "evidence": [{"snippet": "123 Main St Austin TX $500,000 3bd 2ba",
+                              "source_url": "https://www.realtor.com/x"}],
+            },
+        ]
+    }
+    r = lead_richness([{"candidate_name": "ignored finding"}], trail)
+    # scored the 2 synthesized candidates, not the 1 finding
+    assert r["lead_count"] == 2
+    assert "field_coverage" in r
+    # run surfaced agent_phone (cand 1) + address/price/listing_url (cand 2)
+    assert r["field_coverage"] >= 0.4
+
+
+def test_field_coverage_zero_when_nothing():
+    r = lead_richness([], {})
+    assert r["lead_count"] == 0
+    assert r["field_coverage"] == 0.0
