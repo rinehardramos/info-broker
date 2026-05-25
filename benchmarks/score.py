@@ -191,12 +191,20 @@ def _guard_training_only(trail: dict) -> str | None:
     """Guard 1 — training_only: no real tool calls or all branches are training-only.
 
     Returns the guard name if tripped, else None.
+
+    NOTE: ``trail["tool_calls"]`` may be None in the real trail shape (the actual
+    tool-call count lives at the top level of the research-trails API response and
+    is injected by ``fetch_trail`` as ``trail["tool_calls"]``). A value of None is
+    treated as unknown, not zero — presence of live-source branches is the
+    authoritative signal when the count is absent.
     """
-    tool_calls: int = trail.get("tool_calls", 0)
+    raw_tc = trail.get("tool_calls")
     branches: list[dict] = trail.get("branches", [])
 
-    # Explicit tool_calls counter at trail level is the fastest check.
-    if isinstance(tool_calls, int) and tool_calls == 0 and branches:
+    # Explicit zero (int) tool_calls with branches present = suspicious.
+    # NOTE: raw_tc=None is treated as "unknown / not zero" to avoid false positives
+    # when the count is missing from the trail sub-object.
+    if raw_tc == 0 and branches:
         return "training_only"
 
     # All branches have source_class in the training set.
@@ -242,12 +250,24 @@ def _guard_skipped_phases(
 
     Compares the trail's ``phases`` list against *strategy_phases*.
     Returns the guard name if any required phase is absent, else None.
+
+    Handles both string entries (real trail shape: ``["extract", "gather"]``)
+    and dict entries (legacy shape: ``[{"id": "extract"}, {"id": "gather"}]``).
     """
     if not strategy_phases:
         return None  # No declared phases to check against
 
-    phases_ran: list[str] = trail.get("phases", [])
-    ran_set = set(phases_ran)
+    raw_phases = trail.get("phases", [])
+    # Normalize: entries may be plain strings or dicts with an "id" key
+    ran_set: set[str] = set()
+    for entry in raw_phases:
+        if isinstance(entry, str):
+            ran_set.add(entry)
+        elif isinstance(entry, dict):
+            phase_id = entry.get("id") or entry.get("phase_id") or ""
+            if phase_id:
+                ran_set.add(phase_id)
+
     for required_phase in strategy_phases:
         if required_phase not in ran_set:
             return "skipped_phases"
