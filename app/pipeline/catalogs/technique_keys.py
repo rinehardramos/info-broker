@@ -82,12 +82,15 @@ TECHNIQUE_KEY_META: dict[str, dict[str, str]] = {
 }
 
 
-def _enumerate_technique_ids(strategy_id: str) -> set[str]:
+def _enumerate_technique_ids(strategy_id: str, *, required_only: bool = False) -> set[str]:
     """Return the technique ids a strategy will prefer.
 
-    Walks each phase's ``preferred_tactic_id`` (and that tactic's
-    ``required_techniques``) only — see module docstring for why we don't scan
-    phase-compatible tactics. Returns an empty set for unknown strategies.
+    Walks each phase's ``preferred_tactic_id``. With ``required_only=True`` it
+    returns ONLY that tactic's ``required_techniques`` — used by the pre-run gate
+    so a key is surfaced before launch only when it's genuinely required (no free
+    path); optional accelerator techniques in ``produces`` are NOT pre-gated (the
+    reactive mid-run gate offers those if the brain actually calls one). Returns
+    an empty set for unknown strategies.
     """
     try:
         strategies = load_catalog("strategy", _CATALOG_BASE / "strategies")
@@ -108,9 +111,10 @@ def _enumerate_technique_ids(strategy_id: str) -> set[str]:
         tactic = tactics.get(tactic_id)
         if tactic is None:
             continue
-        for task in tactic.produces:
-            tech_ids.add(task.technique_id)
-        tech_ids.update(getattr(tactic, "required_techniques", []) or [])
+        required = getattr(tactic, "required_techniques", []) or []
+        tech_ids.update(required)
+        if not required_only:
+            tech_ids.update(task.technique_id for task in tactic.produces)
     return tech_ids
 
 
@@ -169,7 +173,11 @@ def check_missing_keys_for_strategy(
     """
     from app.lib.api_keys import resolve_api_key
 
-    technique_ids = _enumerate_technique_ids(strategy_id)
+    # Pre-run gate: only REQUIRED techniques (no free path) are gated. Optional
+    # keyed accelerators are surfaced reactively mid-run, not pre-gated — keys
+    # must never block a strategy that has a free path (e.g. real_estate_leads
+    # requires only web_search).
+    technique_ids = _enumerate_technique_ids(strategy_id, required_only=True)
     missing: list[dict[str, str]] = []
     seen_keys: set[str] = set()
 

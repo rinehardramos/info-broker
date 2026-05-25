@@ -36,34 +36,29 @@ def test_enumerate_unknown_strategy_is_empty():
     assert _enumerate_technique_ids("no_such_strategy_xyz") == set()
 
 
-def test_missing_keys_when_none_configured(monkeypatch):
-    """All five key-requiring techniques surface (de-duped by key_name) when the
-    vault has nothing."""
+def test_leads_strategy_does_not_pre_gate_keys(monkeypatch):
+    """Core of the key-free-enrichment rework: real_estate_leads requires only the
+    free web_search anchor, so the PRE-RUN gate surfaces NO keys even with nothing
+    configured. Optional accelerators (apify/hunter/apollo/pipl) are NOT pre-gated
+    — they're offered reactively mid-run if the brain actually calls one."""
     monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: None)
     missing = check_missing_keys_for_strategy("real_estate_leads", user_id="u1", org_id=None)
-    key_names = {m["key_name"] for m in missing}
-    assert key_names == {"hunter_io_api_key", "apollo_api_key", "whoisxml_api_key",
-                         "pipl_api_key", "apify_api_token"}
-    # de-dup: one descriptor per key_name
-    assert len(missing) == len(key_names)
-    # never leaks a value
-    for m in missing:
-        assert "value" not in m
+    assert missing == [], f"leads has a free required path — should not pre-gate keys, got {missing}"
+
+
+def test_pre_run_gate_only_considers_required_techniques():
+    """The pre-run enumeration is required-only; the full produces list (incl. the
+    optional keyed accelerators) is what _enumerate returns by default."""
+    required = _enumerate_technique_ids("real_estate_leads", required_only=True)
+    assert required == {"web_search"}
+    all_produces = _enumerate_technique_ids("real_estate_leads")
+    # optional keyed accelerators are still in produces (offered mid-run), just not pre-gated
+    assert {"hunter_email_search", "apollo_contact", "apify_listings_search"} <= all_produces
 
 
 def test_no_missing_when_all_keys_present(monkeypatch):
     monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: "configured")
     assert check_missing_keys_for_strategy("real_estate_leads", user_id="u1", org_id="o1") == []
-
-
-def test_free_techniques_never_surface(monkeypatch):
-    """web_search / opencorporates_owner / phone_osint need no key and must never
-    appear in the gate even when nothing is configured."""
-    monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: None)
-    missing = check_missing_keys_for_strategy("real_estate_leads", user_id="u1", org_id=None)
-    surfaced_techniques = {m["technique_id"] for m in missing}
-    for free in ("web_search", "opencorporates_owner", "phone_osint"):
-        assert free not in surfaced_techniques
 
 
 def test_generic_strategy_does_not_surface_enrichment_keys(monkeypatch):
