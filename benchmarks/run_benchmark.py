@@ -274,12 +274,16 @@ def fetch_trail(session: requests.Session, run_id: str) -> tuple[dict, list[dict
     run_resp.raise_for_status()
     run_data = run_resp.json()
 
-    ru_consumed: int = (
-        run_data.get("ru_consumed")
-        or run_data.get("run_budget")
-        or run_data.get("budget_consumed")
-        or 0
-    )
+    # Real RU consumption lives in the wallet_operations ledger, exposed via
+    # GET /v3/runs/{run_id}/cost_breakdown.total_ru — NOT on the run record
+    # (pipeline_runs has no ru_consumed column). Fall back to 0 if unavailable.
+    ru_consumed: int = 0
+    try:
+        cb = session.get(f"{BASE_URL}/v3/runs/{run_id}/cost_breakdown", timeout=30)
+        if cb.status_code == 200:
+            ru_consumed = int(cb.json().get("total_ru") or 0)
+    except Exception:
+        log.debug("cost_breakdown fetch failed for %s", run_id, exc_info=True)
     started_at = run_data.get("started_at") or run_data.get("created_at") or ""
     finished_at = run_data.get("finished_at") or run_data.get("updated_at") or ""
     duration_s = 0.0
