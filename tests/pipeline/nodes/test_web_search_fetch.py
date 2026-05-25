@@ -139,16 +139,11 @@ def test_execute_with_content_fetch():
     ]
     MockDdg, _ = _make_ddg_mock(search_results)
 
-    mc = MagicMock()
-    mc.get.return_value = MagicMock(
-        status_code=200,
-        text="<html><body><p>Full page content</p></body></html>",
-        raise_for_status=MagicMock(),
-    )
-
+    # _fetch_page_text now routes through scrape_url (impersonated + SSRF-safe);
+    # patch the node's fetch seam rather than the underlying HTTP client.
     with (
         patch("app.search_engine.plugins.ddg.DdgPlugin", MockDdg),
-        patch("httpx.Client", new=_FakeHttpxClient(mc)),
+        patch("app.pipeline.nodes.web_search_fetch._fetch_page_text", return_value="Full page content"),
     ):
         results = _arun(node.execute(
             {"fetch_content": True},
@@ -174,21 +169,14 @@ def test_execute_handles_fetch_error():
     ]
     MockDdg, _ = _make_ddg_mock(search_results)
 
-    def _selective_get(url, **kwargs):
+    def _selective_fetch(url, *args, **kwargs):
         if "bad" in url:
             raise Exception("Connection refused")
-        resp = MagicMock()
-        resp.status_code = 200
-        resp.text = "<p>Good content</p>"
-        resp.raise_for_status = MagicMock()
-        return resp
-
-    mc = MagicMock()
-    mc.get.side_effect = _selective_get
+        return "Good content"
 
     with (
         patch("app.search_engine.plugins.ddg.DdgPlugin", MockDdg),
-        patch("httpx.Client", new=_FakeHttpxClient(mc)),
+        patch("app.pipeline.nodes.web_search_fetch._fetch_page_text", side_effect=_selective_fetch),
     ):
         results = _arun(node.execute(
             {"fetch_content": True},

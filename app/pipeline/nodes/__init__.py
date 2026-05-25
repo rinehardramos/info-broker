@@ -43,6 +43,7 @@ class NodeRegistry:
         from app.pipeline.nodes.linkedin_profile import LinkedInProfileNode
         from app.pipeline.nodes.apify_mcp import ApifyMcpNode
         from app.pipeline.nodes.web_search_fetch import WebSearchFetchNode
+        from app.pipeline.nodes.stealth_browser import StealthBrowserNode
         from app.pipeline.nodes.wikipedia_api import WikipediaApiNode
         from app.pipeline.nodes.apollo_zoominfo import ApolloZoominfoNode
         from app.pipeline.nodes.ph_sec_dti import PhSecDtiNode
@@ -119,6 +120,7 @@ class NodeRegistry:
             AggregatorNode(), ObsidianVaultNode(), LocalFilesNode(), WebCrawlNode(),
             IntelligentSearchNode(), SummarizerNode(),
             ClutchGoodfirmsNode(), LinkedInProfileNode(), ApifyMcpNode(), WebSearchFetchNode(),
+            StealthBrowserNode(),
             WikipediaApiNode(), ApolloZoominfoNode(), PhSecDtiNode(), LinkedinNavigatorNode(),
             FacebookPagesNode(), TwitterSearchNode(), OpenCorporatesNode(),
             InstagramProfileNode(), HunterIoNode(), WhoisLookupNode(),
