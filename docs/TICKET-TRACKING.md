@@ -1,6 +1,6 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-25** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#151 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; #74 vault DONE (#150); #75 pre-run gate IN-FLIGHT; #76 mid-run gate next; #79/#145 benchmark DONE + live-validated)
+> Last reconciled: **2026-05-25** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#155 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; #74 vault DONE (#150); #75 pre-run gate DONE (#153); #76 mid-run gate DONE (#154); #79/#145 benchmark DONE + live-validated)
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
@@ -38,11 +38,13 @@ Before citing a ticket, starting a "new" feature, or trusting a branch:
 
 > Driven by run `c5aff228` (thin leads-gen output) — root cause was **missing/invalid enrichment keys**, not a decision-tree bug. The fix is to let users supply keys safely and gate runs that need them.
 
+> **API-key trilogy COMPLETE (2026-05-25): #74 → #75 → #76 all shipped.** Load-bearing invariant throughout: a key VALUE never reaches the brain env/logs/trail or any client payload — only key NAMES + public setup info travel outward; values go only to the encrypted vault endpoint.
+
 | # | Phase | What | State | Security invariant |
 |---|-------|------|-------|--------------------|
 | **#74** | 1 | Scoped **encrypted** API-key vault (user→org→global→core_settings→env; Fernet encrypt-at-rest) | **DONE → #150** (fixed global-NULL rotation bug w/ `NULLS NOT DISTINCT`) | Keys never reach brain env/logs/trail; only `IS_RUN_USER_ID`/`IS_RUN_ORG_ID` UUIDs threaded via `X-Caller-*` headers, resolved server-side at node-execute. |
-| **#75** | 2 | Pre-run missing-key **decision gate** (confirm returns `missing_keys_gate` before launch; enter key / skip / proceed-anyway, with key-gen instructions; SOFT — never hard-blocks) | **agent running** (worktree) | Gate transmits only key_name/setup info — never a key VALUE. |
-| **#76** | 3 | Reactive **mid-run** missing-key gate (pause node → ask_user in agent_input → resume) | blocked on #75 | — |
+| **#75** | 2 | Pre-run missing-key **decision gate** (confirm returns `missing_keys_gate` before launch; enter key / proceed-anyway; SOFT — never hard-blocks) | **DONE → #153** | Gate transmits only key_name/setup info — never a key VALUE. |
+| **#76** | 3 | Reactive **mid-run** gate (keyed node-execute with no key → `missing.key` event on the live stream; per-call resolution + retry hint pick it up — NOT a blocking pause, by design) | **DONE → #154** | `X-Run-Id` threaded like the caller ids; event carries no key value. |
 
 > **#79 leads-gen benchmark DONE (#148) + live-validated.** First live run exposed a harness bug (read empty `/runs/{id}.research` for `trigger_type='agent'` runs → false-positive `training_only`); fixed in **#151** (reads `/v3/research-trails/{id}`). Real baseline: brain does correct live research, extracts **8–10 leads/query**, but **0% per-lead contact enrichment** (no keys) → recommendation engine fires `low-richness`. Quantifies the `c5aff228` gap that #74–#76 close.
 > **Latent follow-up (from #151):** `pipelines.py` run-detail attaches the trail only when `trigger_type=='agent_is'`; `'agent'` runs get `research=None`. UI uses the replay/`research-trails` path so not user-facing, but broaden the gate to "attach when a trail row exists." Also: no node implements `health_check` for the leads-gen enrichment nodes, and `pipl_people` node file is missing.
@@ -102,6 +104,9 @@ Reconciled from merged PRs; grep-verified entry points. Prevents duplication.
 | **Leads-gen benchmark extension** — leads gold-set + `lead_richness()` (10 contact/owner fields → per-lead completeness, zero-enrichment count) + cost metrics (cost_per_lead / cost_per_matched_fact / avg_duration) + `build_recommendations()` (missing-key / anti-gaming / underperforming-component / low-richness / cost-outlier / gold-set-gap, severity-sorted) | `benchmarks/{goldset/leads_items.yaml,score.py}`, `tests/benchmarks/test_leads_metrics.py` | #148 (issue #145/#79) |
 | **Scoped encrypted API-key vault** — Fernet encrypt-at-rest; `resolve_api_key` user→org→global→core_settings→env; `POST/GET /v3/settings/api-keys` (scoped write-auth, presence-only GET); keys resolved server-side at node-execute, never reach brain | `app/lib/{secret_box,api_keys}.py`, `app/routers/v3/{settings,nodes_api,db}.py`, `scoped_brain.py`, `mcp_server/client.py` | #150 (#74) |
 | **Benchmark reads real trail** — `fetch_trail` → `GET /v3/research-trails/{id}` (X-API-Key) + top-level `tool_calls`; guard fixes (unknown tool_calls ≠ 0; string/dict phase shapes); 429 backoff; real-trail fixtures | `benchmarks/{run_benchmark,score}.py`, `tests/benchmarks/test_real_trail_shape.py` | #151 |
+| **Pre-run missing-key gate** — `technique_keys.check_missing_keys_for_strategy` (enumerates per-phase `preferred_tactic_id` techniques → vault check); `bypass_missing_keys` + `PreflightConfirmGateOut`; frontend `MissingKeysGate` + `usePreflight` union | `app/pipeline/catalogs/technique_keys.py`, `app/routers/v3/preflight.py`, `frontend/src/components/preflight/MissingKeysGate.tsx`, `hooks/usePreflight.ts` | #153 (#75) |
+| **Reactive mid-run missing-key gate** — `X-Run-Id` thread (scoped_brain→mcp client→nodes_api); deduped `missing.key` stream event when a keyed node lacks its key; `node_missing_key`; frontend `MidRunKeyCard` in AgentChat | `scoped_brain.py`, `mcp_server/client.py`, `nodes_api.py`, `technique_keys.py`, `AgentChat.tsx` | #154 (#76) |
+| **Benchmark real RU cost** — `fetch_trail` reads `GET /v3/runs/{id}/cost_breakdown.total_ru` (wallet ledger) + gate-UI vitest tests | `benchmarks/run_benchmark.py`, `frontend/.../MissingKeysGate.test.tsx` | #155 |
 
 ## TODO.md (root) reconciliation — what's actually done
 
