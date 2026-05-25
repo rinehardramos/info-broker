@@ -587,6 +587,13 @@ async def scoped_brain_runner(
         spawn_env["IS_RUN_ORG_ID"] = run_org_id
     else:
         spawn_env.pop("IS_RUN_ORG_ID", None)
+    # Thread the run_id so the MCP client tags node-execute calls with X-Run-Id,
+    # letting the server tie a mid-run missing-key gate event (#76) back to this
+    # live run's event stream. Non-secret.
+    if run_id:
+        spawn_env["IS_RUN_ID"] = run_id
+    else:
+        spawn_env.pop("IS_RUN_ID", None)
 
     log.info(
         "scoped_brain: spawning subprocess tactic=%s slot=%d model=%s",

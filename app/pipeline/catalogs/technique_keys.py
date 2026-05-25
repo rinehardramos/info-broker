@@ -114,6 +114,47 @@ def _enumerate_technique_ids(strategy_id: str) -> set[str]:
     return tech_ids
 
 
+# node_type → the technique whose key metadata applies. Used by the reactive
+# mid-run gate (#76), which sees node_type (not technique_id) on the node-execute
+# path. Only nodes that actually call resolve_api_key with a real key appear here
+# (pipl_people has no node implementation, so it's intentionally absent).
+_NODE_TO_TECHNIQUE: dict[str, str] = {
+    "hunter_io": "hunter_email_search",
+    "apollo_zoominfo": "apollo_contact",
+    "whois_lookup": "whois_owner",
+    "apify_actor": "apify_listings_search",
+}
+
+
+def node_missing_key(
+    node_type: str,
+    *,
+    user_id: str | None,
+    org_id: str | None,
+) -> dict[str, str] | None:
+    """For the reactive mid-run gate: if *node_type* needs an API key that is NOT
+    configured in the vault, return its descriptor
+    ``{node_type, key_name, display_name, setup_url, setup_instructions}``; else
+    None. Never returns a key value. Fail-open (returns None) on any error so a
+    vault hiccup can't break node execution.
+    """
+    tid = _NODE_TO_TECHNIQUE.get(node_type)
+    if tid is None:
+        return None
+    meta = TECHNIQUE_KEY_META.get(tid)
+    if meta is None:
+        return None
+    from app.lib.api_keys import resolve_api_key
+
+    try:
+        if resolve_api_key(meta["key_name"], user_id=user_id, org_id=org_id) is not None:
+            return None
+    except Exception:
+        log.debug("node_missing_key: resolve failed node_type=%r", node_type, exc_info=True)
+        return None
+    return {"node_type": node_type, **meta}
+
+
 def check_missing_keys_for_strategy(
     strategy_id: str,
     *,

@@ -76,6 +76,44 @@ def _get_node(node_type: str):
         raise HTTPException(status_code=404, detail=f"Unknown node type: {node_type!r}")
 
 
+# Reactive mid-run missing-key gate (#76): (run_id, key_name) pairs already
+# surfaced this process, so the gate isn't re-emitted on every tool call. In-memory
+# like injection_queue; resetting on restart only means a gate may re-appear once.
+_MISSING_KEY_GATE_SENT: set[tuple[str, str]] = set()
+
+
+async def _maybe_emit_missing_key_gate(
+    node_type: str, run_id: str, user_id: str, org_id: str | None
+) -> None:
+    """Push a ``missing.key`` gate event to the run's user stream if *node_type*
+    needs an unconfigured API key. Deduped per (run_id, key_name). Never carries a
+    key value; fully non-fatal."""
+    try:
+        from app.pipeline.catalogs.technique_keys import node_missing_key
+        desc = node_missing_key(node_type, user_id=user_id, org_id=org_id)
+        if not desc:
+            return
+        dedup = (run_id, desc["key_name"])
+        if dedup in _MISSING_KEY_GATE_SENT:
+            return
+        _MISSING_KEY_GATE_SENT.add(dedup)
+        await push_event(
+            user_id,
+            {
+                "type": "missing.key",
+                "run_id": run_id,
+                "node_type": desc["node_type"],
+                "key_name": desc["key_name"],
+                "display_name": desc["display_name"],
+                "setup_url": desc["setup_url"],
+                "setup_instructions": desc["setup_instructions"],
+            },
+        )
+        log.info("nodes_api: missing-key gate emitted run_id=%s key=%s", run_id, desc["key_name"])
+    except Exception:
+        log.debug("nodes_api: missing-key gate emission failed", exc_info=True)
+
+
 @router.post("/{node_type}/execute")
 async def execute_node(
     node_type: str,
@@ -95,6 +133,8 @@ async def execute_node(
     # forwarded as headers by the MCP server.  Never carry decrypted key values.
     caller_user_id: str | None = request.headers.get("X-Caller-User-Id") or None
     caller_org_id: str | None = request.headers.get("X-Caller-Org-Id") or None
+    # Real run id (#76) so a mid-run missing-key gate can be tied to the live run.
+    caller_run_id: str | None = request.headers.get("X-Run-Id") or None
     call_id = str(uuid.uuid4())
 
     node = _get_node(node_type)
@@ -106,10 +146,18 @@ async def execute_node(
 
     ctx = RunContext(
         user_id=caller_user_id or "mcp-system",
-        run_id="mcp-adhoc",
+        run_id=caller_run_id or "mcp-adhoc",
         node_id="mcp-adhoc",
         org_id=caller_org_id,
     )
+
+    # Reactive mid-run missing-key gate (#76): if this node needs an API key that
+    # isn't configured, surface a decision gate into the run's live stream so the
+    # user can add the key. Non-intrusive — the node still executes (and degrades)
+    # as before; once the key is stored, per-call resolution picks it up on the
+    # next tool call. Deduped per (run_id, key_name) so it isn't spammed.
+    if caller_run_id and caller_user_id:
+        await _maybe_emit_missing_key_gate(node_type, caller_run_id, caller_user_id, caller_org_id)
 
     # --- observability: record call start (non-fatal) ---
     try:

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import MessageBubble from './MessageBubble'
-import { sendMessage, getBrainStatus, archiveSession, listSessions, getSession } from '../../api/v3'
+import { sendMessage, getBrainStatus, archiveSession, listSessions, getSession, storeApiKey } from '../../api/v3'
 import type { AgentMessageOut, AgentSession } from '../../api/v3'
 import { api } from '../../api/client'
 import { useWebSocket, type WsEvent } from '../../hooks/useWebSocket'
@@ -154,6 +154,93 @@ function QuestionBubble({ m, isAdmin, answered, customVal, onAnswer, onCustomCha
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// MidRunKeyCard — Phase 3 (#76) reactive mid-run missing-key gate card. A node
+// hit a missing API key during the run; the user can add it here (stored in the
+// vault) and the run picks it up on the next tool call. A retry hint is injected
+// to nudge the brain. Key values go only to the vault — never echoed.
+function MidRunKeyCard({ m, onResolved }: { m: Message; onResolved: (id: string) => void }) {
+  const [value, setValue] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const keyName = (m.payload?.key_name ?? '') as string
+  const displayName = (m.payload?.display_name ?? keyName) as string
+  const setupUrl = (m.payload?.setup_url ?? '') as string
+  const setupInstructions = (m.payload?.setup_instructions ?? '') as string
+  const runId = (m.payload?.run_id ?? '') as string
+
+  const save = async () => {
+    if (!value.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await storeApiKey(keyName, value.trim(), 'user')
+      if (runId) {
+        void brainApi.injectNode(runId, {
+          instruction: `The ${displayName} API key (${keyName}) has now been configured — retry that tool for any items still missing enrichment.`,
+        })
+      }
+      onResolved(m.id)
+    } catch {
+      setError('Failed to save key. Check the value and try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div key={m.id} style={{ margin: '6px 0 12px' }}>
+      <div
+        data-testid={`midrun-key-card-${keyName}`}
+        style={{
+          background: 'var(--panel2)', border: '1px solid var(--accent)',
+          borderRadius: '4px 12px 12px 12px', padding: '10px 14px',
+          maxWidth: '90%', fontSize: 11, color: 'var(--text)', lineHeight: 1.5,
+        }}
+      >
+        <span style={{ fontSize: 8, color: '#f59e0b', fontWeight: 700, display: 'block', marginBottom: 4, letterSpacing: '0.06em' }}>
+          TOOL NEEDS AN API KEY
+        </span>
+        <div style={{ marginBottom: 4 }}>
+          <strong>{displayName}</strong> needs <code>{keyName}</code> to enrich results.
+        </div>
+        {setupInstructions && (
+          <div style={{ color: 'var(--subtext)', marginBottom: 4 }}>{setupInstructions}</div>
+        )}
+        {setupUrl && (
+          <a href={setupUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+            Get API key →
+          </a>
+        )}
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          <input
+            type="password"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder={`Paste ${keyName}`}
+            data-testid={`midrun-key-input-${keyName}`}
+            autoComplete="off"
+            style={{ flex: 1, fontSize: 11, padding: '3px 6px', borderRadius: 4, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
+          />
+          <button
+            onClick={save}
+            disabled={saving || !value.trim()}
+            data-testid={`midrun-key-save-${keyName}`}
+            style={{
+              fontSize: 11, padding: '3px 10px', borderRadius: 4, border: 'none',
+              background: 'var(--accent)', color: '#fff',
+              cursor: saving || !value.trim() ? 'not-allowed' : 'pointer',
+              opacity: saving || !value.trim() ? 0.6 : 1,
+            }}
+          >
+            {saving ? 'Saving…' : 'Save & continue'}
+          </button>
+        </div>
+        {error && <div style={{ color: '#f87171', marginTop: 4 }}>{error}</div>}
+      </div>
     </div>
   )
 }
@@ -384,6 +471,35 @@ export default function AgentChat() {
             // keep `question` key on payload for any downstream consumers that
             // still read it during rollout
             question: summary,
+          },
+        }]
+      })
+    }
+    if (event.type === 'missing.key') {
+      // Phase 3 (#76): a node hit a missing API key mid-run. Surface a gate card
+      // so the user can add the key; subsequent tool calls pick it up.
+      const kEvent = event as WsEvent & {
+        node_type?: string; key_name?: string; display_name?: string
+        setup_url?: string; setup_instructions?: string
+      }
+      if (!kEvent.key_name) return
+      setMessages(prev => {
+        // Dedup: one card per key_name (backend also dedups per run+key).
+        if (prev.some(m => m.type === 'missing_key' && m.payload?.key_name === kEvent.key_name)) {
+          return prev
+        }
+        return [...prev, {
+          id: `missingkey-${kEvent.key_name}-${Date.now()}`,
+          role: 'agent',
+          content: `${kEvent.display_name ?? kEvent.key_name} needs an API key to enrich results`,
+          type: 'missing_key',
+          payload: {
+            run_id: event.run_id,
+            node_type: kEvent.node_type,
+            key_name: kEvent.key_name,
+            display_name: kEvent.display_name,
+            setup_url: kEvent.setup_url,
+            setup_instructions: kEvent.setup_instructions,
           },
         }]
       })
@@ -725,6 +841,21 @@ export default function AgentChat() {
                   handleBrainAnswer(runId, value, msgId)
                   setCustomAnswers(prev => ({ ...prev, [msgId]: '' }))
                 }}
+              />
+            )
+          }
+
+          // Mid-run missing-key gate card (#76)
+          if (m.type === 'missing_key') {
+            return (
+              <MidRunKeyCard
+                key={m.id}
+                m={m}
+                onResolved={(id) => setMessages(prev => prev.map(msg =>
+                  msg.id === id
+                    ? { ...msg, type: 'message', content: `✓ ${(m.payload?.display_name ?? m.payload?.key_name) as string} key added — the run will use it on the next tool call.` }
+                    : msg,
+                ))}
               />
             )
           }
