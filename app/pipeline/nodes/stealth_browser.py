@@ -113,14 +113,69 @@ class StealthBrowserNode:
 
         wait_s = float(config.get("wait_s", 2.5))
         timeout = int(config.get("timeout", 25))
+
+        # Optional authenticated session: log in with the user's OWN stored
+        # credential (resolved server-side here — the password NEVER came from the
+        # brain, which only passed the site name + form selectors).
+        login = self._build_login(config, context)
+
         try:
-            return await _render_pages(safe, wait_s=wait_s, timeout=timeout)
+            return await _render_pages(safe, wait_s=wait_s, timeout=timeout, login=login)
         except Exception as exc:  # noqa: BLE001
             log.warning("stealth_browser: render failed: %s", exc)
             return [{"error": str(exc), "source": "stealth_browser"}]
 
+    @staticmethod
+    def _build_login(config: dict, context: RunContext) -> dict | None:
+        login_url = config.get("login_url")
+        site = config.get("site") or config.get("credential_ref")
+        if not (login_url and site):
+            return None
+        if not _url_is_safe(login_url):
+            log.warning("stealth_browser: login_url failed SSRF check — skipping login")
+            return None
+        from app.lib.api_keys import resolve_site_credential
+        cred = resolve_site_credential(
+            site,
+            user_id=getattr(context, "user_id", None),
+            org_id=getattr(context, "org_id", None),
+        )
+        if not cred:
+            log.info("stealth_browser: no stored credential for site=%r — fetching unauthenticated", site)
+            return None
+        return {
+            "url": login_url,
+            "username_selector": config.get("username_selector") or "input[type=email], input[name*=user], input[name*=email], input[name=login]",
+            "password_selector": config.get("password_selector") or "input[type=password]",
+            "submit_selector": config.get("submit_selector") or "button[type=submit], input[type=submit]",
+            "username": cred["username"],
+            "password": cred["password"],
+            "wait_s": float(config.get("login_wait_s", 4)),
+        }
 
-async def _render_pages(urls: list[str], *, wait_s: float, timeout: int) -> list[dict]:
+
+async def _do_login(browser, login: dict) -> None:
+    """Fill + submit a site login form in the live browser, persisting the
+    session for subsequent fetches. NEVER logs the username/password."""
+    import asyncio
+
+    ltab = await asyncio.wait_for(browser.get(login["url"]), timeout=30)
+    await ltab.sleep(2)
+    ufield = await ltab.select(login["username_selector"])
+    if ufield:
+        await ufield.send_keys(login["username"])
+    pfield = await ltab.select(login["password_selector"])
+    if pfield:
+        await pfield.send_keys(login["password"])
+    submit = await ltab.select(login["submit_selector"])
+    if submit:
+        await submit.click()
+    await ltab.sleep(login.get("wait_s", 4))
+
+
+async def _render_pages(
+    urls: list[str], *, wait_s: float, timeout: int, login: dict | None = None
+) -> list[dict]:
     import asyncio
 
     try:
@@ -136,6 +191,11 @@ async def _render_pages(urls: list[str], *, wait_s: float, timeout: int) -> list
     )
     results: list[dict] = []
     try:
+        if login:
+            try:
+                await _do_login(browser, login)  # session persists for the fetches below
+            except Exception as exc:  # noqa: BLE001 — never surface credential values
+                log.warning("stealth_browser: login step failed (continuing unauthenticated): %s", exc)
         for url in urls:
             try:
                 tab = await asyncio.wait_for(browser.get(url), timeout=timeout)

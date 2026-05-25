@@ -7,6 +7,7 @@ import IconRail from '../components/layout/IconRail'
 import { useSessionStore } from '../stores/sessionStore'
 import AccountSection from '../components/settings/AccountSection'
 import AdminActionItems from '../components/settings/AdminActionItems'
+import SiteCredentialsSection from '../components/settings/SiteCredentialsSection'
 import { api } from '../api/client'
 
 const CORE_FIELDS = [
@@ -666,7 +667,7 @@ export default function Settings() {
   const role = useSessionStore(s => s.role)
   const canSeeDefaultMode = isAdmin || role === 'admin'
   const canSeeVisibility = isAdmin || role === 'admin'
-  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode' | 'visibility' | 'action-items'>(
+  const [section, setSection] = useState<'core' | 'plugins' | 'agent' | 'node-health' | 'account' | 'default-mode' | 'visibility' | 'action-items' | 'site-logins'>(
     isAdmin ? 'action-items' : 'account',
   )
 
@@ -685,6 +686,17 @@ export default function Settings() {
             }}
           >
             Account
+          </button>
+          <button
+            onClick={() => setSection('site-logins')}
+            className="w-full text-left px-2 py-1 rounded text-xs mb-1"
+            style={{
+              background: section === 'site-logins' ? 'var(--panel2)' : 'transparent',
+              color: section === 'site-logins' ? 'var(--accent)' : 'var(--text)',
+              border: 'none', cursor: 'pointer',
+            }}
+          >
+            Site Logins
           </button>
           {canSeeDefaultMode && (
             <button
@@ -796,9 +808,11 @@ export default function Settings() {
               : section === 'default-mode' ? 'Default Mode'
               : section === 'visibility' ? 'Modes & Templates'
               : section === 'action-items' ? 'Action Items'
+              : section === 'site-logins' ? 'Site Logins'
               : 'Plugin Settings'}
           </h2>
           {section === 'account' && <AccountSection />}
+          {section === 'site-logins' && <SiteCredentialsSection />}
           {isAdmin && section === 'action-items' && (
             <AdminActionItems onNavigateToCoreSettings={() => setSection('core')} />
           )}
