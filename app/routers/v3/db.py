@@ -952,7 +952,10 @@ CREATE TABLE IF NOT EXISTS api_key_vault (
     value_encrypted TEXT NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (key_name, scope, owner_id)
+    -- NULLS NOT DISTINCT (PG15+) so global rows (owner_id IS NULL) collide on
+    -- (key_name, scope) — otherwise NULL≠NULL means ON CONFLICT never fires and
+    -- re-upserting a global key inserts a duplicate instead of updating it.
+    UNIQUE NULLS NOT DISTINCT (key_name, scope, owner_id)
 );
 CREATE INDEX IF NOT EXISTS idx_api_key_vault_lookup
     ON api_key_vault (key_name, scope, owner_id)

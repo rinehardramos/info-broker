@@ -285,6 +285,44 @@ def test_vault_upsert_and_resolve():
 
 
 @pytest.mark.skipif(not _HAS_DB, reason="requires POSTGRES_HOST")
+def test_global_reupsert_updates_not_duplicates():
+    """Re-upserting a GLOBAL key (owner_id IS NULL) must UPDATE the existing row,
+    not insert a duplicate. Requires UNIQUE NULLS NOT DISTINCT — otherwise NULL≠NULL
+    means ON CONFLICT never fires and global key rotation silently fails."""
+    from app.routers.v3.db import execute, fetch_all
+    from app.lib.secret_box import encrypt
+    from app.lib.api_keys import resolve_api_key
+
+    import uuid
+    key_name = f"test_global_{uuid.uuid4().hex[:8]}"
+
+    def _upsert(value: str) -> None:
+        execute(
+            """INSERT INTO api_key_vault (key_name, scope, owner_id, value_encrypted)
+               VALUES (%s, 'global', NULL, %s)
+               ON CONFLICT (key_name, scope, owner_id) DO UPDATE
+               SET value_encrypted = EXCLUDED.value_encrypted""",
+            (key_name, encrypt(value)),
+        )
+
+    try:
+        _upsert("first-value")
+        _upsert("rotated-value")  # second upsert must UPDATE, not duplicate
+
+        rows = fetch_all(
+            "SELECT id FROM api_key_vault WHERE key_name = %s AND scope = 'global'",
+            (key_name,),
+        )
+        assert len(rows) == 1, f"expected 1 global row after re-upsert, got {len(rows)}"
+        assert resolve_api_key(key_name, user_id=None, org_id=None) == "rotated-value"
+    finally:
+        execute(
+            "DELETE FROM api_key_vault WHERE key_name = %s AND scope = 'global'",
+            (key_name,),
+        )
+
+
+@pytest.mark.skipif(not _HAS_DB, reason="requires POSTGRES_HOST")
 def test_vault_migration_creates_table():
     """run_migrations() must create api_key_vault with the correct columns."""
     from app.routers.v3.db import fetch_one
