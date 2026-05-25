@@ -811,3 +811,13 @@ export const getRunMetrics = (): Promise<RunMetrics> =>
       avg_duration_seconds: d.avg_latency_seconds ?? d.avg_duration_seconds ?? 0,
     } as RunMetrics
   })
+
+// POST /v3/settings/api-keys — store an API key in the encrypted vault (Phase 2,
+// #75). Used by the pre-run missing-key gate. The value is sent once and never
+// returned by any endpoint. scope: 'user' (default) | 'org' | 'global'.
+export const storeApiKey = (
+  key_name: string,
+  value: string,
+  scope: 'user' | 'org' | 'global' = 'user',
+): Promise<void> =>
+  api.post('/v3/settings/api-keys', { key_name, value, scope }).then(() => undefined)

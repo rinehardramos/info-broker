@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../../api/client'
-import { usePreflight } from '../../hooks/usePreflight'
-import type { DialsIn, ModeEntry } from '../../hooks/usePreflight'
+import { usePreflight, isMissingKeysGate } from '../../hooks/usePreflight'
+import type { DialsIn, ModeEntry, PreflightGateResult } from '../../hooks/usePreflight'
+import MissingKeysGate from './MissingKeysGate'
 import { ModePicker } from './ModePicker'
 import { DialPicker } from './DialPicker'
 import { EstimateBreakdown } from './EstimateBreakdown'
@@ -153,6 +154,8 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
 
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [showSaveCta, setShowSaveCta] = useState(false)
+  // Phase 2 (#75): pre-run missing-key gate payload, set when /confirm returns it.
+  const [missingGate, setMissingGate] = useState<PreflightGateResult | null>(null)
 
   const { templates, isLoading: templatesLoading, createTemplate, useTemplate } = useTemplates()
 
@@ -260,7 +263,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
   const showEstimateSkeleton = useDebouncedLoading(isLoading)
 
   // ---- confirm + run --------------------------------------------------------
-  async function handleRun() {
+  async function handleRun(bypassMissingKeys = false) {
     if (!estimate) return
     setConfirming(true)
     setShowSaveCta(false)
@@ -269,12 +272,19 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
       envelope: { speed, capability, resource, hypothesis_count: hypothesisCount, depth },
       strategy_id: strategy,
       start_run: true,
+      bypass_missing_keys: bypassMissingKeys,
     })
     setConfirming(false)
-    if (result) {
-      setShowSaveCta(true)
-      onConfirmed(result.run_id, result.hold_id)
+    if (!result) return
+    // Phase 2 (#75): the chosen strategy needs unconfigured keys — show the gate
+    // instead of starting. The user can add a key (then re-run) or proceed anyway.
+    if (isMissingKeysGate(result)) {
+      setMissingGate(result)
+      return
     }
+    setMissingGate(null)
+    setShowSaveCta(true)
+    onConfirmed(result.run_id, result.hold_id)
   }
 
   return (
@@ -579,6 +589,18 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
           </div>
         )}
 
+        {/* Phase 2 (#75): pre-run missing-key decision gate */}
+        {missingGate && (
+          <div style={{ marginBottom: 12 }}>
+            <MissingKeysGate
+              missingTools={missingGate.missing_tools}
+              onKeyStored={() => handleRun(false)}
+              onProceedAnyway={() => handleRun(true)}
+              busy={confirming}
+            />
+          </div>
+        )}
+
         {/* Action buttons */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button
@@ -592,7 +614,7 @@ export function PreflightPanel({ query, onCancel, onConfirmed }: PreflightPanelP
             Cancel
           </button>
           <button
-            onClick={handleRun}
+            onClick={() => handleRun()}
             disabled={isLoading || confirming || !estimate}
             style={{
               padding: '4px 14px', borderRadius: 4, fontSize: 12,

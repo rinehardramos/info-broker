@@ -384,6 +384,27 @@ class PreflightConfirmIn(BaseModel):
     strategy_id: str
     # engine_v2: when True, engine_v2 is launched in the background after hold succeeds
     start_run: bool = False
+    # Phase 2 (#75): when True, skip the pre-run missing-key gate and launch even
+    # though some enrichment keys are unconfigured ("Proceed anyway"). Soft gate.
+    bypass_missing_keys: bool = False
+
+
+class MissingKeyToolOut(BaseModel):
+    technique_id: str
+    key_name: str
+    display_name: str
+    setup_url: str
+    setup_instructions: str
+
+
+class PreflightConfirmGateOut(BaseModel):
+    """Returned (in place of starting the run) when the chosen strategy needs API
+    keys that aren't configured. Carries only key NAMES + public setup info —
+    never a key value. The client may store a key then retry, or retry with
+    bypass_missing_keys=True."""
+    status: str = "missing_keys_gate"
+    run_id: str
+    missing_tools: list[MissingKeyToolOut]
 
 
 class PreflightConfirmOut(BaseModel):
@@ -616,6 +637,25 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    # Phase 2 (#75): pre-run missing-key decision gate. Only relevant when we're
+    # about to launch (start_run) and the caller hasn't chosen to proceed anyway.
+    # Checked BEFORE the wallet hold so a gated (not-started) run strands no RU.
+    if body.start_run and not body.bypass_missing_keys:
+        from app.pipeline.catalogs.technique_keys import check_missing_keys_for_strategy
+        org_id = str(user["org_id"]) if user.get("org_id") else None
+        missing_tools = check_missing_keys_for_strategy(
+            body.strategy_id, user_id=uid, org_id=org_id
+        )
+        if missing_tools:
+            log.info(
+                "preflight: missing-key gate raised strategy=%s missing=%s",
+                body.strategy_id, [t["key_name"] for t in missing_tools],
+            )
+            return PreflightConfirmGateOut(
+                run_id=run_id,
+                missing_tools=[MissingKeyToolOut(**t) for t in missing_tools],
+            )
 
     est = estimate_run(body.strategy_id, envelope)
     p90 = est.estimated_ru_p90
