@@ -23,6 +23,9 @@ _MCP_SECRET = os.environ.get("MCP_SIGNING_SECRET", "")
 # decrypted key values NEVER enter the subprocess env or the MCP client.
 _RUN_USER_ID: str | None = os.environ.get("IS_RUN_USER_ID") or None
 _RUN_ORG_ID: str | None = os.environ.get("IS_RUN_ORG_ID") or None
+# Non-secret run id — lets the server tie a mid-run missing-key gate (#76) to
+# this run's live event stream.
+_RUN_ID: str | None = os.environ.get("IS_RUN_ID") or None
 
 
 def _sign_request(body: bytes) -> dict[str, str]:
@@ -68,6 +71,8 @@ async def api_call(method: str, path: str, **kwargs) -> dict:
             headers["X-Caller-User-Id"] = _RUN_USER_ID
         if _RUN_ORG_ID:
             headers["X-Caller-Org-Id"] = _RUN_ORG_ID
+        if _RUN_ID:
+            headers["X-Run-Id"] = _RUN_ID
         resp = await client.request(method, path, headers=headers, **kwargs)
         resp.raise_for_status()
         return resp.json()

@@ -6,7 +6,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'agent'
   content: string
   status?: 'pending' | 'running' | 'done' | 'error'
-  type?: 'message' | 'question' | 'plan' | 'confirm'
+  type?: 'message' | 'question' | 'plan' | 'confirm' | 'missing_key'
   payload?: Record<string, unknown>
 }
 

@@ -12,6 +12,7 @@ from app.pipeline.catalogs.technique_keys import (
     TECHNIQUE_KEY_META,
     _enumerate_technique_ids,
     check_missing_keys_for_strategy,
+    node_missing_key,
 )
 
 
@@ -81,3 +82,64 @@ def test_resolve_failure_is_fail_open(monkeypatch):
         raise RuntimeError("db down")
     monkeypatch.setattr("app.lib.api_keys.resolve_api_key", boom)
     assert check_missing_keys_for_strategy("real_estate_leads", user_id="u1", org_id=None) == []
+
+
+# ---------------------------------------------------------------------------
+# node_missing_key — reactive mid-run gate (#76)
+# ---------------------------------------------------------------------------
+
+
+def test_node_missing_key_surfaces_when_absent(monkeypatch):
+    monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: None)
+    desc = node_missing_key("hunter_io", user_id="u1", org_id=None)
+    assert desc is not None
+    assert desc["node_type"] == "hunter_io"
+    assert desc["key_name"] == "hunter_io_api_key"
+    assert "value" not in desc  # never a key value
+
+
+def test_node_missing_key_none_when_present(monkeypatch):
+    monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: "configured")
+    assert node_missing_key("apollo_zoominfo", user_id="u1", org_id="o1") is None
+
+
+def test_node_missing_key_none_for_unmapped_node(monkeypatch):
+    monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: None)
+    assert node_missing_key("web_search", user_id="u1", org_id=None) is None
+    assert node_missing_key("totally_unknown_node", user_id="u1", org_id=None) is None
+
+
+def test_node_missing_key_fail_open(monkeypatch):
+    def boom(k, **kw):
+        raise RuntimeError("db down")
+    monkeypatch.setattr("app.lib.api_keys.resolve_api_key", boom)
+    assert node_missing_key("hunter_io", user_id="u1", org_id=None) is None
+
+
+def test_gate_event_emitted_and_deduped(monkeypatch):
+    """_maybe_emit_missing_key_gate pushes one missing.key event per (run, key)."""
+    import asyncio
+    import app.routers.v3.nodes_api as na
+
+    pushed: list[tuple[str, dict]] = []
+
+    async def fake_push(user_id, event):
+        pushed.append((user_id, event))
+
+    monkeypatch.setattr(na, "push_event", fake_push)
+    monkeypatch.setattr("app.lib.api_keys.resolve_api_key", lambda k, **kw: None)
+    na._MISSING_KEY_GATE_SENT.clear()
+
+    async def go():
+        await na._maybe_emit_missing_key_gate("hunter_io", "run-xyz", "user-1", None)
+        await na._maybe_emit_missing_key_gate("hunter_io", "run-xyz", "user-1", None)  # dup
+
+    asyncio.run(go())
+
+    assert len(pushed) == 1, "gate should be emitted once per (run_id, key_name)"
+    user_id, event = pushed[0]
+    assert user_id == "user-1"
+    assert event["type"] == "missing.key"
+    assert event["run_id"] == "run-xyz"
+    assert event["key_name"] == "hunter_io_api_key"
+    assert "value" not in event
