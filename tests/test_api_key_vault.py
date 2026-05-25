@@ -336,3 +336,39 @@ def test_vault_migration_creates_table():
         (),
     )
     assert row is not None, "api_key_vault.value_encrypted column not found"
+
+
+# ---------------------------------------------------------------------------
+# resolve_site_credential — authenticated-session credential vault (#item-4)
+# ---------------------------------------------------------------------------
+
+def test_resolve_site_credential_roundtrip(monkeypatch):
+    import json
+    from app.lib.secret_box import encrypt
+    enc = encrypt(json.dumps({"username": "alice", "password": "s3cret"}))
+    # user-scoped row matches (scope = %s present in _vault_fetch query)
+    monkeypatch.setattr(
+        "app.routers.v3.db.fetch_one",
+        lambda q, p: {"value_encrypted": enc} if "scope = %s" in q else None,
+    )
+    from app.lib.api_keys import resolve_site_credential
+    cred = resolve_site_credential("FSBO.com", user_id="uid", org_id=None)
+    assert cred == {"username": "alice", "password": "s3cret"}
+
+
+def test_resolve_site_credential_none_when_absent(monkeypatch):
+    monkeypatch.setattr("app.routers.v3.db.fetch_one", lambda q, p: None)
+    from app.lib.api_keys import resolve_site_credential
+    assert resolve_site_credential("nope.com", user_id="uid", org_id=None) is None
+
+
+def test_resolve_site_credential_skips_mcp_system(monkeypatch):
+    called = {"n": 0}
+    def fake(q, p):
+        called["n"] += 1
+        return None
+    monkeypatch.setattr("app.routers.v3.db.fetch_one", fake)
+    from app.lib.api_keys import resolve_site_credential
+    # mcp-system pseudo-user + no org → no lookup attempted
+    assert resolve_site_credential("x.com", user_id="mcp-system", org_id=None) is None
+    assert called["n"] == 0

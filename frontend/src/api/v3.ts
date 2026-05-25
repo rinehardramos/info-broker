@@ -821,3 +821,23 @@ export const storeApiKey = (
   scope: 'user' | 'org' | 'global' = 'user',
 ): Promise<void> =>
   api.post('/v3/settings/api-keys', { key_name, value, scope }).then(() => undefined)
+
+// --- Site credentials (authenticated-session vault, #item-4) -----------------
+export interface SiteCredentialEntry {
+  site: string
+  scope: string
+  username: string   // shown for identification; password is NEVER returned
+}
+
+// Store the user's OWN login for a site (encrypted server-side; password never
+// returned and never reaches the brain). Used by the authenticated stealth browser.
+export const storeSiteCredential = (
+  site: string,
+  username: string,
+  password: string,
+  scope: 'user' | 'org' = 'user',
+): Promise<void> =>
+  api.post('/v3/settings/site-credentials', { site, username, password, scope }).then(() => undefined)
+
+export const listSiteCredentials = (): Promise<SiteCredentialEntry[]> =>
+  api.get<SiteCredentialEntry[]>('/v3/settings/site-credentials').then(r => r.data)

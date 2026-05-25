@@ -274,11 +274,114 @@ def list_api_keys(user: dict = Depends(get_current_user)) -> list[ApiKeyEntry]:
         SELECT key_name, scope, owner_id::text AS owner_id
           FROM api_key_vault
          WHERE
-            (scope = 'global' AND owner_id IS NULL)
-            OR (scope = 'user'   AND owner_id = %s::uuid)
-            OR (scope = 'org'    AND owner_id = %s::uuid AND %s IS NOT NULL)
+            key_name NOT LIKE 'sitecred:%%'
+            AND (
+                (scope = 'global' AND owner_id IS NULL)
+                OR (scope = 'user'   AND owner_id = %s::uuid)
+                OR (scope = 'org'    AND owner_id = %s::uuid AND %s IS NOT NULL)
+            )
          ORDER BY scope, key_name
         """,
         (user_id, org_id or user_id, org_id),
     )
     return [ApiKeyEntry(**r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Site-credential vault (Phase: authenticated sessions, #item-4)
+# Stores the user's OWN login for a site (username+password) encrypted in the
+# same vault, so the stealth browser can log in and access gated data. The
+# password is NEVER returned by any endpoint and NEVER reaches the brain — it is
+# resolved server-side at node-execute via resolve_site_credential().
+# ---------------------------------------------------------------------------
+
+_SITECRED_PREFIX = "sitecred:"
+
+
+class SiteCredentialIn(BaseModel):
+    site: str            # e.g. "fsbo.com"
+    username: str
+    password: str
+    scope: str = "user"  # 'user' (own login) | 'org' (shared team account)
+
+
+class SiteCredentialEntry(BaseModel):
+    site: str
+    scope: str
+    username: str        # shown (not secret); password is NEVER returned
+
+
+@router.post("/site-credentials", status_code=204)
+def upsert_site_credential(body: SiteCredentialIn, user: dict = Depends(get_current_user)) -> None:
+    """Store the user's OWN login for a site (encrypted). Password is never
+    returned and never reaches the brain. The user is responsible for ensuring
+    they are authorized to automate access to the site per its ToS."""
+    import json
+
+    from app.lib.secret_box import encrypt
+
+    scope = body.scope
+    if scope not in ("user", "org"):
+        raise HTTPException(status_code=400, detail="scope must be 'user' or 'org'")
+    if scope == "org":
+        if user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Org scope requires org-admin role")
+        if not user.get("org_id"):
+            raise HTTPException(status_code=400, detail="User has no org")
+        owner_id = str(user["org_id"])
+    else:
+        owner_id = str(user["id"])
+
+    site = body.site.strip().lower()
+    if not site:
+        raise HTTPException(status_code=400, detail="site is required")
+    key_name = _SITECRED_PREFIX + site
+    encrypted = encrypt(json.dumps({"username": body.username, "password": body.password}))
+
+    execute(
+        """
+        INSERT INTO api_key_vault (key_name, scope, owner_id, value_encrypted, updated_at)
+        VALUES (%s, %s, %s::uuid, %s, now())
+        ON CONFLICT (key_name, scope, owner_id) DO UPDATE
+        SET value_encrypted = EXCLUDED.value_encrypted, updated_at = now()
+        """,
+        (key_name, scope, owner_id, encrypted),
+    )
+    # Log site + scope only — NEVER the username or password.
+    log.info(
+        "site_credentials: upserted site=%r scope=%r owner_id=%r by user=%r",
+        site, scope, owner_id, str(user.get("id")),
+    )
+
+
+@router.get("/site-credentials", response_model=list[SiteCredentialEntry])
+def list_site_credentials(user: dict = Depends(get_current_user)) -> list[SiteCredentialEntry]:
+    """List configured site logins (site + scope + username). Password is NEVER
+    returned. Each caller sees their own user-scoped + their org-scoped entries."""
+    import json
+
+    from app.lib.secret_box import decrypt
+
+    user_id = str(user["id"])
+    org_id = str(user["org_id"]) if user.get("org_id") else None
+    rows = fetch_all(
+        """
+        SELECT key_name, scope, value_encrypted
+          FROM api_key_vault
+         WHERE key_name LIKE 'sitecred:%%'
+           AND ((scope = 'user' AND owner_id = %s::uuid)
+                OR (scope = 'org' AND owner_id = %s::uuid AND %s IS NOT NULL))
+         ORDER BY scope, key_name
+        """,
+        (user_id, org_id or user_id, org_id),
+    )
+    out: list[SiteCredentialEntry] = []
+    for r in rows:
+        site = r["key_name"][len(_SITECRED_PREFIX):]
+        username = ""
+        try:
+            username = json.loads(decrypt(r["value_encrypted"])).get("username", "")
+        except Exception:
+            pass
+        out.append(SiteCredentialEntry(site=site, scope=r["scope"], username=username))
+    return out

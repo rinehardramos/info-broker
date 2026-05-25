@@ -84,7 +84,7 @@ def test_execute_filters_to_safe_urls_before_render(monkeypatch):
     import app.pipeline.nodes.stealth_browser as sb
     captured = {}
 
-    async def _fake_render(urls, *, wait_s, timeout):
+    async def _fake_render(urls, *, wait_s, timeout, login=None):
         captured["urls"] = urls
         return [{"url": u, "content": "ok", "source_class": "live_search"} for u in urls]
     monkeypatch.setattr(sb, "_render_pages", _fake_render)
@@ -95,3 +95,37 @@ def test_execute_filters_to_safe_urls_before_render(monkeypatch):
     # internal URL filtered out; only the public one reaches render
     assert captured["urls"] == ["https://www.zillow.com/x"]
     assert out[0]["content"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# _build_login — authenticated-session credential resolution (#item-4)
+# ---------------------------------------------------------------------------
+
+def test_build_login_none_without_site_or_login_url():
+    assert StealthBrowserNode._build_login({}, _ctx()) is None
+    assert StealthBrowserNode._build_login({"login_url": "https://x.com/login"}, _ctx()) is None
+    assert StealthBrowserNode._build_login({"site": "x.com"}, _ctx()) is None
+
+
+def test_build_login_resolves_credential(monkeypatch):
+    monkeypatch.setattr("app.lib.api_keys.resolve_site_credential",
+                        lambda site, **kw: {"username": "u", "password": "p"})
+    login = StealthBrowserNode._build_login(
+        {"login_url": "https://fsbo.com/login", "site": "fsbo.com"}, _ctx())
+    assert login is not None
+    assert login["url"] == "https://fsbo.com/login"
+    assert login["username"] == "u" and login["password"] == "p"
+
+
+def test_build_login_rejects_internal_login_url(monkeypatch):
+    monkeypatch.setattr("app.lib.api_keys.resolve_site_credential",
+                        lambda site, **kw: {"username": "u", "password": "p"})
+    # SSRF check runs before credential use
+    assert StealthBrowserNode._build_login(
+        {"login_url": "http://127.0.0.1/login", "site": "x"}, _ctx()) is None
+
+
+def test_build_login_none_when_no_stored_credential(monkeypatch):
+    monkeypatch.setattr("app.lib.api_keys.resolve_site_credential", lambda site, **kw: None)
+    assert StealthBrowserNode._build_login(
+        {"login_url": "https://fsbo.com/login", "site": "fsbo.com"}, _ctx()) is None

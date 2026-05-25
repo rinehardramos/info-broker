@@ -102,21 +102,45 @@ async def run_web_crawl(
 
 
 @mcp.tool()
-async def run_stealth_browser(urls: str, wait_s: float = 2.5) -> str:
+async def run_stealth_browser(
+    urls: str,
+    wait_s: float = 2.5,
+    site: str = "",
+    login_url: str = "",
+    username_selector: str = "",
+    password_selector: str = "",
+    submit_selector: str = "",
+) -> str:
     """Render JS-heavy or bot-protected pages in an undetected headless Chromium
     and return their extracted text. Free — NO API key.
 
     Use this as the FALLBACK when run_web_crawl / run_web_search_fetch return an
-    empty or blocked page on a dynamic site (e.g. a Zillow / Realtor listing
-    detail page that needs JavaScript). It defeats most TLS/headless bot
-    detection. urls: a JSON array, a single bare URL, or a comma/space-separated
-    list (max 12).
+    empty or blocked page on a dynamic site (e.g. a listing detail page that needs
+    JavaScript). It defeats most TLS/headless bot detection. urls: a JSON array, a
+    single bare URL, or a comma/space-separated list (max 12).
+
+    AUTHENTICATED MODE — for data gated behind a login the user has an account for:
+    pass `site` (the credential reference the user stored in Settings, e.g.
+    "fsbo.com") + `login_url` + the form CSS selectors (`username_selector`,
+    `password_selector`, `submit_selector` — inspect the login page to find them).
+    The server logs in with the user's stored credential (the password is NEVER
+    exposed to this tool or to you) and fetches the urls in that authenticated
+    session. Only works if the user has saved a credential for that site.
     """
     url_list = _parse_url_arg(urls)
+    body: dict = {"urls": url_list, "wait_s": wait_s}
+    if site and login_url:
+        body.update({
+            "site": site,
+            "login_url": login_url,
+            "username_selector": username_selector,
+            "password_selector": password_selector,
+            "submit_selector": submit_selector,
+        })
     result = await api_call(
         "POST",
         "/v3/nodes/stealth_browser/execute",
-        json={"urls": url_list, "wait_s": wait_s},
+        json=body,
     )
     return json.dumps(result)
 

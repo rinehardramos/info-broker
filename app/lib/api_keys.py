@@ -136,3 +136,34 @@ def resolve_api_key(
         return env_value
 
     return None
+
+
+def resolve_site_credential(
+    site: str,
+    *,
+    user_id: str | None,
+    org_id: str | None,
+) -> dict | None:
+    """Return the caller's stored login ``{"username":.., "password":..}`` for
+    *site*, or None. Resolved server-side ONLY (user → org scope) — the password
+    must never be threaded toward the brain. Never logs the credential values.
+    """
+    import json
+
+    from app.lib.secret_box import decrypt
+
+    key_name = "sitecred:" + (site or "").strip().lower()
+    for scope, owner in (("user", user_id), ("org", org_id)):
+        if not owner or owner in ("mcp-system", ""):
+            continue
+        row = _vault_fetch(key_name, scope, owner)
+        if row and row.get("value_encrypted"):
+            try:
+                cred = json.loads(decrypt(row["value_encrypted"]))
+            except Exception:
+                log.debug("api_keys: site-cred decode failed site=%r scope=%r", site, scope)
+                return None
+            if cred.get("username") and cred.get("password"):
+                log.info("api_keys: resolved site-credential key_name=%r scope=%s", key_name, scope)
+                return {"username": cred["username"], "password": cred["password"]}
+    return None
