@@ -349,12 +349,73 @@ LEADS_GEN_FIELDS: tuple[str, ...] = (
 )
 
 
+_PHONE_RE = re.compile(r"\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}")
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+_PRICE_RE = re.compile(r"\$\s?\d[\d,]{2,}")
+_ADDR_RE = re.compile(
+    r"\d{1,6}\s+[A-Z][\w.]*(?:\s+[A-Z]?[\w.]+)*\s+"
+    r"(?:St|Ave|Rd|Blvd|Dr|Ln|Ct|Way|Pl|Ter|Pkwy|Hwy|Street|Avenue|Road|Drive|Lane|Court|Place)\b",
+    re.I,
+)
+_OWNER_BG_RE = re.compile(
+    r"\b(?:LLC|L\.L\.C|Inc\.?|registered agent|WHOIS|registrant|incorporat|"
+    r"owner of record|deed|assessor|holdings)\b",
+    re.I,
+)
+_OWNER_CTX_RE = re.compile(r"owner|seller|fsbo|by owner", re.I)
+_LISTING_DOMAIN_RE = re.compile(
+    r"(?:zillow|realtor|redfin|trulia|fsbo|craigslist|loopnet|apartments|"
+    r"forsalebyowner|houzeo|homefinder|homes\.com)",
+    re.I,
+)
+
+
+def _lead_text(finding: dict) -> str:
+    """Concatenate the prose fields a lead's data may hide in."""
+    return " ".join(
+        str(finding.get(k, ""))
+        for k in ("candidate_name", "evidence_snippet", "evidence_summary", "claim", "title", "name")
+    )
+
+
+def _evidenced_lead_fields(finding: dict) -> set[str]:
+    """Which LEADS_GEN_FIELDS this finding evidences — via a populated structured
+    key OR text in its prose (candidate_name/evidence). Brains routinely put
+    contacts in prose, not structured fields, so counting only structured keys
+    under-measures real enrichment (see the 0%-completeness false signal)."""
+    present: set[str] = {
+        f for f in LEADS_GEN_FIELDS if finding.get(f) not in (None, "", [], {})
+    }
+    text = _lead_text(finding)
+    owner_ctx = bool(_OWNER_CTX_RE.search(text))
+
+    url = str(finding.get("source_url") or finding.get("listing_url") or "")
+    if finding.get("listing_url") or _LISTING_DOMAIN_RE.search(url):
+        present.add("listing_url")
+    if _ADDR_RE.search(text):
+        present.add("address")
+    if _PRICE_RE.search(text):
+        present.add("price")
+    if _PHONE_RE.search(text):
+        present.add("owner_phone" if owner_ctx else "agent_phone")
+    if _EMAIL_RE.search(text):
+        present.add("owner_email" if owner_ctx else "agent_email")
+    if re.search(r"(?:listed by|agent[:\s]|broker[:\s]|realtor[:\s]?)\s+[A-Z][a-z]+\s+[A-Z][a-z]+", text):
+        present.add("agent_name")
+    if re.search(r"(?:owner|seller)[:\s]+[A-Z][a-z]+\s+[A-Z][a-z]+", text) or re.search(r"[A-Z][A-Za-z]+\s+(?:LLC|Inc)\b", text):
+        present.add("owner_name")
+    if _OWNER_BG_RE.search(text):
+        present.add("owner_background")
+    return present & set(LEADS_GEN_FIELDS)
+
+
 def lead_richness(findings: list[dict], trail: dict) -> dict[str, Any]:
     """Compute per-lead richness metrics from a leads-gen run.
 
     Each finding is treated as one lead/property. Per-lead completeness is the
-    fraction of ``LEADS_GEN_FIELDS`` that are populated (non-empty string or
-    non-None value) in that finding dict.
+    fraction of ``LEADS_GEN_FIELDS`` evidenced — counting both populated
+    structured keys AND fields extractable from the finding's prose
+    (candidate_name / evidence_snippet), since brains emit contacts as text.
 
     Parameters
     ----------
@@ -384,11 +445,7 @@ def lead_richness(findings: list[dict], trail: dict) -> dict[str, Any]:
     zero_count = 0
 
     for finding in findings:
-        populated = sum(
-            1
-            for field in LEADS_GEN_FIELDS
-            if finding.get(field) not in (None, "", [], {})
-        )
+        populated = len(_evidenced_lead_fields(finding))
         completeness = populated / len(LEADS_GEN_FIELDS)
         per_lead.append(completeness)
         if populated == 0:
