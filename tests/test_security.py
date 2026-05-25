@@ -61,3 +61,48 @@ def test_pipeline_in_name_max_length():
     from app.routers.v3.models import PipelineIn
     with pytest.raises(ValidationError):
         PipelineIn(name="x" * 256)
+
+
+# ---------------------------------------------------------------------------
+# safe_fetch_url — browser impersonation path (curl_cffi) preserves SSRF guards
+# ---------------------------------------------------------------------------
+import builtins  # noqa: E402
+import pytest  # noqa: E402
+import security as _sec  # noqa: E402
+from security import safe_fetch_url, UnsafeURLError  # noqa: E402
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1/admin",
+    "http://169.254.169.254/latest/meta-data/",  # cloud metadata
+    "http://localhost:8000/internal",
+])
+def test_impersonate_does_not_bypass_ssrf_guard(url):
+    """The SSRF host check runs BEFORE the impersonate branch — internal targets
+    must be rejected even when impersonate is requested."""
+    with pytest.raises(UnsafeURLError):
+        safe_fetch_url(url, impersonate="chrome")
+
+
+def test_impersonate_rejects_non_http_scheme():
+    with pytest.raises(UnsafeURLError):
+        safe_fetch_url("file:///etc/passwd", impersonate="chrome")
+
+
+def test_fetch_impersonated_falls_back_when_curl_cffi_missing(monkeypatch):
+    """If curl_cffi isn't installed, _fetch_impersonated returns None so the
+    caller transparently uses the plain requests path (no crash)."""
+    real_import = builtins.__import__
+
+    def fake_import(name, *a, **k):
+        if name == "curl_cffi" or name.startswith("curl_cffi."):
+            raise ImportError("simulated: curl_cffi not installed")
+        return real_import(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    out = _sec._fetch_impersonated(
+        "https://example.com",
+        timeout=5, max_bytes=1000, headers=None,
+        allowed_content_types=None, impersonate="chrome", host="example.com",
+    )
+    assert out is None

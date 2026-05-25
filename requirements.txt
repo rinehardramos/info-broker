@@ -14,6 +14,8 @@ h2==4.3.0
 hpack==4.1.0
 httpcore==1.0.9
 httpx==0.28.1
+curl_cffi==0.15.0  # TLS/JA3 browser impersonation for stealth scraping (Tier 1)
+nodriver==0.50.3  # stealth headless Chromium for JS-challenge pages (Tier 2)
 hyperframe==6.1.0
 idna==3.11
 iniconfig==2.1.0

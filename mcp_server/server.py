@@ -101,6 +101,26 @@ async def run_web_crawl(
     return json.dumps(result)
 
 
+@mcp.tool()
+async def run_stealth_browser(urls: str, wait_s: float = 2.5) -> str:
+    """Render JS-heavy or bot-protected pages in an undetected headless Chromium
+    and return their extracted text. Free — NO API key.
+
+    Use this as the FALLBACK when run_web_crawl / run_web_search_fetch return an
+    empty or blocked page on a dynamic site (e.g. a Zillow / Realtor listing
+    detail page that needs JavaScript). It defeats most TLS/headless bot
+    detection. urls: a JSON array, a single bare URL, or a comma/space-separated
+    list (max 12).
+    """
+    url_list = _parse_url_arg(urls)
+    result = await api_call(
+        "POST",
+        "/v3/nodes/stealth_browser/execute",
+        json={"urls": url_list, "wait_s": wait_s},
+    )
+    return json.dumps(result)
+
+
 def _parse_url_arg(urls: str) -> list[str]:
     """Coerce the ``urls`` tool argument into a list of URL strings.
 

@@ -97,23 +97,16 @@ class WebSearchFetchNode:
 
 
 def _fetch_page_text(url: str, timeout: int = 10) -> str:
-    """Fetch URL and return stripped plain text (HTML tags removed)."""
-    import httpx
+    """Fetch URL and return stripped plain text.
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-    }
+    Delegates to ``scrape_url``, which fetches through ``security.safe_fetch_url``
+    (SSRF-guarded, redirects disabled) with browser TLS/HTTP2 impersonation via
+    curl_cffi — far more robust against bot-blocking than the old raw-httpx fetch.
+    """
+    from app.lib.ddg_fallback import scrape_url
 
-    with httpx.Client(follow_redirects=True, timeout=timeout) as client:
-        resp = client.get(url, headers=headers)
-        resp.raise_for_status()
-        html = resp.text
-
-    return _html_to_text(html)[:8000]
+    text = scrape_url(url, timeout=timeout)
+    return text[:8000]
 
 
 def _html_to_text(html: str) -> str:

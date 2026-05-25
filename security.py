@@ -72,6 +72,7 @@ def safe_fetch_url(
     max_bytes: int = DEFAULT_FETCH_MAX_BYTES,
     headers: dict | None = None,
     allowed_content_types: tuple[str, ...] | None = None,
+    impersonate: str | None = None,
 ) -> requests.Response:
     """Fetch `url` after validating it cannot be used for SSRF.
 
@@ -80,6 +81,12 @@ def safe_fetch_url(
       - hostname must resolve exclusively to public unicast addresses
       - response body capped at `max_bytes`
       - redirects disabled (caller must re-validate any redirect target)
+
+    When `impersonate` is set (e.g. "chrome"), the fetch uses curl_cffi to mimic a
+    real browser's TLS/JA3 + HTTP/2 fingerprint (defeats fingerprint-based bot
+    blocking) under the SAME SSRF/content-type/size guards, repackaged as a
+    `requests.Response` so callers are unaffected. Falls back to plain requests if
+    curl_cffi is unavailable.
     """
     parsed = urlparse(url)
     if parsed.scheme not in ALLOWED_URL_SCHEMES:
@@ -89,6 +96,20 @@ def safe_fetch_url(
         raise UnsafeURLError("URL is missing a hostname")
     if not _host_is_public(host):
         raise UnsafeURLError(f"Host {host!r} resolves to a non-public address")
+
+    if impersonate:
+        impersonated = _fetch_impersonated(
+            url,
+            timeout=timeout,
+            max_bytes=max_bytes,
+            headers=headers,
+            allowed_content_types=allowed_content_types,
+            impersonate=impersonate,
+            host=host,
+        )
+        if impersonated is not None:
+            return impersonated
+        # curl_cffi not installed → transparently fall through to requests.
 
     response = requests.get(
         url,
@@ -122,6 +143,72 @@ def safe_fetch_url(
         chunks.append(chunk)
     response._content = b"".join(chunks)  # populate .text / .content
     return response
+
+
+def _fetch_impersonated(
+    url: str,
+    *,
+    timeout: int,
+    max_bytes: int,
+    headers: dict | None,
+    allowed_content_types: tuple[str, ...] | None,
+    impersonate: str,
+    host: str,
+) -> "requests.Response | None":
+    """curl_cffi browser-impersonating fetch under the same SSRF/cap guards.
+
+    Returns a populated ``requests.Response`` (so callers are unaffected) or
+    ``None`` if curl_cffi is not installed (caller falls back to requests). The
+    SSRF host/scheme check is done by the caller BEFORE this; redirects are
+    disabled here too so a 3xx can't bounce to an internal target.
+    """
+    try:
+        from curl_cffi import requests as _cffi
+    except ImportError:
+        return None
+
+    r = _cffi.get(
+        url,
+        headers=headers or {},
+        timeout=timeout,
+        impersonate=impersonate,
+        allow_redirects=False,
+        stream=True,
+    )
+    try:
+        r.raise_for_status()
+        if allowed_content_types is not None:
+            ctype = (r.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+            if ctype not in allowed_content_types:
+                raise UnsafeURLError(
+                    f"Content-Type {ctype!r} not in allow-list {allowed_content_types}"
+                )
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in r.iter_content(chunk_size=8192):
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise UnsafeURLError(f"Response from {host} exceeds {max_bytes}-byte cap")
+            chunks.append(chunk)
+        body = b"".join(chunks)
+    finally:
+        try:
+            r.close()
+        except Exception:
+            pass
+
+    out = requests.Response()
+    out.status_code = r.status_code
+    out._content = body
+    out.url = url
+    out.encoding = getattr(r, "encoding", None) or "utf-8"
+    try:
+        out.headers.update(dict(r.headers))
+    except Exception:
+        pass
+    return out
 
 
 def sanitize_for_prompt(

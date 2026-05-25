@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         ffmpeg \
         curl \
+        chromium \
+        fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 RUN pip install yt-dlp
 
