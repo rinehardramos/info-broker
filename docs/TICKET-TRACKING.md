@@ -1,6 +1,18 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-25** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#155 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; #74 vault DONE (#150); #75 pre-run gate DONE (#153); #76 mid-run gate DONE (#154); #79/#145 benchmark DONE + live-validated)
+> Last reconciled: **2026-05-26** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#163 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; API-key vault+gates #74/#75/#76 DONE (#150/#153/#154); benchmark #79/#145 DONE+live-validated; **free-enrichment/stealth program #159–#163 DONE**)
+
+## Free-enrichment / stealth-scraping program (#159–#163)
+
+Driven by the directive: don't gate capability behind the easiest method (paid API keys) — lead with creative free/public methods. Outcome: the free-first thesis holds where data is page-available (agent-listed run extracted 15 agent phones, zero keys); FSBO-platform *seller* contact is a genuine data wall (login/contact-form gated); county OPEN-DATA APIs are the robust free owner-of-record source.
+
+| PR | What |
+|----|------|
+| #159 | Two-tier stealth: curl_cffi TLS/JA3 impersonation in `safe_fetch_url` (SSRF guards preserved) + nodriver undetected-Chromium `stealth_browser` node + `run_stealth_browser` MCP tool (Chromium in image). Renders FSBO.com/Craigslist free; Zillow PerimeterX still resists. |
+| #160 | Soft-target-first leads briefing (Craigslist/FSBO.com/Houzeo first; Zillow demoted) + agent-listed gold-set item. |
+| #161 | `lead_richness` scores synthesized `ranked_candidates` (not raw findings) + `field_coverage` metric (honest measurement of what the run surfaced). |
+| #162 | Public-records owner identity via county OPEN-DATA APIs (Socrata/ArcGIS) — validated Cook County `datacatalog.cookcountyil.gov` returns owner mailing address as JSON. |
+| #163 | Authenticated sessions: own-credential site-login vault (`sitecred:<site>`, password never returned/logged/to-brain) + nodriver login form-fill (validated end-to-end on a public test-login site). |
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
