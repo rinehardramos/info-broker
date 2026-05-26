@@ -5,18 +5,20 @@ import { DownloadMenu } from './DownloadMenu'
 
 vi.mock('@/api/v3', () => ({
   createExport: vi.fn(),
-  getExport: vi.fn(),
+}))
+vi.mock('@/api/client', () => ({
+  api: { get: vi.fn() },
 }))
 
-import { createExport, getExport } from '@/api/v3'
+import { createExport } from '@/api/v3'
+import { api } from '@/api/client'
 
 describe('DownloadMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    Object.defineProperty(window, 'location', {
-      value: { ...window.location, assign: vi.fn(), href: '' },
-      writable: true,
-    })
+    // jsdom lacks URL.createObjectURL
+    Object.defineProperty(URL, 'createObjectURL', { value: vi.fn(() => 'blob:mock'), writable: true })
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), writable: true })
   })
 
   it('shows the Download trigger button', () => {
@@ -24,20 +26,30 @@ describe('DownloadMenu', () => {
     expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument()
   })
 
-  it('on CSV click, POSTs export then polls until ready and triggers download', async () => {
+  it('on CSV click, creates the export then downloads the returned file as a blob', async () => {
     ;(createExport as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
-      id: 'exp-1', run_id: 'run-1', format: 'csv',
-      status: 'pending', size_bytes: null, error: null, download_url: null,
+      filename: 'run-1.csv',
+      url: '/v3/exports/files/run-1.csv',
     })
-    ;(getExport as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({ id: 'exp-1', run_id: 'run-1', format: 'csv', status: 'pending', size_bytes: null, error: null, download_url: null })
-      .mockResolvedValueOnce({ id: 'exp-1', run_id: 'run-1', format: 'csv', status: 'ready', size_bytes: 42, error: null, download_url: '/v3/exports/exp-1/download' })
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ data: new Blob(['a,b\n1,2']) })
 
-    render(<DownloadMenu runId="run-1" pollIntervalMs={10} />)
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    render(<DownloadMenu runId="run-1" />)
     await userEvent.click(screen.getByRole('button', { name: /download/i }))
     await userEvent.click(await screen.findByText(/export as csv/i))
 
     await waitFor(() => expect(createExport).toHaveBeenCalledWith('run-1', 'csv'))
-    await waitFor(() => expect(window.location.href).toContain('/v3/exports/exp-1/download'), { timeout: 1000 })
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/v3/exports/files/run-1.csv', { responseType: 'blob' }))
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+    clickSpy.mockRestore()
+  })
+
+  it('surfaces an error if the export fails', async () => {
+    ;(createExport as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('export generation failed'))
+    render(<DownloadMenu runId="run-1" />)
+    await userEvent.click(screen.getByRole('button', { name: /download/i }))
+    await userEvent.click(await screen.findByText(/export as csv/i))
+    await waitFor(() => expect(screen.getByText(/export generation failed/i)).toBeInTheDocument())
   })
 })

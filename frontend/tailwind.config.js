@@ -23,6 +23,7 @@ export default {
         muted: { DEFAULT: 'var(--muted)', foreground: 'var(--muted-foreground)' },
         accent: { DEFAULT: 'var(--accent)', foreground: 'var(--accent-foreground)' },
         card: { DEFAULT: 'var(--card)', foreground: 'var(--card-foreground)' },
+        popover: { DEFAULT: 'var(--popover)', foreground: 'var(--popover-foreground)' },
         navy: {
           bg:      '#070e1a',
           panel:   '#0d1b2a',
