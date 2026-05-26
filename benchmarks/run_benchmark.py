@@ -597,6 +597,22 @@ def main(argv: list[str] | None = None) -> int:
         print("\nJSON report:")
         print(json.dumps(report, indent=2))
 
+    # Optional: POST the report to the app so it appears on the admin Benchmark
+    # Reports page. Enabled by BENCHMARK_INGEST_URL (set by the UI-triggered run).
+    ingest_url = os.getenv("BENCHMARK_INGEST_URL")
+    if ingest_url:
+        try:
+            resp = requests.post(
+                f"{ingest_url.rstrip('/')}/v3/benchmarks/reports",
+                headers={"X-API-Key": os.getenv("INFO_BROKER_API_KEY", "")},
+                json={"label": os.getenv("BENCHMARK_INGEST_LABEL") or None, "report": report},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            log.info("Report ingested to %s (id=%s)", ingest_url, resp.json().get("id"))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Report ingest failed: %s", exc)
+
     # Exit code: 0 if any item scored > 0, else 1
     any_scored = any(r["item_score"] > 0 for r in all_results)
     return 0 if any_scored else 1

@@ -15,6 +15,7 @@ import {
   BarChart3,
   Settings,
   Users,
+  Gauge,
   Wallet,
   List,
   FolderOpen,
@@ -40,6 +41,7 @@ const NAV = [
 
 const NAV_ADMIN = [
   { icon: <Users size={18} />, path: '/admin/users', label: 'User Management' },
+  { icon: <Gauge size={18} />, path: '/admin/benchmarks', label: 'Benchmark Reports' },
 ]
 
 const RAIL_W = 52

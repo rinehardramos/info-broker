@@ -841,3 +841,25 @@ export const storeSiteCredential = (
 
 export const listSiteCredentials = (): Promise<SiteCredentialEntry[]> =>
   api.get<SiteCredentialEntry[]>('/v3/settings/site-credentials').then(r => r.data)
+
+// --- Benchmark reports (admin) -----------------------------------------------
+export interface BenchmarkReportSummary {
+  id: string
+  created_at: string
+  label: string | null
+  mean_score: number | null
+  total_items: number | null
+  gamed_pct: number | null
+}
+
+export const listBenchmarkReports = (): Promise<BenchmarkReportSummary[]> =>
+  api.get<BenchmarkReportSummary[]>('/v3/benchmarks/reports').then(r => r.data)
+
+export const getBenchmarkReport = (id: string): Promise<{ id: string; created_at: string; label: string | null; report: Record<string, unknown> }> =>
+  api.get(`/v3/benchmarks/reports/${id}`).then(r => r.data)
+
+export const runBenchmark = (items?: string[], label?: string): Promise<{ status: string; items: string[]; label: string }> =>
+  api.post('/v3/benchmarks/run', { items, label }).then(r => r.data)
+
+export const getBenchmarkRunStatus = (): Promise<{ active: boolean; started_at: string | null; items: string[] }> =>
+  api.get('/v3/benchmarks/run/status').then(r => r.data)

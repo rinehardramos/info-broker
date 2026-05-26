@@ -481,7 +481,9 @@ from app.routers.v3.investigation_templates import router as v3_investigation_te
 from app.routers.v3.absorption import router as v3_absorption_router  # noqa: E402
 from app.routers.v3.modes import router as v3_modes_router  # noqa: E402
 from app.routers.v3.visibility import router as v3_visibility_router  # noqa: E402
+from app.routers.v3.benchmarks import router as v3_benchmarks_router  # noqa: E402
 app.include_router(v3_auth_router)
+app.include_router(v3_benchmarks_router)
 app.include_router(v3_oauth_router)
 app.include_router(v3_users_router)
 app.include_router(v3_plugins_router)
