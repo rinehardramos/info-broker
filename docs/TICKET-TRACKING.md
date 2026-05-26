@@ -1,6 +1,6 @@
 # Ticket Tracking — issues ↔ code ↔ PRs ↔ branches
 
-> Last reconciled: **2026-05-26** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#163 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; API-key vault+gates #74/#75/#76 DONE (#150/#153/#154); benchmark #79/#145 DONE+live-validated; **free-enrichment/stealth program #159–#163 DONE**)
+> Last reconciled: **2026-05-26** (PRs #118, #120–#129, #132–#140, #142–#144, #146–#168 merged; #68, #89, #90, #94, #95, #110, #111, #130 closed; #131 open/downgraded; API-key vault+gates #74/#75/#76 DONE (#150/#153/#154); benchmark #79/#145 DONE+live-validated; **free-enrichment/stealth program #159–#163 DONE**)
 
 ## Free-enrichment / stealth-scraping program (#159–#163)
 
@@ -13,6 +13,10 @@ Driven by the directive: don't gate capability behind the easiest method (paid A
 | #161 | `lead_richness` scores synthesized `ranked_candidates` (not raw findings) + `field_coverage` metric (honest measurement of what the run surfaced). |
 | #162 | Public-records owner identity via county OPEN-DATA APIs (Socrata/ArcGIS) — validated Cook County `datacatalog.cookcountyil.gov` returns owner mailing address as JSON. |
 | #163 | Authenticated sessions: own-credential site-login vault (`sitecred:<site>`, password never returned/logged/to-brain) + nodriver login form-fill (validated end-to-end on a public test-login site). |
+| #165 | Authoritative source classification (best of brain/technique/URL → primary_official/live_official; `live_official` added to live-source sets) + property history/tax/financial records (`property_history_records` technique). Lifted source_quality 0.75→1.0. |
+| #166 | Admin **Benchmark Reports** page (`/admin/benchmarks`): rating + grade, per-item table, recommendations, analysis; **Run** button. `benchmark_reports` table + `/v3/benchmarks` router; run_benchmark self-ingests via `BENCHMARK_INGEST_URL`. |
+| #167 | Fixed transparent download dropdown (`popover` missing from tailwind color map) + broken download button (frontend expected async export+poll; backend is synchronous → blob download). |
+| #168 | Rich run exports — fixed field-name mismatch (near-empty → full content) + PDF (detailed) / Word (.docx) / JSON added alongside CSV/XLSX. See `docs/run-exports-and-benchmarks.md`. |
 > Maintainer note: this is the **source of truth for "what is actually shipped vs. in-flight."**
 > The older `TODO.md` (root) describes a tier roadmap and **lags reality** — trust this file and the code, not `TODO.md`.
 
