@@ -554,21 +554,15 @@ export const exportResearch = (runId: string, format: 'pdf' | 'csv' | 'xlsx') =>
 
 export type ExportFormat = 'csv' | 'xlsx'
 
-export interface RunExport {
-  id: string
-  run_id: string
-  format: ExportFormat
-  status: 'pending' | 'ready' | 'failed'
-  size_bytes: number | null
-  error: string | null
-  download_url: string | null
+export interface ExportResult {
+  filename: string
+  url: string
 }
 
-export const createExport = (runId: string, format: ExportFormat): Promise<RunExport> =>
-  api.post<RunExport>(`/v3/exports/research/${runId}`, { format }).then(r => r.data)
-
-export const getExport = (exportId: string): Promise<RunExport> =>
-  api.get<RunExport>(`/v3/exports/${exportId}`).then(r => r.data)
+// Synchronous: the backend generates the file immediately and returns its
+// filename + relative download URL ( /v3/exports/files/<filename> ).
+export const createExport = (runId: string, format: ExportFormat): Promise<ExportResult> =>
+  api.post<ExportResult>(`/v3/exports/research/${runId}`, { format, include_analysis: true }).then(r => r.data)
 
 // --- Scorecard ---
 
