@@ -14,7 +14,7 @@ from typing import Literal
 ACHMark = Literal["consistent", "inconsistent", "neutral", "unknown"]
 
 # Source classes that carry "live" authority for primary/supporting signals
-_LIVE_SOURCE_CLASSES = frozenset({"live_search", "primary_official"})
+_LIVE_SOURCE_CLASSES = frozenset({"live_search", "primary_official", "live_official"})
 
 # Phase ids whose findings are treated as disconfirm evidence.
 # Legacy id red_team is kept for historical DB rows; allowlist 2026-05-23.

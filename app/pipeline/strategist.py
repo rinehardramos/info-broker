@@ -720,7 +720,7 @@ def _run_gate(
 # ---------------------------------------------------------------------------
 
 # Source classes that count as "live" for the primary signal heuristic
-_PRIMARY_LIVE_CLASSES = frozenset({"live_search", "primary_official"})
+_PRIMARY_LIVE_CLASSES = frozenset({"live_search", "primary_official", "live_official"})
 
 # Phases whose findings count as disconfirm evidence.
 # Legacy id red_team is kept for historical DB rows; allowlist 2026-05-23.

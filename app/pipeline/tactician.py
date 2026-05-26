@@ -92,6 +92,11 @@ _TECHNIQUE_SOURCE_CLASS: dict[str, str] = {
     "prior_research_seed": "prior_research",
     "rag_lookup": "prior_research",
     "training_knowledge_recall": "training_knowledge",
+    # Real-estate enrichment techniques: county/parcel records are authoritative
+    # primary sources; the official listing page is the live source of record.
+    "property_records_lookup": "primary_official",
+    "property_history_records": "primary_official",
+    "listing_detail_scrape": "live_official",
 }
 
 
@@ -103,9 +108,64 @@ def _technique_to_source_class(technique_id: str) -> str:
     """
     if technique_id in _TECHNIQUE_SOURCE_CLASS:
         return _TECHNIQUE_SOURCE_CLASS[technique_id]
-    if technique_id.endswith(("_search", "_live", "_lookup")):
+    if technique_id.endswith(("_search", "_live", "_lookup", "_scrape")):
         return "live_search"
     return "training_knowledge"
+
+
+# Domain signals that promote a finding's source_class by the AUTHORITY of its
+# actual source URL — independent of how the brain self-labels it. A real fetched
+# government record or official-listing page is authoritative provenance.
+_GOV_RECORDS_SIGNALS = (
+    ".gov", "assessor", "recorder", "parcel", "propertytax", "property-tax",
+    "countyil", "datacatalog", "arcgis.com", "/property-records", "treasurer",
+    "deeds", "clerk", "tax-records", "opendata",
+)
+_OFFICIAL_LISTING_SIGNALS = (
+    "zillow.", "realtor.", "redfin.", "trulia.", "fsbo.com", "forsalebyowner.",
+    "homes.com", "har.com", "houzeo.", "loopnet.", "apartments.com",
+)
+
+
+# Authority rank (mirrors benchmarks.score.SOURCE_CLASS_WEIGHTS ordering) — higher
+# rank = better provenance. Used to pick the BEST-supported class for a finding.
+_SOURCE_CLASS_RANK: dict[str, int] = {
+    "live_official": 5, "primary_official": 5, "primary_self": 5,
+    "registry": 4,
+    "live_search": 3,
+    "news": 2, "aggregator": 2, "social": 2,
+    "prior_research": 1,
+    "training_knowledge": 0, "unknown": 0,
+}
+
+
+def _url_derived_class(url: str | None) -> str | None:
+    """Classify a source by its URL's authority: government/county-records/open-data
+    → ``primary_official``; official real-estate listing platforms → ``live_official``;
+    otherwise None (no URL-based signal)."""
+    if not url:
+        return None
+    u = url.lower()
+    if any(sig in u for sig in _GOV_RECORDS_SIGNALS):
+        return "primary_official"
+    if any(sig in u for sig in _OFFICIAL_LISTING_SIGNALS):
+        return "live_official"
+    return None
+
+
+def _best_source_class(*classes: str | None) -> str:
+    """Return the highest-authority class among the given signals (brain-reported,
+    technique-derived, URL-derived). This lets a primary technique (e.g.
+    property_records_lookup) or an authoritative URL upgrade the brain's uniform
+    self-label, without ever downgrading. Defaults to ``live_search``."""
+    best, best_rank = None, -1
+    for c in classes:
+        if not c:
+            continue
+        r = _SOURCE_CLASS_RANK.get(c, 0)
+        if r > best_rank:
+            best, best_rank = c, r
+    return best or "live_search"
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +424,11 @@ async def execute_tactician(
             findings.append({
                 "candidate": name,
                 "candidate_name": name,
-                "source_class": sf.get("source_class") or resolved_source_class or "live_search",
+                "source_class": _best_source_class(
+                    sf.get("source_class"),
+                    resolved_source_class,
+                    _url_derived_class(sf.get("source_url")),
+                ),
                 "source_url": sf.get("source_url"),
                 "evidence_snippet": (sf.get("evidence_snippet") or "")[:1500],
                 "confidence": float(sf.get("confidence", 0.6)),
@@ -449,11 +513,12 @@ async def execute_tactician(
                 raw.get("candidate") or raw.get("entity") or raw.get("subject") or ""
             )
             resolved_source_class = _technique_to_source_class(technique_id)
+            _src_url = raw.get("url") or raw.get("source_url")
             finding_entry: dict[str, Any] = {
                 "candidate": entity_name,
                 "candidate_name": entity_name,
-                "source_class": resolved_source_class,
-                "source_url": raw.get("url") or raw.get("source_url"),
+                "source_class": _best_source_class(resolved_source_class, _url_derived_class(_src_url)),
+                "source_url": _src_url,
                 "evidence_snippet": raw.get("snippet") or raw.get("evidence_snippet") or "",
                 "confidence": raw.get("confidence", 0.0),
                 "date": raw.get("date"),
@@ -483,7 +548,7 @@ async def execute_tactician(
     findings_count = len(findings)
     live_findings_count = sum(
         1 for f in findings
-        if f.get("source_class") in ("live_search", "primary_official")
+        if f.get("source_class") in ("live_search", "primary_official", "live_official")
     )
     disconfirm_findings_count = sum(1 for f in findings if f.get("is_disconfirm"))
 

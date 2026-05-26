@@ -71,6 +71,18 @@ TACTIC = Tactic(
             "fail_modes": ["no_evidence", "empty_page", "blocked"],
             "budget_ru": 2,
         },
+        # Property history + financial/tax records: prior owners, deed/sale
+        # history, assessed-value + tax history, liens (recorder/treasurer/assessor).
+        {
+            "technique_id": "property_history_records",
+            "params_template": {
+                "urls": "{county_records_url}",
+                "max_pages": 3,
+            },
+            "expect_schema": {"min_results": 0},
+            "fail_modes": ["no_evidence", "empty_page", "blocked"],
+            "budget_ru": 2,
+        },
         # Owner LLC officers/registration (free).
         {
             "technique_id": "opencorporates_owner",
