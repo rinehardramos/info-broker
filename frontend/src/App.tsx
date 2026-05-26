@@ -24,6 +24,7 @@ const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
 const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
 const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
+const BenchmarkReportsPage = lazy(() => import('./pages/BenchmarkReportsPage'))
 const AssetsPage = lazy(() => import('./pages/AssetsPage'))
 const Wallet = lazy(() => import('./pages/Wallet'))
 const Runs = lazy(() => import('./pages/Runs'))
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/admin/processes" element={<AuthGuard><LiveProcessesPage /></AuthGuard>} />
             <Route path="/admin/users" element={<AuthGuard><AdminUsersPage /></AuthGuard>} />
+            <Route path="/admin/benchmarks" element={<AuthGuard><BenchmarkReportsPage /></AuthGuard>} />
             <Route path="/knowledge" element={<AuthGuard><KnowledgeGraphPage /></AuthGuard>} />
             <Route path="/performance" element={<AuthGuard><PerformanceDashboardPage /></AuthGuard>} />
             {/* Public share route — NO auth guard */}

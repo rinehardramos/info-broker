@@ -962,6 +962,21 @@ CREATE INDEX IF NOT EXISTS idx_api_key_vault_lookup
 """
 
 
+_MIGRATION_BENCHMARK_REPORTS = """
+CREATE TABLE IF NOT EXISTS benchmark_reports (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    label        TEXT,
+    mean_score   DOUBLE PRECISION,
+    total_items  INT,
+    gamed_pct    DOUBLE PRECISION,
+    report       JSONB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_benchmark_reports_created
+    ON benchmark_reports (created_at DESC)
+"""
+
+
 def _split_sql_statements(sql: str) -> list[str]:
     """Split SQL on ';' but respect string literals and dollar-quoted blocks.
 
@@ -1069,7 +1084,7 @@ def _split_sql_statements(sql: str) -> list[str]:
 def run_migrations() -> None:
     # Ensure each migration block ends with ';' so concatenation doesn't merge
     # the last statement of one block with the first of the next.
-    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY, _MIGRATION_API_KEY_VAULT]
+    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY, _MIGRATION_API_KEY_VAULT, _MIGRATION_BENCHMARK_REPORTS]
     all_sql = "\n".join(p.rstrip().rstrip(";") + ";\n" for p in parts)
     statements = _split_sql_statements(all_sql)
     with get_conn() as conn:
