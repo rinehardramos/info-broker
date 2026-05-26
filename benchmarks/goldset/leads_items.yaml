@@ -23,6 +23,9 @@
     - claim: "Chicago real estate listings include property address and asking price"
       authoritative_source: "https://www.realtor.com/realestateandhomes-search/Chicago_IL/type-single-family-home/show-fsbo"
       must_be_live: true
+    - claim: "Cook County public records expose owner of record, assessed value, and prior sale/ownership history for Chicago properties"
+      authoritative_source: "https://datacatalog.cookcountyil.gov/"
+      must_be_live: true
 
 - id: leads-gen-rental-austin-001
   query: "Find rental property leads in Austin TX with landlord owner name and contact for property management outreach"
