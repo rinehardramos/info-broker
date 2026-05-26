@@ -56,8 +56,11 @@ export function DownloadMenu({ runId }: Props) {
         </DropdownMenuTrigger>
         {/* solid bg: bg-popover now resolves (popover color added to the theme) */}
         <DropdownMenuContent align="end" className="bg-popover">
-          <DropdownMenuItem onClick={() => start('csv')}>Export as CSV</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => start('xlsx')}>Export as XLSX</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => start('pdf')}>PDF report (detailed)</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => start('docx')}>Word (.docx)</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => start('xlsx')}>Excel (.xlsx)</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => start('csv')}>CSV</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => start('json')}>JSON (full data)</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
       {/* error shown OUTSIDE the dropdown (which closes on select), so it stays visible */}

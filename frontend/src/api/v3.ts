@@ -552,7 +552,7 @@ export const getToolStats = () =>
 export const exportResearch = (runId: string, format: 'pdf' | 'csv' | 'xlsx') =>
   api.post<{ filename: string; url: string }>(`/v3/exports/research/${runId}`, { format, include_analysis: true }).then(r => r.data)
 
-export type ExportFormat = 'csv' | 'xlsx'
+export type ExportFormat = 'pdf' | 'csv' | 'xlsx' | 'json' | 'docx'
 
 export interface ExportResult {
   filename: string
