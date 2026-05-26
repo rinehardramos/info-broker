@@ -24,12 +24,32 @@ _MEDIA_TYPES = {
     "pdf": "application/pdf",
     "csv": "text/csv",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "json": "application/json",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 
 class ExportRequest(BaseModel):
-    format: str = "pdf"  # "pdf" | "csv" | "xlsx"
+    format: str = "pdf"  # "pdf" | "csv" | "xlsx" | "json" | "docx"
     include_analysis: bool = True
+
+
+def _normalize_finding(f: dict) -> dict:
+    """Map a research_trails finding (candidate_name / source_url / source_class /
+    evidence_snippet / phase_id …) onto the export shape. The generators used to
+    read title/source/content/url, which the real findings don't have — hence the
+    near-empty exports. This bridges both shapes."""
+    return {
+        "title": f.get("title") or f.get("candidate_name") or f.get("candidate") or f.get("name") or "",
+        "source_class": f.get("source") or f.get("source_class") or "",
+        "url": f.get("url") or f.get("source_url") or "",
+        "confidence": f.get("confidence", ""),
+        "phase": f.get("phase_id") or f.get("phase") or "",
+        "content": (
+            f.get("content") or f.get("evidence_snippet") or f.get("evidence_summary")
+            or f.get("claim") or ""
+        ),
+    }
 
 
 @router.post("/research/{run_id}")
@@ -41,12 +61,16 @@ def trigger_export(
     """Generate an export file for a research trail run and return its download URL."""
     fmt = body.format.lower()
     if fmt not in _MEDIA_TYPES:
-        raise HTTPException(status_code=400, detail=f"Unsupported format: {fmt!r}. Use pdf, csv, or xlsx.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format: {fmt!r}. Use pdf, csv, xlsx, json, or docx.",
+        )
 
-    # Fetch research trail by run_id
+    # Fetch research trail + run metadata by run_id
     _clause, _cparams = org_scope_clause(user)
     row = fetch_one(
-        f"SELECT rt.query, rt.findings, rt.analysis "  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
+        f"SELECT rt.query, rt.findings, rt.analysis, rt.trail, rt.entity_type, rt.tool_calls, "  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
+        f"pr.status, pr.started_at, pr.finished_at "
         f"FROM research_trails rt "
         f"JOIN pipeline_runs pr ON pr.id = rt.run_id "
         f"WHERE rt.run_id = %s {_clause.replace('AND org_id', 'AND pr.org_id')}",
@@ -55,26 +79,41 @@ def trigger_export(
     if not row:
         raise HTTPException(status_code=404, detail=f"Research trail not found for run_id={run_id!r}")
 
-    findings = row.get("findings") or []
-    if isinstance(findings, str):
-        findings = json.loads(findings)
+    def _loads(v):
+        return json.loads(v) if isinstance(v, str) else v
 
-    analysis = row.get("analysis")
-    if isinstance(analysis, str):
-        analysis = json.loads(analysis)
-
-    query = row.get("query", "Research Report")
+    findings = [_normalize_finding(f) for f in (_loads(row.get("findings")) or [])]
+    analysis = _loads(row.get("analysis")) if body.include_analysis else None
+    trail = _loads(row.get("trail")) or {}
+    ranked = trail.get("ranked_candidates") or [] if isinstance(trail, dict) else []
+    meta = {
+        "run_id": run_id,
+        "query": row.get("query", "Research Report"),
+        "entity_type": row.get("entity_type"),
+        "status": row.get("status"),
+        "started_at": str(row.get("started_at")) if row.get("started_at") else None,
+        "finished_at": str(row.get("finished_at")) if row.get("finished_at") else None,
+        "tool_calls": row.get("tool_calls"),
+        "phases": trail.get("phases") if isinstance(trail, dict) else None,
+        "finding_count": len(findings),
+        "candidate_count": len(ranked),
+    }
+    query = meta["query"]
 
     os.makedirs(_EXPORTS_DIR, exist_ok=True)
     output_path = f"{_EXPORTS_DIR}/{run_id}.{fmt}"
 
     try:
         if fmt == "pdf":
-            _generate_pdf(run_id, query, findings, analysis if body.include_analysis else None, output_path)
+            _generate_pdf(meta, findings, ranked, analysis, output_path)
         elif fmt == "csv":
             _generate_csv(findings, output_path)
         elif fmt == "xlsx":
-            _generate_excel(findings, analysis if body.include_analysis else None, output_path)
+            _generate_excel(findings, ranked, analysis, meta, output_path)
+        elif fmt == "json":
+            _generate_json(meta, findings, ranked, analysis, output_path)
+        elif fmt == "docx":
+            _generate_docx(meta, findings, ranked, analysis, output_path)
     except Exception as exc:
         log.error("Export generation failed for run_id=%s fmt=%s: %s", run_id, fmt, exc)
         raise HTTPException(status_code=500, detail=f"Export generation failed: {exc}")
@@ -105,11 +144,11 @@ def download_export(filename: str) -> FileResponse:
 # Internal generators (same logic as the pipeline nodes, but callable directly)
 # ---------------------------------------------------------------------------
 
-def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict | None, output_path: str) -> None:
+def _generate_pdf(meta: dict, findings: list[dict], ranked: list[dict], analysis: dict | None, output_path: str) -> None:
     from fpdf import FPDF
     from datetime import datetime
 
-    date_str = datetime.now().strftime("%Y-%m-%d")
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -120,10 +159,45 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
     pdf.set_font("Helvetica", "B", 16)
     pdf.cell(0, 10, "Research Report", ln=True)
     pdf.set_font("Helvetica", "", 11)
-    pdf.cell(0, 7, f"Query: {_trunc(query, 100)}", ln=True)
-    pdf.cell(0, 7, f"Date: {date_str}", ln=True)
-    pdf.cell(0, 7, f"Run ID: {run_id}", ln=True)
-    pdf.ln(5)
+    _mc(pdf, 7, _safe(f"Query: {meta.get('query', '')}"))
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(110, 110, 110)
+    for label, key in (("Run ID", "run_id"), ("Status", "status"), ("Entity type", "entity_type"),
+                       ("Started", "started_at"), ("Finished", "finished_at")):
+        if meta.get(key):
+            pdf.cell(0, 5, _safe(f"{label}: {meta[key]}"), ln=True)
+    phases = meta.get("phases")
+    if phases:
+        pdf.cell(0, 5, _safe(f"Phases: {' -> '.join(str(p) for p in phases)}"), ln=True)
+    pdf.cell(0, 5, _safe(f"Findings: {meta.get('finding_count', len(findings))} | "
+                         f"Ranked candidates: {meta.get('candidate_count', len(ranked))} | "
+                         f"Tool calls: {meta.get('tool_calls', '?')} | Generated: {date_str}"), ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    # Ranked candidates (the synthesized leads/answers)
+    if ranked:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.cell(0, 9, "RANKED CANDIDATES", ln=True)
+        pdf.line(pdf.get_x(), pdf.get_y(), pdf.get_x() + 190, pdf.get_y())
+        pdf.ln(3)
+        for i, c in enumerate(ranked, 1):
+            pdf.set_font("Helvetica", "B", 10)
+            _mc(pdf, 6, _safe(f"{i}. {c.get('name', '')}  (conf {c.get('confidence', '?')})"))
+            ev = c.get("evidence") or []
+            pdf.set_font("Helvetica", "", 9)
+            for e in (ev if isinstance(ev, list) else [])[:3]:
+                if isinstance(e, dict) and e.get("snippet"):
+                    pdf.set_x(pdf.l_margin)
+                    _mc(pdf, 5, _safe("   - " + _trunc(e["snippet"], 220)))
+                    if e.get("source_url"):
+                        pdf.set_font("Helvetica", "I", 8)
+                        pdf.set_text_color(60, 100, 180)
+                        _mc(pdf, 5, _safe("     " + _trunc(e["source_url"], 110)))
+                        pdf.set_text_color(0, 0, 0)
+                        pdf.set_font("Helvetica", "", 9)
+            pdf.ln(1)
+        pdf.ln(2)
 
     pdf.set_font("Helvetica", "B", 13)
     pdf.cell(0, 9, "FINDINGS", ln=True)
@@ -136,24 +210,26 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
     else:
         for i, f in enumerate(findings, 1):
             pdf.set_font("Helvetica", "B", 10)
-            pdf.cell(0, 7, f"{i}. {_trunc(f.get('title', f'Finding {i}'), 80)}", ln=True)
+            _mc(pdf, 6, _safe(f"{i}. {f.get('title') or f'Finding {i}'}"))
             pdf.set_font("Helvetica", "", 9)
             parts = []
-            if f.get("source"):
-                parts.append(f"Source: {f['source']}")
-            if f.get("confidence") is not None:
-                parts.append(f"Confidence: {f['confidence']}%")
+            if f.get("source_class"):
+                parts.append(f"Source: {f['source_class']}")
+            if f.get("phase"):
+                parts.append(f"Phase: {f['phase']}")
+            if f.get("confidence") not in (None, ""):
+                parts.append(f"Confidence: {f['confidence']}")
             if parts:
                 pdf.set_text_color(120, 120, 120)
-                pdf.cell(0, 6, "   " + " | ".join(parts), ln=True)
+                pdf.cell(0, 6, _safe("   " + " | ".join(parts)), ln=True)
                 pdf.set_text_color(0, 0, 0)
             if f.get("content"):
                 pdf.set_x(pdf.l_margin)
-                pdf.multi_cell(0, 5, "   " + _trunc(f["content"], 200))
+                _mc(pdf, 5, _safe("   " + _trunc(f["content"], 400)))
             if f.get("url"):
                 pdf.set_font("Helvetica", "I", 8)
                 pdf.set_text_color(60, 100, 180)
-                pdf.cell(0, 5, "   " + _trunc(f["url"], 100), ln=True)
+                _mc(pdf, 5, _safe("   " + _trunc(f["url"], 110)))
                 pdf.set_text_color(0, 0, 0)
             pdf.ln(2)
 
@@ -199,7 +275,7 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
             for ins in insights:
                 text = ins if isinstance(ins, str) else ins.get("text", ins.get("insight", str(ins)))
                 pdf.set_x(pdf.l_margin)
-                pdf.multi_cell(0, 5, f"  - {_trunc(text, 300)}")
+                _mc(pdf, 5, f"  - {_trunc(text, 300)}")
 
         recs = analysis.get("recommendations", [])
         if recs:
@@ -210,42 +286,41 @@ def _generate_pdf(run_id: str, query: str, findings: list[dict], analysis: dict 
             for rec in recs:
                 text = rec if isinstance(rec, str) else rec.get("text", rec.get("recommendation", str(rec)))
                 pdf.set_x(pdf.l_margin)
-                pdf.multi_cell(0, 5, f"  - {_trunc(text, 300)}")
+                _mc(pdf, 5, f"  - {_trunc(text, 300)}")
 
     pdf.output(output_path)
+
+
+_FINDING_COLS = ["rank", "title", "source_class", "url", "confidence", "phase", "content"]
+
+
+def _finding_rows(findings: list[dict]) -> list[dict]:
+    return [
+        {
+            "rank": i,
+            "title": f.get("title", ""),
+            "source_class": f.get("source_class", ""),
+            "url": f.get("url", ""),
+            "confidence": f.get("confidence", ""),
+            "phase": f.get("phase", ""),
+            "content": f.get("content", ""),
+        }
+        for i, f in enumerate(findings, 1)
+    ]
 
 
 def _generate_csv(findings: list[dict], output_path: str) -> None:
     import pandas as pd
 
-    rows = [
-        {
-            "title": f.get("title", ""),
-            "source": f.get("source", ""),
-            "url": f.get("url", ""),
-            "confidence": f.get("confidence", ""),
-            "content": f.get("content", ""),
-        }
-        for f in findings
-    ]
-    df = pd.DataFrame(rows, columns=["title", "source", "url", "confidence", "content"])
+    df = pd.DataFrame(_finding_rows(findings), columns=_FINDING_COLS)
     df.to_csv(output_path, index=False)
 
 
-def _generate_excel(findings: list[dict], analysis: dict | None, output_path: str) -> None:
+def _generate_excel(findings: list[dict], ranked: list[dict], analysis: dict | None,
+                    meta: dict, output_path: str) -> None:
     import pandas as pd
 
-    findings_rows = [
-        {
-            "title": f.get("title", ""),
-            "source": f.get("source", ""),
-            "url": f.get("url", ""),
-            "confidence": f.get("confidence", ""),
-            "content": f.get("content", ""),
-        }
-        for f in findings
-    ]
-    df_findings = pd.DataFrame(findings_rows, columns=["title", "source", "url", "confidence", "content"])
+    df_findings = pd.DataFrame(_finding_rows(findings), columns=_FINDING_COLS)
 
     entities = analysis.get("entities", []) if analysis else []
     entity_rows = [
@@ -281,11 +356,127 @@ def _generate_excel(findings: list[dict], analysis: dict | None, output_path: st
     ]
     df_insights = pd.DataFrame(insight_rows, columns=["type", "text"])
 
+    df_meta = pd.DataFrame([{"field": k, "value": str(v)} for k, v in meta.items()],
+                           columns=["field", "value"])
+    ranked_rows = [
+        {
+            "rank": i,
+            "name": c.get("name", ""),
+            "confidence": c.get("confidence", ""),
+            "evidence": " | ".join(
+                e.get("snippet", "") for e in (c.get("evidence") or []) if isinstance(e, dict)
+            )[:2000],
+            "sources": " ; ".join(
+                e.get("source_url", "") for e in (c.get("evidence") or [])
+                if isinstance(e, dict) and e.get("source_url")
+            ),
+        }
+        for i, c in enumerate(ranked, 1)
+    ]
+    df_ranked = pd.DataFrame(ranked_rows, columns=["rank", "name", "confidence", "evidence", "sources"])
+
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df_meta.to_excel(writer, sheet_name="Run Info", index=False)
+        df_ranked.to_excel(writer, sheet_name="Ranked Candidates", index=False)
         df_findings.to_excel(writer, sheet_name="Findings", index=False)
         df_entities.to_excel(writer, sheet_name="Entities", index=False)
         df_relationships.to_excel(writer, sheet_name="Relationships", index=False)
         df_insights.to_excel(writer, sheet_name="Insights", index=False)
+
+
+def _generate_json(meta: dict, findings: list[dict], ranked: list[dict],
+                   analysis: dict | None, output_path: str) -> None:
+    """Full structured export — everything the run produced, machine-readable."""
+    report = {
+        "metadata": meta,
+        "findings": findings,
+        "ranked_candidates": ranked,
+        "analysis": analysis,
+    }
+    with open(output_path, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, indent=2, ensure_ascii=False, default=str)
+
+
+def _generate_docx(meta: dict, findings: list[dict], ranked: list[dict],
+                   analysis: dict | None, output_path: str) -> None:
+    """Formatted Word report (.docx) — headings, run info, ranked candidates,
+    findings, and analysis."""
+    from docx import Document
+    from docx.shared import Pt
+
+    doc = Document()
+    doc.add_heading("Research Report", level=0)
+    doc.add_paragraph(str(meta.get("query", "")))
+
+    info = doc.add_paragraph()
+    info.add_run("Run details\n").bold = True
+    for label, key in (("Run ID", "run_id"), ("Status", "status"), ("Entity type", "entity_type"),
+                       ("Started", "started_at"), ("Finished", "finished_at"),
+                       ("Tool calls", "tool_calls"), ("Findings", "finding_count"),
+                       ("Ranked candidates", "candidate_count")):
+        if meta.get(key) not in (None, ""):
+            r = info.add_run(f"{label}: {meta[key]}\n")
+            r.font.size = Pt(9)
+    if meta.get("phases"):
+        info.add_run(f"Phases: {' -> '.join(str(p) for p in meta['phases'])}\n").font.size = Pt(9)
+
+    if ranked:
+        doc.add_heading("Ranked Candidates", level=1)
+        for i, c in enumerate(ranked, 1):
+            p = doc.add_paragraph(style="List Number")
+            p.add_run(f"{c.get('name', '')}  ").bold = True
+            p.add_run(f"(confidence {c.get('confidence', '?')})").italic = True
+            for e in (c.get("evidence") or [])[:3]:
+                if isinstance(e, dict) and e.get("snippet"):
+                    sub = doc.add_paragraph(e["snippet"], style="List Bullet 2")
+                    if e.get("source_url"):
+                        sub.add_run(f"  [{e['source_url']}]").italic = True
+
+    doc.add_heading("Findings", level=1)
+    if not findings:
+        doc.add_paragraph("No findings.")
+    for i, f in enumerate(findings, 1):
+        p = doc.add_paragraph(style="List Number")
+        p.add_run(f.get("title") or f"Finding {i}").bold = True
+        bits = []
+        if f.get("source_class"):
+            bits.append(f"source: {f['source_class']}")
+        if f.get("phase"):
+            bits.append(f"phase: {f['phase']}")
+        if f.get("confidence") not in (None, ""):
+            bits.append(f"confidence: {f['confidence']}")
+        if bits:
+            meta_run = p.add_run(f"  ({', '.join(bits)})")
+            meta_run.italic = True
+            meta_run.font.size = Pt(8)
+        if f.get("content"):
+            doc.add_paragraph(f["content"], style="List Bullet 2")
+        if f.get("url"):
+            doc.add_paragraph(f["url"], style="List Bullet 2").runs[0].italic = True
+
+    if analysis:
+        doc.add_heading("Analysis", level=1)
+        for ent in analysis.get("entities", []):
+            doc.add_paragraph(
+                f"{ent.get('name', '')}" + (f" ({ent.get('type', '')})" if ent.get("type") else ""),
+                style="List Bullet",
+            )
+        for rel in analysis.get("relationships", []):
+            frm = rel.get("from", rel.get("from_entity", ""))
+            to = rel.get("to", rel.get("to_entity", ""))
+            rtype = rel.get("type", rel.get("relationship_type", ""))
+            doc.add_paragraph(f"{frm} --[{rtype}]--> {to}", style="List Bullet")
+        for ins in analysis.get("insights", analysis.get("key_insights", [])):
+            doc.add_paragraph(ins if isinstance(ins, str) else ins.get("text", str(ins)), style="List Bullet")
+
+    doc.save(output_path)
+
+
+def _mc(pdf, h: float, txt: str) -> None:
+    """multi_cell that resets x to the left margin and uses CHAR wrapmode, so long
+    unbreakable tokens (e.g. URLs) don't raise 'Not enough horizontal space'."""
+    pdf.set_x(pdf.l_margin)
+    pdf.multi_cell(0, h, txt, wrapmode="CHAR")
 
 
 def _safe(text: str) -> str:

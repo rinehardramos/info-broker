@@ -37,7 +37,7 @@ describe('DownloadMenu', () => {
 
     render(<DownloadMenu runId="run-1" />)
     await userEvent.click(screen.getByRole('button', { name: /download/i }))
-    await userEvent.click(await screen.findByText(/export as csv/i))
+    await userEvent.click(await screen.findByText(/^csv$/i))
 
     await waitFor(() => expect(createExport).toHaveBeenCalledWith('run-1', 'csv'))
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/v3/exports/files/run-1.csv', { responseType: 'blob' }))
@@ -49,7 +49,7 @@ describe('DownloadMenu', () => {
     ;(createExport as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('export generation failed'))
     render(<DownloadMenu runId="run-1" />)
     await userEvent.click(screen.getByRole('button', { name: /download/i }))
-    await userEvent.click(await screen.findByText(/export as csv/i))
+    await userEvent.click(await screen.findByText(/^csv$/i))
     await waitFor(() => expect(screen.getByText(/export generation failed/i)).toBeInTheDocument())
   })
 })
