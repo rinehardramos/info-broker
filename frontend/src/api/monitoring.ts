@@ -16,7 +16,10 @@ const BASE = import.meta.env.VITE_API_URL || '/api'
  */
 export function createAppMonitoringClient(): MonitoringClient {
   return new MonitoringClient({
-    baseUrl: `${BASE}/v3/monitoring`,
+    // baseUrl is the API ROOT only. MonitoringClient already prepends the full
+    // "/v3/monitoring/..." path to every request, so adding it here would
+    // double the prefix (→ /v3/monitoring/v3/monitoring/overview → 404).
+    baseUrl: BASE,
     getToken: () => localStorage.getItem('access_token'),
   })
 }
