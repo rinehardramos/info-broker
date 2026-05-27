@@ -12,6 +12,10 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 
+import os as _mon_os
+
+_MONITORING_ENABLED = _mon_os.getenv("MONITORING_ENABLED", "true").lower() not in ("0", "false", "no")
+
 from fastapi import FastAPI
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -67,6 +71,40 @@ async def lifespan(app: FastAPI):
     load_secrets("info-broker")
 
     _log = logging.getLogger(__name__)
+
+    # -----------------------------------------------------------------------
+    # platform-monitoring: register adapters + bootstrap ClickHouse schema.
+    # Fail-soft: any error here logs a warning and continues — monitoring
+    # must never prevent the host app from starting.
+    # -----------------------------------------------------------------------
+    _monitoring_aclose: list = []
+    if _MONITORING_ENABLED:
+        try:
+            from platform_monitoring.adapters.redis_hot_store import RedisHotStore
+            from platform_monitoring.adapters.clickhouse_sink import ClickHouseSink
+            from platform_monitoring.ports.hot_store import register_hot_store
+            from platform_monitoring.ports.event_sink import register_event_sink
+            from platform_monitoring.settings import MonitoringSettings
+
+            _mon_settings = MonitoringSettings()  # type: ignore[call-arg]
+            _hot = RedisHotStore(_mon_settings.monitoring_redis_url, stream_maxlen=_mon_settings.stream_maxlen)
+            await _hot.ensure_group()
+            register_hot_store(_hot)
+            _monitoring_aclose.append(_hot)
+
+            _sink = ClickHouseSink(
+                _mon_settings.clickhouse_url,
+                database=_mon_settings.clickhouse_database,
+                raw_retention_days=_mon_settings.raw_retention_days,
+            )
+            await _sink.bootstrap_schema()
+            register_event_sink(_sink)
+            _monitoring_aclose.append(_sink)
+            _log.info("platform-monitoring adapters registered")
+        except Exception as _mon_exc:
+            _log.warning(
+                "platform-monitoring startup failed (monitoring disabled this session): %s", _mon_exc
+            )
 
     # Build connection kwargs — prefer DATABASE_URL, fall back to individual vars.
     database_url = os.getenv("DATABASE_URL")
@@ -322,6 +360,13 @@ async def lifespan(app: FastAPI):
         _log.warning("Orphan watchdog not started: %s", exc)
 
     yield
+
+    for _mon_closeable in _monitoring_aclose:
+        try:
+            await _mon_closeable.aclose()
+        except Exception:
+            pass
+
     await se_close()
 
 
@@ -369,6 +414,37 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Session-Id",
                    "X-MCP-Signature", "X-MCP-Timestamp", "X-Caller-Identity"],
 )
+
+# MonitoringMiddleware — registered LAST so it is the OUTERMOST ASGI layer.
+# Captures every request before CORS, before SlowAPI, before any route handler.
+# Fail-soft: if MONITORING_ENABLED=false or adapters failed, this block is skipped.
+if _MONITORING_ENABLED:
+    try:
+        from platform_monitoring.middleware import MonitoringMiddleware
+        from platform_monitoring.adapters.geolite2_geo import GeoLite2Geo
+        from jose import jwt as _jwt_mon
+        import os as _mw_os
+
+        _jwt_secret_mon = _mw_os.getenv("JWT_SECRET", "change-me-in-production")
+
+        def _decode_jwt_for_monitoring(token: str) -> dict:
+            try:
+                return _jwt_mon.decode(token, _jwt_secret_mon, algorithms=["HS256"], options={"verify_exp": False})
+            except Exception:
+                return {}
+
+        _geo_path = _mw_os.getenv("GEOLITE2_DB_PATH", "").strip()
+        _geo_resolver = GeoLite2Geo(db_path=_geo_path) if _geo_path else None
+        _trusted = {c.strip() for c in _mw_os.getenv("MON_TRUSTED_PROXIES", "").split(",") if c.strip()}
+
+        app.add_middleware(
+            MonitoringMiddleware,
+            geolite2_resolver=_geo_resolver,
+            jwt_decoder=_decode_jwt_for_monitoring,
+            trusted_proxies=_trusted,
+        )
+    except Exception as _mw_exc:
+        logging.getLogger("app.main").warning("MonitoringMiddleware not registered: %s", _mw_exc)
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +575,27 @@ app.include_router(v3_nodes_router)
 app.include_router(v3_research_router)
 app.include_router(v3_knowledge_router)
 app.include_router(v3_admin_router)
+
+if _MONITORING_ENABLED:
+    try:
+        from fastapi import Depends as _Depends_mon
+        from platform_monitoring.router import create_monitoring_router
+        from app.routers.v3.auth import require_admin as _require_admin_mon
+        from app.routers.v3.admin_api import get_tool_stats as _get_tool_stats_mon
+
+        async def _mcp_stats_provider():
+            # get_tool_stats is sync + expects a user dict; admin scope only needs is_admin.
+            return _get_tool_stats_mon(user={"is_admin": True})
+
+        app.include_router(
+            create_monitoring_router(
+                admin_dependency=_Depends_mon(_require_admin_mon),
+                mcp_stats_provider=_mcp_stats_provider,
+            )
+        )
+    except Exception as _router_exc:
+        logging.getLogger("app.main").warning("monitoring router not mounted: %s", _router_exc)
+
 app.include_router(v3_exports_router)
 app.include_router(v3_curation_router)
 app.include_router(v3_brain_questions_router)
