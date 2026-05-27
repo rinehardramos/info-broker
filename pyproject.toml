@@ -2,7 +2,7 @@
 name = "info-broker"
 version = "0.4.0"
 description = "Information-gathering and OSINT research service exposed as a REST API."
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 
 # Direct dependencies only. Transitive deps are pinned in `uv.lock`
 # (preferred) or `requirements.txt` (fallback). Floors are set to the
@@ -52,6 +52,7 @@ dependencies = [
     "xlwt>=1.3.0",
     "redis>=5.0.0",
     "msgpack>=1.0.0",
+    "platform-monitoring",
 ]
 
 [project.optional-dependencies]
@@ -84,6 +85,13 @@ index-strategy = "first-index"
 # Compile bytecode at install time so tampered .pyc files would be
 # regenerated from the verified source.
 compile-bytecode = true
+
+# Local, unpublished monorepo package (~/library/packages/platform-monitoring).
+# Vendored as a built wheel under vendor/ so the Docker build (which only has
+# the repo as build context, no network access to the library) can install it.
+# Rebuild + re-vendor the wheel when the library version bumps, then `uv lock`.
+[tool.uv.sources]
+platform-monitoring = { path = "vendor/platform_monitoring-0.1.0-py3-none-any.whl" }
 
 # --- ruff configuration ---------------------------------------------------
 # Enforces "no string-built SQL queries" project-wide. Devs MUST pass

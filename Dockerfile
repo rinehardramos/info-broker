@@ -5,6 +5,9 @@ RUN pip install --no-cache-dir uv==0.4.30
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
+# Vendored local wheel for platform-monitoring (see [tool.uv.sources]); must be
+# present before `uv sync` so the path source resolves inside the build.
+COPY vendor/ ./vendor/
 RUN uv sync --no-dev
 
 FROM python:3.11-slim AS runtime
