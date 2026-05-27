@@ -91,7 +91,7 @@ compile-bytecode = true
 # the repo as build context, no network access to the library) can install it.
 # Rebuild + re-vendor the wheel when the library version bumps, then `uv lock`.
 [tool.uv.sources]
-platform-monitoring = { path = "vendor/platform_monitoring-0.2.1-py3-none-any.whl" }
+platform-monitoring = { path = "vendor/platform_monitoring-0.2.2-py3-none-any.whl" }
 
 # --- ruff configuration ---------------------------------------------------
 # Enforces "no string-built SQL queries" project-wide. Devs MUST pass
