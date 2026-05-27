@@ -1324,7 +1324,7 @@ requires-dist = [
     { name = "passlib", extras = ["bcrypt", "argon2"], specifier = ">=1.7.4" },
     { name = "pdfplumber", specifier = ">=0.11.9" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.3" },
-    { name = "platform-monitoring", path = "vendor/platform_monitoring-0.1.0-py3-none-any.whl" },
+    { name = "platform-monitoring", path = "vendor/platform_monitoring-0.2.0-py3-none-any.whl" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pyarrow", specifier = ">=22.0.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
@@ -2262,18 +2262,19 @@ wheels = [
 
 [[package]]
 name = "platform-monitoring"
-version = "0.1.0"
-source = { path = "vendor/platform_monitoring-0.1.0-py3-none-any.whl" }
+version = "0.2.0"
+source = { path = "vendor/platform_monitoring-0.2.0-py3-none-any.whl" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "maxminddb" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "redis" },
 ]
 wheels = [
-    { filename = "platform_monitoring-0.1.0-py3-none-any.whl", hash = "sha256:d2c4b8ed7fea69745ef9594411552877368c334ae3ff045dfb58eab1705c4aa8" },
+    { filename = "platform_monitoring-0.2.0-py3-none-any.whl", hash = "sha256:596538a227344ec670e3dd37b339ec05cfa4ed8da8680f29b828d35b866bf3eb" },
 ]
 
 [package.metadata]
@@ -2281,6 +2282,7 @@ requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "clickhouse-connect", specifier = ">=0.7" },
     { name = "fastapi", specifier = ">=0.111" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
     { name = "maxminddb", specifier = ">=2.5" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
