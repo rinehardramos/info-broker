@@ -166,6 +166,63 @@ def detect_brain_failure(events: list[dict[str, Any]]) -> BrainFailure:
         message=final_message or f"brain failed (HTTP {final_status})",
     )
 
+
+# ---------------------------------------------------------------------------
+# LLM cost capture hook (Task 7B — mirrors IS-brain hook in app/is_brain.py)
+# ---------------------------------------------------------------------------
+
+
+async def _emit_brain_usage_if_present(
+    *,
+    events: list[dict[str, Any]],
+    run_id: str | None,
+    node_id: str | None,
+    phase: str | None,
+    actor_user_id: str | None,
+    actor_org_id: str | None,
+    caller_identity: str | None,
+) -> None:
+    """Scan a Claude-Code stream-json event list for the ``result`` event and,
+    if present with a ``usage`` block, emit an LlmCallEvent via the shared
+    usage-emitter sentinel.
+
+    Fail-open: any exception is swallowed so telemetry can never break a
+    tactician run.  No-op when the lifespan hasn't wired the emitter yet.
+    Mirrors the IS-brain hook in app/is_brain.py (Task 7).
+    """
+    try:
+        from app.observability.usage_emitter_ref import _emitter as _ue_scoped_brain
+        if _ue_scoped_brain is None:
+            return  # lifespan hasn't wired the emitter yet — silent no-op
+        result = next((e for e in events if e.get("type") == "result"), None)
+        if result is None:
+            return
+        usage = result.get("usage") or {}
+        await _ue_scoped_brain.emit_llm_call(
+            run_id=run_id,
+            node_id=node_id,
+            phase=phase,
+            actor_user_id=actor_user_id,
+            actor_org_id=actor_org_id,
+            caller_identity=caller_identity,
+            model=result.get("model") or "claude-subscription",
+            provider="anthropic",
+            status="error" if result.get("is_error") else "ok",
+            input_tokens=int(usage.get("input_tokens", 0) or 0),
+            output_tokens=int(usage.get("output_tokens", 0) or 0),
+            cache_creation_tokens=int(usage.get("cache_creation_input_tokens", 0) or 0),
+            cache_read_tokens=int(usage.get("cache_read_input_tokens", 0) or 0),
+            duration_ms=int(result.get("duration_ms") or 0),
+            num_turns=result.get("num_turns"),
+            total_cost_usd=result.get("total_cost_usd"),
+            cost_source="subscription",
+            pricing_id=None,
+        )
+    except Exception:
+        # Fail-open: never propagate a telemetry failure into the tactician run.
+        log.debug("scoped_brain: emit_llm_call failed (swallowed)", exc_info=True)
+
+
 # ---------------------------------------------------------------------------
 # Subprocess constants (mirror is_brain.py values; do NOT share state)
 # ---------------------------------------------------------------------------
@@ -755,6 +812,22 @@ async def scoped_brain_runner(
         return []
 
     task_calls = _parse_task_calls_from_events(all_events)
+
+    # Fire-and-forget LLM cost hook (Task 7B).  The tactician layer doesn't
+    # carry node_id / phase / caller_identity — pass None for those fields.
+    # The suppress guard + internal try/except ensure this never breaks a run.
+    from contextlib import suppress
+    with suppress(Exception):
+        asyncio.create_task(_emit_brain_usage_if_present(
+            events=all_events,
+            run_id=run_id or None,
+            node_id=None,
+            phase="tactician.execute",
+            actor_user_id=run_user_id or None,
+            actor_org_id=run_org_id or None,
+            caller_identity=None,
+        ))
+
     # Diagnostic: surface event type distribution when no task calls were produced
     if not task_calls:
         from collections import Counter
