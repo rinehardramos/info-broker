@@ -343,7 +343,7 @@ app/temporal/activities/source_batch.py    # enrich_row_batch (cursor-based)
 **Acceptance:**
 - One full week with zero non-Temporal IS runs created.
 - All IS-related routes (`/message`, `/brain-answer`, future `/cancel`) only operate on Temporal workflow IDs.
-- Documentation in `CLAUDE.md` and `agent-collaboration-protocol.md` updated to describe one execution model.
+- Documentation in `CLAUDE.md` and `tasks/agent-collab.md` updated to describe one execution model.
 - `_run_is_research` and `_PREFLIGHT_PENDING` deleted; `reconcile.py` restricted to legacy `manual` pipeline runs only.
 
 ### Phase 3 — Row-level checkpointing for source enrichment

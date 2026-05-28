@@ -58,7 +58,7 @@ export default function BenchmarkReportsPage() {
 
   if (!isAdmin) {
     return (
-      <div style={{ display: 'flex' }}>
+      <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         <div style={{ flex: 1, padding: 24, color: 'var(--text)' }}>Admin only.</div>
         <IconRail />
       </div>
@@ -76,7 +76,7 @@ export default function BenchmarkReportsPage() {
   const metaById = (id: string) => meta.find(m => m.run_id && items.find(it => it.item_id === id))
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <div style={{ flex: 1, minWidth: 0, overflow: 'auto', color: 'var(--text)' }}>
         <div style={{ padding: '24px 28px', maxWidth: 1100 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>

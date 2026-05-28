@@ -3,8 +3,9 @@
 All data flowing in from third parties (Apify/LinkedIn raw fields,
 DuckDuckGo results, scraped pages, LLM output, user input) is treated
 as untrusted and must pass through these helpers before reaching the
-LLM, the network, or an exported spreadsheet. See tasks/todo.md Phase 6
-for the threat model.
+LLM, the network, or an exported spreadsheet. See
+docs/superpowers/specs/2026-05-13-security-hardening-design.md for the
+threat model.
 """
 
 from __future__ import annotations
