@@ -6,13 +6,8 @@ import { THEMES } from '../../lib/theme'
 import {
   LayoutDashboard,
   Search,
-  Briefcase,
   Radio,
-  Clock,
   Puzzle,
-  Server,
-  Network,
-  BarChart3,
   Settings,
   Users,
   Gauge,
@@ -25,26 +20,26 @@ import { listPluginRequests } from '../../api/pipelines'
 import { LogoMark } from '@/components/brand/LogoMark'
 
 const NAV = [
-  { icon: <LayoutDashboard size={18} />, path: '/dashboard',       label: 'Dashboard' },
-  { icon: <Search size={18} />,          path: '/research',         label: 'Research' },
-  { icon: <Radio size={18} />,           path: '/monitors',         label: 'Monitors' },
+  { icon: <LayoutDashboard size={18} />, path: '/dashboard', label: 'Dashboard' },
+  { icon: <Search size={18} />,          path: '/research',  label: 'Research' },
+  { icon: <Radio size={18} />,           path: '/monitors',  label: 'Monitors' },
   // History is the unified run log (filters + cost column).
   // /history and /jobs both redirect to /runs in App.tsx.
-  { icon: <List size={18} />,            path: '/runs',             label: 'History' },
-  { icon: <Wallet size={18} />,          path: '/wallet',           label: 'Wallet' },
-  { icon: <FolderOpen size={18} />,      path: '/assets',           label: 'Assets' },
-  { icon: <Puzzle size={18} />,          path: '/plugins',          label: 'Plugins' },
-  { icon: <Server size={18} />,          path: '/admin/processes',  label: 'Live Processes' },
-  { icon: <Network size={18} />,         path: '/knowledge',        label: 'Knowledge Graph' },
-  { icon: <BarChart3 size={18} />,       path: '/performance',      label: 'Performance' },
-  { icon: <Settings size={18} />,        path: '/settings',         label: 'Settings' },
+  { icon: <List size={18} />,            path: '/runs',      label: 'History' },
+  { icon: <Wallet size={18} />,          path: '/wallet',    label: 'Wallet' },
+  { icon: <FolderOpen size={18} />,      path: '/assets',    label: 'Assets' },
+  { icon: <Puzzle size={18} />,          path: '/plugins',   label: 'Plugins' },
 ]
 
+// Admin-only — rendered only when isAdmin, after NAV and before Settings.
 const NAV_ADMIN = [
-  { icon: <Users size={18} />, path: '/admin/users', label: 'User Management' },
-  { icon: <Gauge size={18} />, path: '/admin/benchmarks', label: 'Benchmark Reports' },
+  { icon: <Users size={18} />,    path: '/admin/users',      label: 'User Management' },
+  { icon: <Gauge size={18} />,    path: '/admin/benchmarks', label: 'Benchmark Reports' },
   { icon: <Activity size={18} />, path: '/admin/monitoring', label: 'Monitoring' },
 ]
+
+// Settings always sits last in the rail, after any admin items.
+const NAV_SETTINGS = { icon: <Settings size={18} />, path: '/settings', label: 'Settings' }
 
 const RAIL_W = 52
 const BTN_SIZE = 40
@@ -62,7 +57,7 @@ export default function IconRail() {
   })
   const pendingCount = pluginRequests?.filter(r => r.status === 'pending').length ?? 0
 
-  const allNav = isAdmin ? [...NAV, ...NAV_ADMIN] : NAV
+  const allNav = [...NAV, ...(isAdmin ? NAV_ADMIN : []), NAV_SETTINGS]
 
   return (
     <div

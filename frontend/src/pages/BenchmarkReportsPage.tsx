@@ -77,7 +77,8 @@ export default function BenchmarkReportsPage() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <div style={{ flex: 1, padding: '24px 28px', color: 'var(--text)', maxWidth: 1100, overflow: 'auto' }}>
+      <div style={{ flex: 1, minWidth: 0, overflow: 'auto', color: 'var(--text)' }}>
+        <div style={{ padding: '24px 28px', maxWidth: 1100 }}>
         <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
           <h1 style={{ fontSize: 20, fontWeight: 700 }}>Benchmark Reports</h1>
           <button
@@ -214,6 +215,7 @@ export default function BenchmarkReportsPage() {
             </section>
           </>
         )}
+        </div>
       </div>
       <IconRail />
     </div>

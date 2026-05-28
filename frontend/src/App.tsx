@@ -2,6 +2,7 @@ import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import AuthGuard from './components/AuthGuard'
+import AdminGuard from './components/AdminGuard'
 import Login from './pages/Login'
 import AuthCallback from './pages/AuthCallback'
 import { useLayoutStore } from './stores/layoutStore'
@@ -20,8 +21,6 @@ const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 const PluginsPage    = lazy(() => import('./pages/PluginsPage'))
 const NodePluginPage = lazy(() => import('./pages/NodePluginPage'))
 const PipelinePage   = lazy(() => import('./pages/PipelinePage'))
-const LiveProcessesPage = lazy(() => import('./pages/LiveProcessesPage'))
-const KnowledgeGraphPage = lazy(() => import('./pages/KnowledgeGraphPage'))
 const PerformanceDashboardPage = lazy(() => import('./pages/PerformanceDashboardPage'))
 const AdminUsersPage = lazy(() => import('./pages/AdminUsersPage'))
 const BenchmarkReportsPage = lazy(() => import('./pages/BenchmarkReportsPage'))
@@ -64,11 +63,9 @@ export default function App() {
             <Route path="/pipelines/:id" element={<AuthGuard><PipelinePage /></AuthGuard>} />
             <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
             <Route path="/settings/plugins/:name" element={<AuthGuard><Settings /></AuthGuard>} />
-            <Route path="/admin/processes" element={<AuthGuard><LiveProcessesPage /></AuthGuard>} />
-            <Route path="/admin/users" element={<AuthGuard><AdminUsersPage /></AuthGuard>} />
-            <Route path="/admin/benchmarks" element={<AuthGuard><BenchmarkReportsPage /></AuthGuard>} />
-            <Route path="/admin/monitoring" element={<AuthGuard><MonitoringPage /></AuthGuard>} />
-            <Route path="/knowledge" element={<AuthGuard><KnowledgeGraphPage /></AuthGuard>} />
+            <Route path="/admin/users" element={<AdminGuard><AdminUsersPage /></AdminGuard>} />
+            <Route path="/admin/benchmarks" element={<AdminGuard><BenchmarkReportsPage /></AdminGuard>} />
+            <Route path="/admin/monitoring" element={<AdminGuard><MonitoringPage /></AdminGuard>} />
             <Route path="/performance" element={<AuthGuard><PerformanceDashboardPage /></AuthGuard>} />
             {/* Public share route — NO auth guard */}
             <Route path="/share/:token" element={<SharedRunPage />} />
