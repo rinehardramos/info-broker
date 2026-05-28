@@ -108,6 +108,8 @@ services:
       MON_ENFORCEMENT_FAIL_MODE: ${MON_ENFORCEMENT_FAIL_MODE:-open}
       MON_ALERT_WEBHOOK_URL: ${MON_ALERT_WEBHOOK_URL:-}
       MON_ALERT_WEBHOOK_SECRET: ${MON_ALERT_WEBHOOK_SECRET:-}
+      USAGE_RETENTION_DAYS: ${USAGE_RETENTION_DAYS:-90}
+      MON_USAGE_STREAM_MAXLEN: ${MON_USAGE_STREAM_MAXLEN:-100000}
     volumes:
       - ${GEOLITE2_HOST_PATH:-/opt/geolite2}:/opt/geolite2:ro
     depends_on:
@@ -197,6 +199,8 @@ services:
       MON_STREAM_MAXLEN: ${MON_STREAM_MAXLEN:-1000000}
       MON_ALERT_WEBHOOK_URL: ${MON_ALERT_WEBHOOK_URL:-}
       MON_ALERT_WEBHOOK_SECRET: ${MON_ALERT_WEBHOOK_SECRET:-}
+      MON_USAGE_STREAM_MAXLEN: ${MON_USAGE_STREAM_MAXLEN:-100000}
+      MON_USAGE_RETENTION_DAYS: ${USAGE_RETENTION_DAYS:-90}
       # Path B: orchestrated IS-brain loop is now the DEFAULT path. Set
       # IS_USE_LOOP=false to fall back to the legacy single-shot brain only
       # if explicitly needed (cheap one-off queries, debugging, etc.).
