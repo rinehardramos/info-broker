@@ -8,7 +8,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -141,15 +141,54 @@ def refresh(body: RefreshRequest):
 
 
 @router.get("/users", dependencies=[Depends(require_admin)])
-def list_users(current_user: dict = Depends(get_current_user)) -> list[dict]:
-    """List all users. Admin only."""
-    rows = fetch_all(
-        """SELECT id, username, email, is_admin, role, is_active, org_id, created_at
-           FROM ui_users
-           ORDER BY created_at DESC""",
-        (),
-    )
-    return [dict(r) for r in rows]
+def list_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    search: str | None = Query(default=None),
+    current_user: dict = Depends(get_current_user),  # noqa: ARG001
+) -> dict:
+    """List users with pagination + optional search. Admin only.
+
+    Returns: { items, total, page, page_size, total_pages }
+    """
+    offset = (page - 1) * page_size
+
+    if search:
+        pattern = f"%{search}%"
+        total_row = fetch_one(
+            """SELECT COUNT(*) AS cnt FROM ui_users
+               WHERE username ILIKE %s OR email ILIKE %s""",
+            (pattern, pattern),
+        )
+        total = total_row["cnt"] if total_row else 0
+        rows = fetch_all(
+            """SELECT id, username, email, is_admin, role, is_active, org_id, created_at
+               FROM ui_users
+               WHERE username ILIKE %s OR email ILIKE %s
+               ORDER BY created_at DESC, id
+               LIMIT %s OFFSET %s""",
+            (pattern, pattern, page_size, offset),
+        )
+    else:
+        total_row = fetch_one("SELECT COUNT(*) AS cnt FROM ui_users", ())
+        total = total_row["cnt"] if total_row else 0
+        rows = fetch_all(
+            """SELECT id, username, email, is_admin, role, is_active, org_id, created_at
+               FROM ui_users
+               ORDER BY created_at DESC, id
+               LIMIT %s OFFSET %s""",
+            (page_size, offset),
+        )
+
+    import math
+    total_pages = max(1, math.ceil(total / page_size))
+    return {
+        "items": [dict(r) for r in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @router.patch("/users/{user_id}", dependencies=[Depends(require_admin)])

@@ -665,8 +665,23 @@ export interface UserRecord {
   created_at: string
 }
 
-export const listUsers = (): Promise<UserRecord[]> =>
-  api.get('/v3/auth/users').then(r => r.data)
+export interface UserPage {
+  items: UserRecord[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export const listUsers = (
+  page = 1,
+  page_size = 50,
+  search?: string,
+): Promise<UserPage> => {
+  const params: Record<string, string | number> = { page, page_size }
+  if (search) params.search = search
+  return api.get('/v3/auth/users', { params }).then(r => r.data)
+}
 
 export const patchUser = (
   userId: string,
