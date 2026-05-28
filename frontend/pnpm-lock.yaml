@@ -24,8 +24,8 @@ importers:
         specifier: ^5.2.8
         version: 5.2.8
       '@platform/monitoring-ui':
-        specifier: file:./vendor/platform-monitoring-ui-0.2.0.tgz
-        version: file:vendor/platform-monitoring-ui-0.2.0.tgz(@tanstack/react-query@5.100.5(react@18.3.1))(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: file:./vendor/platform-monitoring-ui-0.3.0.tgz
+        version: file:vendor/platform-monitoring-ui-0.3.0.tgz(@tanstack/react-query@5.100.5(react@18.3.1))(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tanstack/react-query':
         specifier: ^5.56.2
         version: 5.100.5(react@18.3.1)
@@ -971,9 +971,9 @@ packages:
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
 
-  '@platform/monitoring-ui@file:vendor/platform-monitoring-ui-0.2.0.tgz':
-    resolution: {integrity: sha512-RQR2VCY8uvH9ZunnP0b3pSIlzG43sm0dqH5yjs6pMPr67wITB+5vGQM4tzH92wmBvF0sXh8rc1oifUhtdIPbPg==, tarball: file:vendor/platform-monitoring-ui-0.2.0.tgz}
-    version: 0.2.0
+  '@platform/monitoring-ui@file:vendor/platform-monitoring-ui-0.3.0.tgz':
+    resolution: {integrity: sha512-eeyP/E7QlpcenF1mrQKu+ypnheDFBkSifdm1J2UG1LwjRF2psMBvdLSkp3SC5zChITM35nit1psleKeOdAB/fQ==, tarball: file:vendor/platform-monitoring-ui-0.3.0.tgz}
+    version: 0.3.0
     peerDependencies:
       '@tanstack/react-query': '>=5'
       react: '>=18'
@@ -4717,7 +4717,7 @@ snapshots:
 
   '@open-draft/until@2.1.0': {}
 
-  '@platform/monitoring-ui@file:vendor/platform-monitoring-ui-0.2.0.tgz(@tanstack/react-query@5.100.5(react@18.3.1))(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@platform/monitoring-ui@file:vendor/platform-monitoring-ui-0.3.0.tgz(@tanstack/react-query@5.100.5(react@18.3.1))(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@tanstack/react-query': 5.100.5(react@18.3.1)
       react: 18.3.1
