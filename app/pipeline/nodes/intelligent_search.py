@@ -632,12 +632,15 @@ async def _call_claude(
     tools: list[dict],
 ) -> dict | None:
     """Call Claude via Anthropic SDK with tool-use."""
+    import time as _time_mod
+
     try:
         import anthropic
 
         client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         loop = asyncio.get_running_loop()
 
+        _t0 = _time_mod.monotonic_ns()
         response = await loop.run_in_executor(
             None,
             lambda: client.messages.create(
@@ -648,6 +651,62 @@ async def _call_claude(
                 tools=tools,
             ),
         )
+        _duration_ms = int((_time_mod.monotonic_ns() - _t0) / 1_000_000)
+
+        # Extract usage tokens
+        _usage: dict[str, int] = {
+            "input_tokens": getattr(response.usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(response.usage, "output_tokens", 0) or 0,
+            "cache_creation_input_tokens": (
+                getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+            ),
+            "cache_read_input_tokens": (
+                getattr(response.usage, "cache_read_input_tokens", 0) or 0
+            ),
+        }
+
+        # Fail-open: emit usage telemetry; never block the main path
+        try:
+            from app.observability import usage_emitter_ref as _ue_mod
+            from app.observability import pricing_ref as _pr_mod
+
+            _emitter = _ue_mod._emitter
+            if _emitter is not None:
+                _resolver = _pr_mod._resolver
+                if _resolver is not None:
+                    _price = await _resolver.get(model)
+                else:
+                    _price = None
+
+                if _price is not None:
+                    _cost_usd, _cost_source, _pricing_id = _price.cost_for(_usage)
+                else:
+                    _cost_usd, _cost_source, _pricing_id = None, "unknown_model", None
+
+                import time as _ts_mod
+                _ts = int(_ts_mod.time() * 1000)
+
+                asyncio.create_task(
+                    _emitter.emit_llm_call(
+                        ts=_ts,
+                        model=model,
+                        provider="anthropic",
+                        status="ok",
+                        input_tokens=_usage["input_tokens"],
+                        output_tokens=_usage["output_tokens"],
+                        cache_creation_tokens=_usage["cache_creation_input_tokens"],
+                        cache_read_tokens=_usage["cache_read_input_tokens"],
+                        duration_ms=_duration_ms,
+                        total_cost_usd=_cost_usd,
+                        cost_source=_cost_source,
+                        pricing_id=_pricing_id,
+                        actor={},
+                    )
+                )
+        except Exception:
+            log.debug(
+                "_call_claude: emit_llm_call failed (swallowed)", exc_info=True
+            )
 
         return {
             "content": [_block_to_dict(b) for b in response.content],
