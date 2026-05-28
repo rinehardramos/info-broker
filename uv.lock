@@ -1324,7 +1324,7 @@ requires-dist = [
     { name = "passlib", extras = ["bcrypt", "argon2"], specifier = ">=1.7.4" },
     { name = "pdfplumber", specifier = ">=0.11.9" },
     { name = "pip-audit", marker = "extra == 'dev'", specifier = ">=2.7.3" },
-    { name = "platform-monitoring", path = "vendor/platform_monitoring-0.3.0-py3-none-any.whl" },
+    { name = "platform-monitoring", path = "vendor/platform_monitoring-0.3.1-py3-none-any.whl" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pyarrow", specifier = ">=22.0.0" },
     { name = "pydantic", specifier = ">=2.9.0" },
@@ -2262,8 +2262,8 @@ wheels = [
 
 [[package]]
 name = "platform-monitoring"
-version = "0.3.0"
-source = { path = "vendor/platform_monitoring-0.3.0-py3-none-any.whl" }
+version = "0.3.1"
+source = { path = "vendor/platform_monitoring-0.3.1-py3-none-any.whl" }
 dependencies = [
     { name = "clickhouse-connect" },
     { name = "fastapi" },
@@ -2274,7 +2274,7 @@ dependencies = [
     { name = "redis" },
 ]
 wheels = [
-    { filename = "platform_monitoring-0.3.0-py3-none-any.whl", hash = "sha256:092914503f6a49411d0ffbcb74a986b35ea735349d89ba307c3d1d6adeda4308" },
+    { filename = "platform_monitoring-0.3.1-py3-none-any.whl", hash = "sha256:16a58e095a04d82221c6c09639c15aacc717c6fe564778cb3497a10f73b2ee4a" },
 ]
 
 [package.metadata]
