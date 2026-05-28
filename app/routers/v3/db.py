@@ -977,6 +977,25 @@ CREATE INDEX IF NOT EXISTS idx_benchmark_reports_created
 """
 
 
+_MIGRATION_LLM_PRICING = """
+CREATE TABLE IF NOT EXISTS llm_pricing (
+    id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_id                  VARCHAR(128) NOT NULL,
+    provider                  VARCHAR(32)  NOT NULL,
+    input_usd_per_1m          NUMERIC(10,4) NOT NULL,
+    output_usd_per_1m         NUMERIC(10,4) NOT NULL,
+    cache_creation_usd_per_1m NUMERIC(10,4),
+    cache_read_usd_per_1m     NUMERIC(10,4),
+    effective_from            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_by                UUID,
+    updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+    notes                     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_llm_pricing_model_eff
+    ON llm_pricing(model_id, effective_from DESC)
+"""
+
+
 def _split_sql_statements(sql: str) -> list[str]:
     """Split SQL on ';' but respect string literals and dollar-quoted blocks.
 
@@ -1084,7 +1103,7 @@ def _split_sql_statements(sql: str) -> list[str]:
 def run_migrations() -> None:
     # Ensure each migration block ends with ';' so concatenation doesn't merge
     # the last statement of one block with the first of the next.
-    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY, _MIGRATION_API_KEY_VAULT, _MIGRATION_BENCHMARK_REPORTS]
+    parts = [_MIGRATION, _SEED, _MIGRATION_WALLET_V2, _MIGRATION_FINDINGS_GRADES, _MIGRATION_SHARE_LINKS, _MIGRATION_SAVED_TEMPLATES, _MIGRATION_WORKING_MEMORY, _MIGRATION_ORG_TENANCY, _MIGRATION_API_KEY_VAULT, _MIGRATION_BENCHMARK_REPORTS, _MIGRATION_LLM_PRICING]
     all_sql = "\n".join(p.rstrip().rstrip(";") + ";\n" for p in parts)
     statements = _split_sql_statements(all_sql)
     with get_conn() as conn:
