@@ -209,6 +209,39 @@ async def run_research(
                     # Capture final result
                     if etype == "result":
                         result_line = line
+                        # Emit LLM usage telemetry (fail-open: never block research)
+                        try:
+                            import time as _time
+                            from app.observability.usage_emitter_ref import _emitter as _ue_brain
+                            if _ue_brain is not None:
+                                _usage = event.get("usage") or {}
+                                _actor = {
+                                    "user_id": user_id,
+                                    "org_id": None,
+                                    "caller_identity": None,
+                                }
+                                _task = asyncio.create_task(_ue_brain.emit_llm_call(
+                                    ts=int(_time.time() * 1000),
+                                    kind="llm_call",
+                                    actor=_actor,
+                                    run_id=None,
+                                    model=event.get("model") or "unknown",
+                                    provider="anthropic",
+                                    status="error" if event.get("is_error") else "ok",
+                                    input_tokens=_usage.get("input_tokens") or 0,
+                                    output_tokens=_usage.get("output_tokens") or 0,
+                                    cache_creation_tokens=_usage.get("cache_creation_input_tokens") or 0,
+                                    cache_read_tokens=_usage.get("cache_read_input_tokens") or 0,
+                                    duration_ms=event.get("duration_ms") or 0,
+                                    num_turns=event.get("num_turns"),
+                                    total_cost_usd=event.get("total_cost_usd"),
+                                    cost_source="subscription",
+                                    pricing_id=None,
+                                ))
+                                # Prevent GC of the task before it completes
+                                _task.add_done_callback(lambda _t: None)
+                        except Exception:
+                            log.debug("IS brain: emit_llm_call failed (swallowed)", exc_info=True)
             except asyncio.LimitOverrunError as exc:
                 log.warning("IS brain stdout line exceeded buffer limit (%s) — skipping line", exc)
 

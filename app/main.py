@@ -81,7 +81,6 @@ async def lifespan(app: FastAPI):
     if _MONITORING_ENABLED:
         try:
             from platform_monitoring.adapters.redis_hot_store import RedisHotStore
-            from platform_monitoring.adapters.clickhouse_sink import ClickHouseSink
             from platform_monitoring.ports.hot_store import register_hot_store
             from platform_monitoring.ports.event_sink import register_event_sink
             from platform_monitoring.settings import MonitoringSettings
@@ -92,15 +91,56 @@ async def lifespan(app: FastAPI):
             register_hot_store(_hot)
             _monitoring_aclose.append(_hot)
 
-            _sink = ClickHouseSink(
+            from platform_monitoring.adapters.clickhouse_usage_sink import ClickHouseUsageSink
+            _sink = ClickHouseUsageSink(
                 _mon_settings.clickhouse_url,
                 database=_mon_settings.clickhouse_database,
                 raw_retention_days=_mon_settings.raw_retention_days,
+                usage_retention_days=int(os.getenv("MON_USAGE_RETENTION_DAYS", "90")),
             )
-            await _sink.bootstrap_schema()
+            await _sink.bootstrap_schema()           # requests table
+            await _sink.bootstrap_usage_schema()      # tool_calls/step_runs/llm_calls + rollups
             register_event_sink(_sink)
             _monitoring_aclose.append(_sink)
-            _log.info("platform-monitoring adapters registered")
+
+            # UsageEmitter — reuses the existing Redis connection from RedisHotStore.
+            from platform_monitoring.usage.emitter import UsageEmitter
+            _emitter = UsageEmitter(_hot._r)
+            import app.observability.usage_emitter_ref as _emitter_ref
+            _emitter_ref._emitter = _emitter
+
+            # PricingResolver — in-process cache for llm_pricing Postgres rows.
+            try:
+                from app.observability.pricing import PricingResolver
+                import app.observability.pricing_ref as _pricing_ref
+                _pr_dsn = os.getenv("DATABASE_URL", "")
+                if _pr_dsn:
+                    _resolver = PricingResolver(_pr_dsn)
+                    _pricing_ref._resolver = _resolver
+                    _log.info("PricingResolver registered (lazy-loads on first get())")
+                else:
+                    _log.warning("PricingResolver not initialised: DATABASE_URL not set")
+            except Exception as _pr_exc:
+                _log.warning("PricingResolver not initialised: %s", _pr_exc)
+
+            # Usage router — admin-gated read API on /v3/monitoring/usage/*.
+            # Mounted here (lifespan) because the sink instance is only available
+            # after the ClickHouseUsageSink is constructed above.
+            try:
+                from platform_monitoring.usage.router import create_usage_router as _create_usage_router
+                from fastapi import Depends as _Depends_usage
+                from app.routers.v3.auth import require_admin as _require_admin_usage
+                app.include_router(
+                    _create_usage_router(
+                        admin_dependency=_Depends_usage(_require_admin_usage),
+                        sink=_sink,
+                    )
+                )
+                _log.info("usage router mounted at /v3/monitoring/usage")
+            except Exception as _usage_router_exc:
+                _log.warning("usage router not mounted: %s", _usage_router_exc)
+
+            _log.info("platform-monitoring adapters registered (with usage emitter)")
         except Exception as _mon_exc:
             _log.warning(
                 "platform-monitoring startup failed (monitoring disabled this session): %s", _mon_exc
@@ -537,6 +577,7 @@ from app.routers.v3.nodes_api import router as v3_nodes_router  # noqa: E402
 from app.routers.v3.research_api import router as v3_research_router  # noqa: E402
 from app.routers.v3.knowledge_api import router as v3_knowledge_router  # noqa: E402
 from app.routers.v3.admin_api import router as v3_admin_router  # noqa: E402
+from app.routers.v3.pricing_admin import router as v3_pricing_admin_router  # noqa: E402
 from app.routers.v3.exports import router as v3_exports_router  # noqa: E402
 from app.routers.v3.curation_api import router as v3_curation_router  # noqa: E402
 from app.routers.v3.brain_questions import router as v3_brain_questions_router  # noqa: E402
@@ -575,6 +616,7 @@ app.include_router(v3_nodes_router)
 app.include_router(v3_research_router)
 app.include_router(v3_knowledge_router)
 app.include_router(v3_admin_router)
+app.include_router(v3_pricing_admin_router)
 
 if _MONITORING_ENABLED:
     try:

@@ -9,6 +9,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.deps import require_api_key
+from app.observability import usage_emitter_ref as _emitter_ref
 from app.observability.tracker import tracker
 from app.pipeline.nodes import NodeRegistry
 from app.pipeline.nodes.base import RunContext
@@ -219,6 +220,27 @@ async def execute_node(
         except Exception:
             log.debug("observability log_call_complete (failed) failed", exc_info=True)
 
+        # --- usage telemetry: emit ToolCallEvent on failure (fail-open) ---
+        try:
+            _emitter = _emitter_ref._emitter
+            if _emitter is not None:
+                await _emitter.emit_tool_call(
+                    ts=int(time.time() * 1000),
+                    actor={
+                        "user_id": caller_user_id,
+                        "org_id": caller_org_id,
+                        "caller_identity": caller_identity,
+                    },
+                    tool_name=node_type,
+                    node_type=node_type,
+                    status="error",
+                    duration_ms=duration_ms,
+                    error_kind=type(exc).__name__,
+                    run_id=caller_run_id,
+                )
+        except Exception:
+            log.debug("usage telemetry emit_tool_call (failure) failed", exc_info=True)
+
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     duration_ms = (time.monotonic_ns() - t0) // 1_000_000
@@ -245,6 +267,27 @@ async def execute_node(
         )
     except Exception:
         log.debug("observability log_call_complete (succeeded) failed", exc_info=True)
+
+    # --- usage telemetry: emit ToolCallEvent on success (fail-open) ---
+    try:
+        _emitter = _emitter_ref._emitter
+        if _emitter is not None:
+            await _emitter.emit_tool_call(
+                ts=int(time.time() * 1000),
+                actor={
+                    "user_id": caller_user_id,
+                    "org_id": caller_org_id,
+                    "caller_identity": caller_identity,
+                },
+                tool_name=node_type,
+                node_type=node_type,
+                status="ok",
+                duration_ms=duration_ms,
+                result_count=len(result),
+                run_id=caller_run_id,
+            )
+    except Exception:
+        log.debug("usage telemetry emit_tool_call (success) failed", exc_info=True)
 
     return {"status": "success", "items": result, "count": len(result)}
 
