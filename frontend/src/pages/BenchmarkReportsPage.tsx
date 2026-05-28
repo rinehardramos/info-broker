@@ -78,8 +78,8 @@ export default function BenchmarkReportsPage() {
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <div style={{ flex: 1, minWidth: 0, overflow: 'auto', color: 'var(--text)' }}>
-        <div style={{ padding: '24px 28px', maxWidth: 1100 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+        <div className="px-4 py-5 sm:px-7 sm:py-6" style={{ maxWidth: 1100 }}>
+        <div className="flex flex-wrap items-center justify-between gap-2" style={{ marginBottom: 16 }}>
           <h1 style={{ fontSize: 20, fontWeight: 700 }}>Benchmark Reports</h1>
           <button
             data-testid="bench-run"
@@ -90,6 +90,7 @@ export default function BenchmarkReportsPage() {
               background: active ? 'var(--panel2)' : 'var(--accent)',
               color: active ? 'var(--muted)' : '#fff',
               cursor: active || runMut.isPending ? 'not-allowed' : 'pointer',
+              whiteSpace: 'nowrap',
             }}
           >
             {active ? 'Run in progress…' : runMut.isPending ? 'Starting…' : 'Run benchmark'}
@@ -118,7 +119,7 @@ export default function BenchmarkReportsPage() {
                 data-testid="bench-report-select"
                 value={selectedId ?? ''}
                 onChange={e => setSelectedId(e.target.value)}
-                style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                style={{ fontSize: 12, padding: '4px 8px', borderRadius: 4, background: 'var(--panel)', color: 'var(--text)', border: '1px solid var(--border)', maxWidth: '100%' }}
               >
                 {reportsQ.data.map(r => (
                   <option key={r.id} value={r.id}>
@@ -145,7 +146,8 @@ export default function BenchmarkReportsPage() {
             </div>
 
             {/* Per-item table */}
-            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', marginBottom: 24 }}>
+            <div style={{ overflowX: 'auto', marginBottom: 24 }}>
+            <table style={{ width: '100%', minWidth: 540, fontSize: 12, borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ color: 'var(--muted)', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                   <th style={{ padding: '6px 8px' }}>Item</th>
@@ -176,6 +178,7 @@ export default function BenchmarkReportsPage() {
                 })}
               </tbody>
             </table>
+            </div>
 
             {/* Recommendations */}
             {recs.length > 0 && (
