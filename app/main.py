@@ -577,6 +577,7 @@ from app.routers.v3.nodes_api import router as v3_nodes_router  # noqa: E402
 from app.routers.v3.research_api import router as v3_research_router  # noqa: E402
 from app.routers.v3.knowledge_api import router as v3_knowledge_router  # noqa: E402
 from app.routers.v3.admin_api import router as v3_admin_router  # noqa: E402
+from app.routers.v3.pricing_admin import router as v3_pricing_admin_router  # noqa: E402
 from app.routers.v3.exports import router as v3_exports_router  # noqa: E402
 from app.routers.v3.curation_api import router as v3_curation_router  # noqa: E402
 from app.routers.v3.brain_questions import router as v3_brain_questions_router  # noqa: E402
@@ -615,6 +616,7 @@ app.include_router(v3_nodes_router)
 app.include_router(v3_research_router)
 app.include_router(v3_knowledge_router)
 app.include_router(v3_admin_router)
+app.include_router(v3_pricing_admin_router)
 
 if _MONITORING_ENABLED:
     try:
