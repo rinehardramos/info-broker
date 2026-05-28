@@ -2274,7 +2274,7 @@ dependencies = [
     { name = "redis" },
 ]
 wheels = [
-    { filename = "platform_monitoring-0.3.0-py3-none-any.whl", hash = "sha256:b14c14200e83ff416dca33ad71d85f231854a0a3514c913badf230613180bf9f" },
+    { filename = "platform_monitoring-0.3.0-py3-none-any.whl", hash = "sha256:092914503f6a49411d0ffbcb74a986b35ea735349d89ba307c3d1d6adeda4308" },
 ]
 
 [package.metadata]
