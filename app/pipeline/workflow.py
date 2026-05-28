@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as _step_time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -60,6 +61,8 @@ async def execute_node(inp: ActivityInput) -> list[dict]:
     from app.routers.v3.db import execute as db_execute
     from app.pipeline.nodes.base import RunContext
 
+    _step_t0 = _step_time.monotonic_ns()
+
     NodeRegistry.auto_discover()
 
     # Mark step as running
@@ -107,6 +110,24 @@ async def execute_node(inp: ActivityInput) -> list[dict]:
         )
 
         try:
+            import time as _t
+            from app.observability.usage_emitter_ref import _emitter as _ue_step
+            if _ue_step is not None:
+                asyncio.create_task(_ue_step.emit_step_run(
+                    ts=int(_t.time() * 1000),
+                    actor={"user_id": inp.user_id},
+                    run_id=inp.run_id,
+                    node_id=inp.node.node_id,
+                    node_type=inp.node.node_type,
+                    status="succeeded",
+                    item_count=item_count,
+                    duration_ms=(_step_time.monotonic_ns() - _step_t0) // 1_000_000,
+                    error_kind=None,
+                ))
+        except Exception:
+            pass
+
+        try:
             from app.routers.v3.stream import push_event
             asyncio.create_task(push_event(inp.user_id, {
                 "type": "pipeline.step.update",
@@ -127,6 +148,25 @@ async def execute_node(inp: ActivityInput) -> list[dict]:
             "UPDATE pipeline_step_runs SET status = 'failed', error_message = %s, finished_at = now() WHERE run_id = %s AND node_id = %s",
             (error_msg, inp.run_id, inp.node.node_id),
         )
+
+        try:
+            import time as _t
+            from app.observability.usage_emitter_ref import _emitter as _ue_step
+            if _ue_step is not None:
+                asyncio.create_task(_ue_step.emit_step_run(
+                    ts=int(_t.time() * 1000),
+                    actor={"user_id": inp.user_id},
+                    run_id=inp.run_id,
+                    node_id=inp.node.node_id,
+                    node_type=inp.node.node_type,
+                    status="failed",
+                    item_count=0,
+                    duration_ms=(_step_time.monotonic_ns() - _step_t0) // 1_000_000,
+                    error_kind=type(exc).__name__,
+                ))
+        except Exception:
+            pass
+
         try:
             from app.routers.v3.stream import push_event
             asyncio.create_task(push_event(inp.user_id, {
