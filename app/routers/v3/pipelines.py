@@ -398,9 +398,12 @@ def get_run_gate_detail(
 def get_run(run_id: str, user: dict = Depends(get_current_user)):
     from app.routers.v3.models import ResearchTrailOut
 
+    # Org+owner scope (consistent with exports): org-mates/admins can view a run's
+    # details, and the owner still sees their own NULL-org runs.
+    _rclause, _rparams = run_visibility_clause(user)
     run = fetch_one(
-        "SELECT * FROM pipeline_runs WHERE id = %s AND user_id = %s",
-        (run_id, str(user["id"])),
+        f"SELECT * FROM pipeline_runs WHERE id = %s {_rclause}",  # noqa: S608 - constant org-scope fragment; values parameterized
+        tuple([run_id, *_rparams]),
     )
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")

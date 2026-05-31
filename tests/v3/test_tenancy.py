@@ -273,3 +273,31 @@ class TestGetRunTrailForAgent:
         trail_sqls = [c.args[0] for c in m_one.call_args_list if "research_trails" in c.args[0]]
         assert trail_sqls, "get_run did not query research_trails for a trigger_type='agent' run"
         assert "IS NULL" in trail_sqls[0]  # owner-fallback scope used
+
+    def test_main_run_fetch_uses_org_visibility(self):
+        """get_run's run lookup must be org+owner scoped (not strictly owner),
+        so org-mates/admins can view a run's details — consistent with exports."""
+        from fastapi.testclient import TestClient
+        from app.main import app
+        from app.routers.v3.auth import get_current_user
+
+        run_row = {"id": "run-1", "trigger_type": "agent", "user_id": "u1"}
+
+        def _fetch_one_side(sql, params):
+            if "pipeline_runs" in sql and "research_trails" not in sql:
+                return run_row
+            return None
+
+        with patch("app.routers.v3.pipelines.fetch_one", side_effect=_fetch_one_side) as m_one, \
+             patch("app.routers.v3.pipelines.fetch_all", return_value=[]):
+            app.dependency_overrides[get_current_user] = lambda: _FAKE_USER
+            try:
+                TestClient(app, raise_server_exceptions=False).get("/v3/pipelines/runs/run-1")
+            finally:
+                app.dependency_overrides.pop(get_current_user, None)
+
+        run_sqls = [c.args[0] for c in m_one.call_args_list
+                    if "pipeline_runs" in c.args[0] and "research_trails" not in c.args[0]]
+        assert run_sqls, "get_run did not issue a run lookup"
+        assert "IS NULL" in run_sqls[0], "run lookup must use the org+owner visibility clause"
+        assert "org-A" in m_one.call_args_list[0].args[1]
