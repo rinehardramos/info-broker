@@ -315,7 +315,7 @@ async def lifespan(app: FastAPI):
         from app.routers.v3.db import execute as _exec, fetch_all as _fetch_all2
         killed = _fetch_all2(
             """SELECT id FROM pipeline_runs
-               WHERE status = 'running' AND trigger_type = 'agent_is'""",
+               WHERE status = 'running' AND trigger_type IN ('agent', 'agent_is')""",
             (),
         )
         if killed:
@@ -324,7 +324,7 @@ async def lifespan(app: FastAPI):
                    SET status = 'failed',
                        finished_at = now(),
                        error_message = 'Server restarted — subprocess was killed'
-                   WHERE status = 'running' AND trigger_type = 'agent_is'""",
+                   WHERE status = 'running' AND trigger_type IN ('agent', 'agent_is')""",
                 (),
             )
             _log.info("Marked %d orphaned running IS brain runs as failed on startup", len(killed))
@@ -373,7 +373,7 @@ async def lifespan(app: FastAPI):
                            finished_at = now(),
                            error_message = 'Run exceeded maximum duration — killed by sweep'
                        WHERE status = 'running'
-                         AND trigger_type = 'agent_is'
+                         AND trigger_type IN ('agent', 'agent_is')
                          AND started_at < NOW() - INTERVAL '20 minutes'""",
                     (),
                 )

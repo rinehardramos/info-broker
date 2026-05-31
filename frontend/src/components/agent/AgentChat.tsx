@@ -278,9 +278,14 @@ export default function AgentChat() {
   // Replay support: ?replay=<run_id> seeds runStreamStore from research_trails
   // so past runs render their cards / candidate comparison / ACH matrix / source
   // class badges without needing a fresh execution.
+  // When a replay is requested we must NOT let the session-rehydrate effect (below)
+  // override col1Content with the active session's last run — the user explicitly
+  // asked to view this run. This ref, set synchronously, signals that.
+  const replayActiveRef = useRef(false)
   useEffect(() => {
     const replayRunId = searchParams.get('replay')
     if (!replayRunId) return
+    replayActiveRef.current = true
     void import('@/hooks/useReplay').then(mod => {
       void mod.replayRunIntoStore(replayRunId).then((ok) => {
         if (ok) {
@@ -332,8 +337,10 @@ export default function AgentChat() {
         // Also restore the Results panel to this session's last run so the
         // DAG/cards re-render on cold app open — ResultsPanel auto-seeds
         // runStreamStore from /v3/runs/{id}/replay when col1Content changes.
+        // Skip the run-restore when a ?replay= is in flight — otherwise we'd
+        // clobber the explicitly-requested run with this session's last run.
         const lastRunId = [...thread].reverse().find(e => e.run_id)?.run_id
-        if (lastRunId) {
+        if (lastRunId && !replayActiveRef.current) {
           const s = useSessionStore.getState()
           s.setActiveJobId(lastRunId)
           s.setCol1Content({ type: 'pipeline_run', runId: lastRunId })
