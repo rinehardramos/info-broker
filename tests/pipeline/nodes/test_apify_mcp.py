@@ -62,11 +62,7 @@ def test_execute_missing_actor_id():
         raise RuntimeError("Apify API key not found")
 
     with patch("app.pipeline.nodes.apify_actor._resolve_api_key", side_effect=_raise):
-        try:
-            results = _arun(node.execute({}, [], CTX))
-        except RuntimeError:
-            # If _resolve_api_key raises before the actor_id check, that is fine
-            return
+        results = _arun(node.execute({}, [], CTX))
 
     assert len(results) == 1
     assert "error" in results[0]
@@ -168,22 +164,26 @@ def test_execute_raw_items_preserves_existing_source():
 # ---------------------------------------------------------------------------
 
 def test_execute_without_api_key():
+    """A missing Apify key must degrade to an error dict, never raise.
+
+    Raising propagates out of execute() to the node route handler, which turns
+    it into an HTTP 500 and can abort the pipeline run. The node must instead
+    return a graceful error entry so parallel (free) branches keep running.
+    """
     node = ApifyMcpNode()
 
     def _raise():
-        raise RuntimeError("Apify API key not found")
+        raise RuntimeError(
+            "Apify API key not found. Set APIFY_API_TOKEN in .env or configure it in Settings."
+        )
 
-    raised = False
-    try:
-        with patch("app.pipeline.nodes.apify_actor._resolve_api_key", side_effect=_raise):
-            results = _arun(node.execute({"actor_id": "owner~actor"}, [], CTX))
-        assert len(results) == 1
-        assert "error" in results[0]
-    except RuntimeError as exc:
-        raised = True
-        assert "Apify API key" in str(exc)
+    with patch("app.pipeline.nodes.apify_actor._resolve_api_key", side_effect=_raise):
+        results = _arun(node.execute({"actor_id": "owner~actor"}, [], CTX))
 
-    assert raised or True
+    assert len(results) == 1
+    assert "error" in results[0]
+    assert results[0].get("source") == "apify"
+    assert "key" in results[0]["error"].lower()
 
 
 # ---------------------------------------------------------------------------

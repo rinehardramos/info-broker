@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user
-from app.routers.v3.tenancy import org_scope_clause
+from app.routers.v3.tenancy import run_visibility_clause
 from app.routers.v3.db import fetch_one
 
 router = APIRouter(prefix="/v3/exports", tags=["v3-exports"])
@@ -66,14 +66,15 @@ def trigger_export(
             detail=f"Unsupported format: {fmt!r}. Use pdf, csv, xlsx, json, or docx.",
         )
 
-    # Fetch research trail + run metadata by run_id
-    _clause, _cparams = org_scope_clause(user)
+    # Fetch research trail + run metadata by run_id. Use the owner-fallback scope so
+    # the caller's own NULL-org runs (agent-trigger runs) export instead of 404ing.
+    _clause, _cparams = run_visibility_clause(user, run_col="pr.org_id", user_col="pr.user_id")
     row = fetch_one(
         f"SELECT rt.query, rt.findings, rt.analysis, rt.trail, rt.entity_type, rt.tool_calls, "  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
         f"pr.status, pr.started_at, pr.finished_at "
         f"FROM research_trails rt "
         f"JOIN pipeline_runs pr ON pr.id = rt.run_id "
-        f"WHERE rt.run_id = %s {_clause.replace('AND org_id', 'AND pr.org_id')}",
+        f"WHERE rt.run_id = %s {_clause}",
         tuple([run_id, *_cparams]),
     )
     if not row:

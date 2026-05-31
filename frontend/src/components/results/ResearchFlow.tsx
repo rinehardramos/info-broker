@@ -9,8 +9,10 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useWebSocket, WsEvent } from '../../hooks/useWebSocket'
 import { useChatStore } from '../../stores/chatStore'
+import { getPipelineRun } from '../../api/pipelines'
 import { formatToolResult } from '../../lib/toolResultFormatter'
 
 // ---------------------------------------------------------------------------
@@ -432,6 +434,38 @@ export function ResearchFlow({ runId: filterRunId, compact = false, extraEdges }
     const all = [...flows.values()].filter(f => sessionSet.size === 0 || sessionSet.has(f.runId))
     return all.find(f => f.status === 'running') ?? all[all.length - 1]
   }, [flows, filterRunId, sessionRunIds])
+
+  // Reconcile terminal status from the authoritative run record. The `job.completed`
+  // WS event can be missed (tab closed during the run, socket reconnect, replayed past
+  // runs), which leaves the flow stuck on 'running' and pins the progress bar at the
+  // callCount/maxCalls ratio (e.g. ~70%) forever. Poll the run while it looks running
+  // and flip to the real terminal status so the bar reaches 100%.
+  const runningRunId = activeFlow?.status === 'running' ? activeFlow.runId : undefined
+  const { data: runRecord } = useQuery({
+    queryKey: ['pipeline-run', runningRunId],
+    queryFn: () => getPipelineRun(runningRunId!),
+    enabled: !!runningRunId,
+    refetchInterval: runningRunId ? 4000 : false,
+  })
+  useEffect(() => {
+    const s = runRecord?.status
+    if (!runningRunId || !s) return
+    const terminal: Record<string, FlowState['status']> = {
+      succeeded: 'succeeded', completed: 'succeeded',
+      failed: 'failed', terminated: 'failed', cancelled: 'failed',
+    }
+    const mapped = terminal[s]
+    if (!mapped) return
+    setFlows(prev => {
+      const flow = prev.get(runningRunId)
+      if (!flow || flow.status !== 'running') return prev
+      const next = new Map(prev)
+      next.set(runningRunId, { ...flow, status: mapped })
+      return next
+    })
+    // setFlows closes over a stable setter; intentionally excluded from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runRecord?.status, runningRunId])
 
   if (!activeFlow || activeFlow.nodes.length === 0) {
     return (

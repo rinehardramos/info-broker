@@ -722,10 +722,11 @@ async def preflight_confirm(body: PreflightConfirmIn, user: dict = Depends(get_c
             # INSERT lands, and the user sees a "Run not found" page.
             try:
                 _db_execute(
-                    """INSERT INTO pipeline_runs (id, pipeline_id, user_id, status, trigger_type, query)
-                       VALUES (%s, '00000000-0000-4000-8000-000000000001', %s, 'running', 'agent', %s)
+                    """INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, status, trigger_type, query)
+                       VALUES (%s, '00000000-0000-4000-8000-000000000001', %s,
+                               (SELECT org_id FROM ui_users WHERE id = %s), 'running', 'agent', %s)
                        ON CONFLICT (id) DO NOTHING""",
-                    (run_id, uid, body.query),
+                    (run_id, uid, uid, body.query),
                 )
             except Exception as exc:
                 log.warning("preflight: pipeline_runs pre-insert failed (non-fatal): %s", exc)

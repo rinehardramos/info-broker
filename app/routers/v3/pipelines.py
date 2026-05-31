@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from app.routers.v3.auth import get_current_user, require_admin
 from app.routers.v3.db import execute, fetch_all, fetch_one
-from app.routers.v3.tenancy import user_org_id, org_scope_clause
+from app.routers.v3.tenancy import user_org_id, run_visibility_clause
 from app.routers.v3.models import (
     NodeTypeOut,
     PipelineDetailOut,
@@ -410,14 +410,16 @@ def get_run(run_id: str, user: dict = Depends(get_current_user)):
     )
 
     research = None
-    if run["trigger_type"] == "agent_is":
-        _clause, _cparams = org_scope_clause(user)
+    # Both 'agent' and 'agent_is' runs carry a research trail. Use the owner-fallback
+    # scope so the caller's own NULL-org runs still resolve their trail.
+    if run["trigger_type"] in ("agent", "agent_is"):
+        _clause, _cparams = run_visibility_clause(user, run_col="pr.org_id", user_col="pr.user_id")
         _trail_sql = (
             "SELECT rt.query, rt.entity_type, rt.findings, rt.trail, "  # noqa: S608 - clause is a constant org-scope fragment; values parameterized
             "rt.tool_calls, rt.suggested_pipeline, rt.analysis "
             "FROM research_trails rt "
             "JOIN pipeline_runs pr ON pr.id = rt.run_id "
-            f"WHERE rt.run_id = %s {_clause.replace('AND org_id', 'AND pr.org_id')}"
+            f"WHERE rt.run_id = %s {_clause}"
         )
         trail_row = fetch_one(_trail_sql, tuple([run_id, *_cparams]))
         if trail_row:

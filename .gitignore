@@ -63,3 +63,9 @@ docs/demos/
 **/.wrangler/
 **/wrangler.local.toml
 **/.dev.vars
+
+# Agent worktrees (transient)
+.claude/worktrees/
+
+# pnpm store (transient)
+frontend/.pnpm-store/

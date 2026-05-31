@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, KeyboardEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useChatHistory, SessionPicker, NewSessionButton, type ChatAdapter } from '@platform/chat-ui'
 import MessageBubble from './MessageBubble'
 import { sendMessage, getBrainStatus, archiveSession, listSessions, getSession, storeApiKey } from '../../api/v3'
 import type { AgentMessageOut, AgentSession } from '../../api/v3'
@@ -359,6 +360,70 @@ export default function AgentChat() {
     void rehydrate()
     return () => { cancelled = true }
   }, [accessToken]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Chat history via @platform/chat-ui -------------------------------------
+  // Load a session's thread into the chat store. Always re-hydrates (no
+  // "skip if messages exist" guard), so switching sessions reliably reloads
+  // history — the behavior the chat-ui package encodes.
+  const loadSessionIntoChat = useCallback(async (id: string) => {
+    const target = await getSession(id).catch(() => null)
+    if (!target) return
+    const thread = (target.conversation_thread ?? []) as Array<{
+      role: string; content: string; ts?: string; timestamp?: string; run_id?: string | null
+    }>
+    const lastRunId = [...thread].reverse().find(e => e.run_id)?.run_id
+    if (lastRunId) {
+      const s = useSessionStore.getState()
+      s.setActiveJobId(lastRunId)
+      s.setCol1Content({ type: 'pipeline_run', runId: lastRunId })
+    }
+    setChatMessages(thread.map((m, i): Message => ({
+      id: `restored-${i}-${m.ts ?? m.timestamp ?? i}`,
+      role: m.role === 'user' ? 'user' : 'agent',
+      content: m.content ?? '',
+      status: 'done',
+      type: 'message',
+    })))
+    setSessionId(target.id)
+    if (target.genesis_query) setGenesisQuery(target.genesis_query)
+  }, [setChatMessages, setSessionId, setGenesisQuery])
+
+  // Adapter: maps infobroker's session API to the package's backend-agnostic shape.
+  const chatAdapter = useMemo<ChatAdapter>(() => ({
+    listSessions: async () =>
+      (await listSessions().catch(() => [])).map(s => ({
+        id: s.id,
+        title: s.genesis_query ?? undefined,
+        status: s.status ?? undefined,
+      })),
+    getSession: async (id) => {
+      const t = await getSession(id)
+      const thread = (t.conversation_thread ?? []) as Array<{ role: string; content: string }>
+      return {
+        id,
+        title: t.genesis_query ?? undefined,
+        status: t.status ?? undefined,
+        messages: thread.map((m, i) => ({
+          id: `s-${i}`,
+          role: m.role === 'user' ? ('user' as const) : ('agent' as const),
+          type: 'message' as const,
+          content: m.content ?? '',
+        })),
+      }
+    },
+  }), [])
+  const chatHistory = useChatHistory(chatAdapter, { autoload: false })
+  // Keep the session picker populated; refresh when auth changes.
+  useEffect(() => {
+    if (accessToken) void chatHistory.refreshSessions()
+  }, [accessToken]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleNewSession = useCallback(() => {
+    if (sessionId) { void handleEndSession() }
+    else { clearMessages(); setPirGoal(''); setShowPir(false) }
+    chatHistory.startNewSession()
+    void chatHistory.refreshSessions()
+  }, [sessionId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // run_ids that have a brain.question in flight — skip "Researching…" for these
   const pendingQuestionsRef = useRef<Set<string>>(new Set())
@@ -761,22 +826,23 @@ export default function AgentChat() {
           )}
         </span>
 
-        {/* Right: clear/end + IS switch */}
+        {/* Right: session history picker + new session + IS switch */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {(messages.length > 0 || sessionId) && (
-            <button
-              onClick={sessionId ? handleEndSession : () => { clearMessages(); setPirGoal(''); setShowPir(false) }}
-              title="Start a new investigation session (archives the current one)"
-              style={{
-                padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 600,
-                letterSpacing: '0.04em', cursor: 'pointer', transition: 'all 0.15s',
-                border: `1px solid ${sessionId ? '#a78bfa60' : 'var(--border)'}`,
-                background: sessionId ? '#a78bfa15' : 'transparent',
-                color: sessionId ? '#a78bfa' : 'var(--muted)',
-                display: 'flex', alignItems: 'center', gap: 4,
-              }}
-            ><span style={{ fontSize: 11, lineHeight: 1 }}>+</span>New Session</button>
+          {/* Past-session picker (chat-ui) — reach + reload prior conversations */}
+          {chatHistory.sessions.length > 0 && (
+            <SessionPicker
+              sessions={chatHistory.sessions}
+              activeSessionId={sessionId}
+              onSelect={loadSessionIntoChat}
+              className="max-w-[150px] truncate rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[9px] text-muted-foreground hover:text-foreground"
+            />
           )}
+          {/* Always-visible New Session entry point (chat-ui) — was hidden on empty pane */}
+          <NewSessionButton
+            onClick={handleNewSession}
+            label="+ New Session"
+            className="flex items-center gap-1 rounded-[10px] border border-border px-2 py-0.5 text-[9px] font-semibold tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+          />
 
           {/* IS toggle — proper switch */}
           <div

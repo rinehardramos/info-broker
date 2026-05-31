@@ -550,3 +550,27 @@ class TestRegistration:
             assert isinstance(schema["properties"], dict), (
                 f"{nt}: properties must be a dict"
             )
+
+
+# ---------------------------------------------------------------------------
+# apify_actor (base ApifyActorNode) — graceful missing-key degradation
+# ---------------------------------------------------------------------------
+
+class TestApifyActorNode:
+    def test_execute_no_api_key_returns_error(self):
+        """A missing Apify key must degrade to an error dict, never raise.
+
+        Raising propagates out of execute() to the node route handler, which
+        turns it into an HTTP 500 and can abort the pipeline run.
+        """
+        from app.pipeline.nodes.apify_actor import ApifyActorNode
+        node = ApifyActorNode()
+        with patch(
+            "app.pipeline.nodes.apify_actor._resolve_api_key",
+            side_effect=raise_runtime("Apify API key not found"),
+        ):
+            result = arun(node.execute({"searchUrl": "https://x"}, [], make_context()))
+        assert len(result) == 1
+        assert "error" in result[0]
+        assert result[0].get("source") == "apify"
+        assert "key" in result[0]["error"].lower()

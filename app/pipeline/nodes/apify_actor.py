@@ -67,7 +67,10 @@ class ApifyActorNode:
     }
 
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
-        api_key = _resolve_api_key()
+        try:
+            api_key = _resolve_api_key()
+        except RuntimeError as exc:
+            return [{"error": str(exc), "source": "apify"}]
         actor_id = config.get("actor_id", "harvestapi~linkedin-profile-search")
         actor_input = {
             "searchUrl": config.get("searchUrl", ""),

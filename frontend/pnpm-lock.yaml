@@ -23,6 +23,9 @@ importers:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
         version: 5.2.8
+      '@platform/chat-ui':
+        specifier: file:./vendor/platform-chat-ui-0.1.0.tgz
+        version: file:vendor/platform-chat-ui-0.1.0.tgz(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@platform/monitoring-ui':
         specifier: file:./vendor/platform-monitoring-ui-0.3.1.tgz
         version: file:vendor/platform-monitoring-ui-0.3.1.tgz(@tanstack/react-query@5.100.5(react@18.3.1))(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -970,6 +973,13 @@ packages:
 
   '@open-draft/until@2.1.0':
     resolution: {integrity: sha512-U69T3ItWHvLwGg5eJ0n3I62nWuE6ilHlmz7zM0npLBRvPRd7e6NYmg54vvRtP5mZG7kZqZCFVdsTWo7BPtBujg==}
+
+  '@platform/chat-ui@file:vendor/platform-chat-ui-0.1.0.tgz':
+    resolution: {integrity: sha512-/5b0WzimNazZOqoI0PYerG0lYT07p/HKZz0F3PRtDtwGRrq+Wf+P+g/AvTHa1fbjQXCo+BgNEBA7YvVCApbydw==, tarball: file:vendor/platform-chat-ui-0.1.0.tgz}
+    version: 0.1.0
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
 
   '@platform/monitoring-ui@file:vendor/platform-monitoring-ui-0.3.1.tgz':
     resolution: {integrity: sha512-4rX0pwUnM7WKEzNk9f5AdIiS2LHn7hlCjTy8J24ncxxUxkMbM26yCWs+r/eWjiUh3Opd6nk59mZYGL/o65xB8Q==, tarball: file:vendor/platform-monitoring-ui-0.3.1.tgz}
@@ -4716,6 +4726,11 @@ snapshots:
       outvariant: 1.4.3
 
   '@open-draft/until@2.1.0': {}
+
+  '@platform/chat-ui@file:vendor/platform-chat-ui-0.1.0.tgz(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
 
   '@platform/monitoring-ui@file:vendor/platform-monitoring-ui-0.3.1.tgz(@tanstack/react-query@5.100.5(react@18.3.1))(prop-types@15.8.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:

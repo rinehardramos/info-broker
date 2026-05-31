@@ -148,11 +148,14 @@ async def run_engine_v2(
     # belong to a user-authored pipeline.
     try:
         from app.routers.v3.db import execute
+        # Stamp org_id from the owner so org-scoped reads (exports, get_run) find
+        # the run; engine_v2 only has user_id in scope, so resolve org via subquery.
         execute(
-            """INSERT INTO pipeline_runs (id, pipeline_id, user_id, status, trigger_type, query)
-               VALUES (%s, '00000000-0000-4000-8000-000000000001', %s, 'running', 'agent', %s)
+            """INSERT INTO pipeline_runs (id, pipeline_id, user_id, org_id, status, trigger_type, query)
+               VALUES (%s, '00000000-0000-4000-8000-000000000001', %s,
+                       (SELECT org_id FROM ui_users WHERE id = %s), 'running', 'agent', %s)
                ON CONFLICT (id) DO NOTHING""",
-            (run_id, user_id, query),
+            (run_id, user_id, user_id, query),
         )
     except Exception as exc:
         log.warning("engine_v2: pipeline_runs insert failed (non-fatal): %s", exc)

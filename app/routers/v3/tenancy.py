@@ -94,3 +94,25 @@ def org_scope_clause(user: dict) -> tuple[str, list]:
     if user.get("is_admin"):
         return ("", [])
     return ("AND org_id = %s", [user_org_id(user)])
+
+
+def run_visibility_clause(
+    user: dict, *, run_col: str = "org_id", user_col: str = "user_id"
+) -> tuple[str, list]:
+    """Org scope for run-owned resources, with an owner fallback for NULL-org rows.
+
+    Plain ``org_scope_clause`` filters on ``org_id = <user_org>`` only, which 404s a
+    caller's OWN runs whenever the run was created with a NULL ``org_id`` (e.g. the
+    agent-trigger runs created before org stamping). This widens the match to
+    ``org_id = <user_org> OR (org_id IS NULL AND user_id = <me>)`` so owners keep
+    access to their own data without weakening cross-org isolation. Admins see all.
+
+    ``run_col`` / ``user_col`` let callers qualify the columns for a joined query
+    (e.g. ``pr.org_id`` / ``pr.user_id``).
+    """
+    if user.get("is_admin"):
+        return ("", [])
+    return (
+        f"AND ({run_col} = %s OR ({run_col} IS NULL AND {user_col} = %s))",
+        [user_org_id(user), str(user.get("id") or "")],
+    )

@@ -50,7 +50,10 @@ class ApifyMcpNode:
     async def execute(self, config: dict, inputs: list[dict], context: RunContext) -> list[dict]:
         from app.pipeline.nodes.apify_actor import _resolve_api_key
 
-        api_key = _resolve_api_key()
+        try:
+            api_key = _resolve_api_key()
+        except RuntimeError as exc:
+            return [{"error": str(exc), "source": "apify"}]
         actor_id = config.get("actor_id", "").strip()
         if not actor_id:
             return [{"error": "actor_id is required", "source": "apify"}]
